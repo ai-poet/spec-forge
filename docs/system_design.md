@@ -24,6 +24,7 @@ SpecForge 是一个本地 spec-first agent pipeline。它使用 LangGraph 负责
 
 - FastAPI 提供 HTTP API 和 WebSocket 快照。
 - SQLite 保存 iterations、documents、events、runs。
+- projects 表提供项目级管理；每个 iteration 归属一个 project。
 - LangGraph `StateGraph` 保存真实流程状态。
 - SQLite checkpointer 使用 `thread_id = iteration_id` 支持审批后 resume。
 
@@ -46,7 +47,8 @@ START
 
 前端是一个本地操作控制台：
 
-- 左侧创建和选择 iteration
+- 左侧创建和选择 project
+- 项目下创建和选择 iteration
 - 中间显示 pipeline 状态
 - 文档面板展示 Planner/Tester 产物
 - Timeline 展示事件流

@@ -1,12 +1,22 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .cli_runner import DryRunRunner, RealCLIRunner
 from .config import settings
 from .db import Database
-from .models import ApproveRequest, CreateIterationRequest, IterationDetail, IterationSummary, RetryRequest
+from .models import (
+    ApproveRequest,
+    CreateIterationRequest,
+    CreateProjectRequest,
+    IterationDetail,
+    IterationSummary,
+    ProjectSummary,
+    RetryRequest,
+)
 from .pipeline import LangGraphPipeline
 
 
@@ -44,13 +54,58 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/iterations", response_model=list[IterationSummary])
-def list_iterations() -> list[IterationSummary]:
+@app.get("/api/projects", response_model=list[ProjectSummary])
+def list_projects() -> list[ProjectSummary]:
+    iterations = db.list_iterations()
+    counts: dict[str, dict[str, int]] = {}
+    for iteration in iterations:
+        project_id = iteration["project_id"] or ""
+        bucket = counts.setdefault(project_id, {"total": 0, "active": 0, "delivered": 0})
+        bucket["total"] += 1
+        if iteration["status"] == "delivered":
+            bucket["delivered"] += 1
+        elif iteration["status"] not in {"blocked", "failed", "stopped"}:
+            bucket["active"] += 1
     items = []
-    for row in db.list_iterations():
+    for row in db.list_projects():
+        bucket = counts.get(row["id"], {"total": 0, "active": 0, "delivered": 0})
+        items.append(
+            ProjectSummary(
+                id=row["id"],
+                name=row["name"],
+                description=row["description"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+                iteration_count=bucket["total"],
+                active_count=bucket["active"],
+                delivered_count=bucket["delivered"],
+            )
+        )
+    return items
+
+
+@app.post("/api/projects", response_model=ProjectSummary)
+def create_project(payload: CreateProjectRequest) -> ProjectSummary:
+    project_id = db.create_project(name=payload.name, description=payload.description)
+    row = db.get_project_row(project_id)
+    assert row is not None
+    return ProjectSummary(
+        id=row["id"],
+        name=row["name"],
+        description=row["description"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+@app.get("/api/iterations", response_model=list[IterationSummary])
+def list_iterations(project_id: Optional[str] = Query(default=None)) -> list[IterationSummary]:
+    items = []
+    for row in db.list_iterations(project_id=project_id):
         items.append(
             IterationSummary(
                 id=row["id"],
+                project_id=row["project_id"],
                 project_name=row["project_name"],
                 goal=row["goal"],
                 mode=row["mode"],
@@ -65,8 +120,17 @@ def list_iterations() -> list[IterationSummary]:
 
 @app.post("/api/iterations", response_model=IterationSummary)
 def create_iteration(payload: CreateIterationRequest) -> IterationSummary:
+    project_name = payload.project_name
+    if payload.project_id:
+        project = db.get_project_row(payload.project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="project not found")
+        project_name = project["name"]
+    if not project_name:
+        raise HTTPException(status_code=422, detail="project_name or project_id is required")
     iteration_id = db.create_iteration(
-        project_name=payload.project_name,
+        project_name=project_name,
+        project_id=payload.project_id,
         goal=payload.goal,
         mode=payload.mode.value,
         test_command=payload.test_command,
@@ -76,6 +140,7 @@ def create_iteration(payload: CreateIterationRequest) -> IterationSummary:
     assert row is not None
     return IterationSummary(
         id=row["id"],
+        project_id=row["project_id"],
         project_name=row["project_name"],
         goal=row["goal"],
         mode=row["mode"],
@@ -94,6 +159,7 @@ def get_iteration(iteration_id: str) -> IterationDetail:
     snapshot = pipeline.dashboard_snapshot(iteration_id)
     return IterationDetail(
         id=snapshot["id"],
+        project_id=snapshot["project_id"],
         project_name=snapshot["project_name"],
         goal=snapshot["goal"],
         mode=snapshot["mode"],

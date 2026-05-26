@@ -32,14 +32,32 @@ class NodeName(str, Enum):
 
 
 class CreateIterationRequest(BaseModel):
-    project_name: str = Field(min_length=1)
+    project_name: str = Field(default="", min_length=0)
+    project_id: Optional[str] = None
     goal: str = Field(min_length=1)
     mode: Mode = Mode.dry_run
     test_command: Optional[str] = None
 
 
+class CreateProjectRequest(BaseModel):
+    name: str = Field(min_length=1)
+    description: Optional[str] = None
+
+
+class ProjectSummary(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    iteration_count: int = 0
+    active_count: int = 0
+    delivered_count: int = 0
+
+
 class IterationSummary(BaseModel):
     id: str
+    project_id: Optional[str] = None
     project_name: str
     goal: str
     mode: Mode

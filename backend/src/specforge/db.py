@@ -42,12 +42,21 @@ class Database:
                 """
                 CREATE TABLE IF NOT EXISTS iterations (
                     id TEXT PRIMARY KEY,
+                    project_id TEXT,
                     project_name TEXT NOT NULL,
                     goal TEXT NOT NULL,
                     mode TEXT NOT NULL,
                     status TEXT NOT NULL,
                     current_node TEXT,
                     test_command TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS projects (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -84,17 +93,63 @@ class Database:
                 );
                 """
             )
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(iterations)").fetchall()
+            }
+            if "project_id" not in columns:
+                conn.execute("ALTER TABLE iterations ADD COLUMN project_id TEXT")
 
-    def create_iteration(self, *, project_name: str, goal: str, mode: str, test_command: Optional[str]) -> str:
+    def create_project(self, *, name: str, description: Optional[str] = None) -> str:
+        now = iso(utcnow())
+        project_id = f"proj_{uuid4().hex[:8]}"
+        with self.connect() as conn:
+            existing = conn.execute("SELECT id FROM projects WHERE name = ?", (name,)).fetchone()
+            if existing is not None:
+                return existing["id"]
+            conn.execute(
+                """
+                INSERT INTO projects (id, name, description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (project_id, name, description, now, now),
+            )
+        return project_id
+
+    def list_projects(self) -> list[sqlite3.Row]:
+        with self.connect() as conn:
+            rows = conn.execute("SELECT * FROM projects ORDER BY updated_at DESC, created_at DESC").fetchall()
+        return list(rows)
+
+    def get_project_row(self, project_id: str) -> Optional[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+
+    def create_iteration(
+        self,
+        *,
+        project_name: str,
+        goal: str,
+        mode: str,
+        test_command: Optional[str],
+        project_id: Optional[str] = None,
+    ) -> str:
         iteration_id = f"iter_{uuid4().hex[:8]}"
         now = iso(utcnow())
+        resolved_project_id = project_id or self.create_project(name=project_name)
+        project_row = self.get_project_row(resolved_project_id)
+        resolved_project_name = project_row["name"] if project_row is not None else project_name
         with self.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO iterations (id, project_name, goal, mode, status, current_node, test_command, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO iterations (id, project_id, project_name, goal, mode, status, current_node, test_command, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (iteration_id, project_name, goal, mode, "created", None, test_command, now, now),
+                (iteration_id, resolved_project_id, resolved_project_name, goal, mode, "created", None, test_command, now, now),
+            )
+            conn.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (now, resolved_project_id),
             )
         return iteration_id
 
@@ -128,9 +183,15 @@ class Database:
         with self.connect() as conn:
             return conn.execute("SELECT * FROM iterations WHERE id = ?", (iteration_id,)).fetchone()
 
-    def list_iterations(self) -> list[sqlite3.Row]:
+    def list_iterations(self, project_id: Optional[str] = None) -> list[sqlite3.Row]:
         with self.connect() as conn:
-            rows = conn.execute("SELECT * FROM iterations ORDER BY created_at DESC").fetchall()
+            if project_id:
+                rows = conn.execute(
+                    "SELECT * FROM iterations WHERE project_id = ? ORDER BY created_at DESC",
+                    (project_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM iterations ORDER BY created_at DESC").fetchall()
         return list(rows)
 
     def add_document(self, iteration_id: str, *, name: str, path: str, checksum: str) -> None:

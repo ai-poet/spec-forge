@@ -1,4 +1,4 @@
-import type { IterationDetail, IterationSummary } from './types'
+import type { IterationDetail, IterationSummary, ProjectSummary } from './types'
 
 const API_BASE = 'http://127.0.0.1:8787'
 
@@ -17,8 +17,24 @@ export function listIterations(): Promise<IterationSummary[]> {
   return request('/api/iterations')
 }
 
+export function listIterationsForProject(projectId: string): Promise<IterationSummary[]> {
+  return request(`/api/iterations?project_id=${encodeURIComponent(projectId)}`)
+}
+
+export function listProjects(): Promise<ProjectSummary[]> {
+  return request('/api/projects')
+}
+
+export function createProject(input: { name: string; description?: string | null }): Promise<ProjectSummary> {
+  return request('/api/projects', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
 export function createIteration(input: {
-  project_name: string
+  project_name?: string
+  project_id?: string
   goal: string
   mode: 'dry-run' | 'real-cli'
   test_command?: string | null
@@ -53,4 +69,3 @@ export function stopIteration(id: string, note?: string): Promise<IterationSumma
     body: JSON.stringify({ note }),
   })
 }
-

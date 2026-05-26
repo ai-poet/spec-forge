@@ -14,6 +14,7 @@ export type NodeName = 'planner' | 'coder' | 'tester'
 
 export interface IterationSummary {
   id: string
+  project_id: string | null
   project_name: string
   goal: string
   mode: 'dry-run' | 'real-cli'
@@ -21,6 +22,17 @@ export interface IterationSummary {
   current_node: NodeName | null
   created_at: string
   updated_at: string
+}
+
+export interface ProjectSummary {
+  id: string
+  name: string
+  description: string | null
+  created_at: string
+  updated_at: string
+  iteration_count: number
+  active_count: number
+  delivered_count: number
 }
 
 export interface DocumentRecord {

@@ -9,7 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from typing_extensions import TypedDict
 
-from .cli_runner import BaseRunner
+from .cli_runner import BaseRunner, DryRunRunner, RealCLIRunner
 from .config import settings
 from .db import Database, iso, utcnow
 from .docs_io import IterationDocs, checksum
@@ -35,6 +35,8 @@ class LangGraphPipeline:
     def __init__(self, db: Database, runner: BaseRunner) -> None:
         self.db = db
         self.runner = runner
+        self.dry_runner = DryRunRunner()
+        self.real_runner = RealCLIRunner()
         settings.langgraph_db_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpointer_context = SqliteSaver.from_conn_string(str(settings.langgraph_db_path))
         self._checkpointer = self._checkpointer_context.__enter__()
@@ -80,6 +82,7 @@ class LangGraphPipeline:
         graph_state = self.graph.get_state(self._config(iteration_id))
         return {
             "id": row["id"],
+            "project_id": row["project_id"],
             "project_name": row["project_name"],
             "goal": row["goal"],
             "mode": row["mode"],
@@ -149,7 +152,7 @@ class LangGraphPipeline:
         self.project_root(iteration_id).mkdir(parents=True, exist_ok=True)
         self.db.update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.planner.value)
         self.db.add_event(iteration_id, event_type="iteration.started", payload={"status": "planning"})
-        run_result = self.runner.run(self._planner_command(iteration_id, goal), cwd=self.project_root(iteration_id))
+        run_result = self._execute(state, self._planner_command(iteration_id, goal, state.get("mode", Mode.dry_run.value)))
         run_id = self._record_run(iteration_id, NodeName.planner.value, run_result)
         if run_result.returncode:
             return self._block(iteration_id, "planner.failed", run_id, run_result.stderr)
@@ -192,7 +195,7 @@ class LangGraphPipeline:
     def _coder_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
         self.db.update_iteration(iteration_id, status=IterationStatus.coding.value, current_node=NodeName.coder.value)
-        run_result = self.runner.run(self._coder_command(iteration_id), cwd=self.project_root(iteration_id))
+        run_result = self._execute(state, self._coder_command(iteration_id, state.get("mode", Mode.dry_run.value)))
         run_id = self._record_run(iteration_id, NodeName.coder.value, run_result)
         if run_result.returncode:
             return self._block(iteration_id, "coder.failed", run_id, run_result.stderr)
@@ -214,7 +217,7 @@ class LangGraphPipeline:
     def _tester_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
         self.db.update_iteration(iteration_id, status=IterationStatus.testing.value, current_node=NodeName.tester.value)
-        run_result = self.runner.run(self._tester_command(iteration_id), cwd=self.project_root(iteration_id))
+        run_result = self._execute(state, self._tester_command(iteration_id, state.get("mode", Mode.dry_run.value)))
         run_id = self._record_run(iteration_id, NodeName.tester.value, run_result)
         if run_result.returncode:
             return self._block(iteration_id, "tester.failed", run_id, run_result.stderr)
@@ -288,8 +291,15 @@ class LangGraphPipeline:
         self.db.add_event(iteration_id, event_type=event_type, payload={"run_id": run_id, "stderr": stderr})
         return {"status": IterationStatus.blocked.value, "current_node": None, "blocked_reason": stderr}
 
-    def _planner_command(self, iteration_id: str, goal: str) -> list[str]:
-        if settings.mode == Mode.real_cli.value:
+    def _execute(self, state: PipelineState, command: list[str]):
+        runner = self.real_runner if self._is_real_cli(state.get("mode")) else self.dry_runner
+        return runner.run(command, cwd=self.project_root(state["iteration_id"]))
+
+    def _is_real_cli(self, mode: Optional[str]) -> bool:
+        return mode == Mode.real_cli.value or settings.mode == Mode.real_cli.value
+
+    def _planner_command(self, iteration_id: str, goal: str, mode: Optional[str]) -> list[str]:
+        if self._is_real_cli(mode):
             prompt = (
                 "You are Planner for SpecForge. Produce concise JSON with keys "
                 f"system_design, modification_plan, testing_plan, tests. Goal: {goal}"
@@ -297,14 +307,14 @@ class LangGraphPipeline:
             return ["claude", "-p", "--output-format", "json", "--permission-mode", "bypassPermissions", prompt]
         return ["specforge", "planner", iteration_id]
 
-    def _coder_command(self, iteration_id: str) -> list[str]:
-        if settings.mode == Mode.real_cli.value:
+    def _coder_command(self, iteration_id: str, mode: Optional[str]) -> list[str]:
+        if self._is_real_cli(mode):
             prompt = "You are Coder for SpecForge. Edit only workspace sources and return a concise JSON status."
             return ["claude", "-p", "--output-format", "json", "--permission-mode", "bypassPermissions", prompt]
         return ["specforge", "coder", iteration_id]
 
-    def _tester_command(self, iteration_id: str) -> list[str]:
-        if settings.mode == Mode.real_cli.value:
+    def _tester_command(self, iteration_id: str, mode: Optional[str]) -> list[str]:
+        if self._is_real_cli(mode):
             prompt = "You are Tester for SpecForge. Run verification and summarize pass/fail plus integrity issues."
             return [
                 "codex",

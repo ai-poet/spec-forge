@@ -12,6 +12,24 @@ def test_health():
     assert resp.json()["status"] == "ok"
 
 
+def test_create_project_and_filter_iterations():
+    project = client.post("/api/projects", json={"name": "project-a", "description": "demo"})
+    assert project.status_code == 200
+    project_id = project.json()["id"]
+
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "goal": "ship a dashboard", "mode": "dry-run"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["project_id"] == project_id
+
+    filtered = client.get(f"/api/iterations?project_id={project_id}")
+    assert filtered.status_code == 200
+    assert len(filtered.json()) == 1
+    assert filtered.json()[0]["project_id"] == project_id
+
+
 def test_create_iteration_runs_dry_flow():
     resp = client.post(
         "/api/iterations",

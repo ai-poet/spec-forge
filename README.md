@@ -13,6 +13,7 @@ SpecForge 是一个本地优先、文档驱动、测试优先的 agent 工程流
 - 后端：FastAPI + SQLite
 - 编排：LangGraph `StateGraph` + SQLite checkpointer
 - 前端：React + Vite 控制台
+- 项目管理：侧边栏添加项目，每个项目有独立流水线列表
 - 模式：`dry-run` 可本地稳定演示，`real-cli` 预留并接入 `claude -p` 与 `codex exec`
 - 人类检查点：设计审批和验证审批通过 LangGraph interrupt/resume 推进
 
@@ -90,6 +91,15 @@ spec-forge/
 ├── docs/             # 系统设计和开发计划
 ├── scripts/dev.sh    # 本地启动脚本
 └── .specforge/       # 本地运行数据，不进入 Git
+```
+
+前端源码按职责拆分：
+
+```text
+frontend/src/
+├── pages/       # 页面级组合
+├── components/  # 可复用 UI 面板
+└── hooks/       # 数据加载和实时订阅
 ```
 
 ## 当前限制

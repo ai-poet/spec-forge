@@ -4,6 +4,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN="${SPECFORGE_PYTHON:-python}"
 
+if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)'; then
+  echo "SpecForge requires Python 3.12+. Activate a 3.12 environment or set SPECFORGE_PYTHON." >&2
+  exit 1
+fi
+
+if [[ -d "$ROOT_DIR/backend/.venv" ]] && ! "$ROOT_DIR/backend/.venv/bin/python" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' 2>/dev/null; then
+  rm -rf "$ROOT_DIR/backend/.venv"
+fi
+
 if [[ ! -d "$ROOT_DIR/backend/.venv" ]]; then
   "$PYTHON_BIN" -m venv "$ROOT_DIR/backend/.venv"
 fi

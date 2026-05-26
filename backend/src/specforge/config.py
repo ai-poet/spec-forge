@@ -5,12 +5,15 @@ from pathlib import Path
 import os
 
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "SpecForge"
     host: str = "127.0.0.1"
     port: int = 8787
-    data_dir: Path = Path(os.getenv("SPECFORGE_DATA_DIR", Path.cwd() / ".specforge"))
+    data_dir: Path = Path(os.getenv("SPECFORGE_DATA_DIR", REPO_ROOT / ".specforge"))
     mode: str = os.getenv("SPECFORGE_MODE", "dry-run")
     backend_cors_origin: str = os.getenv("SPECFORGE_CORS_ORIGIN", "http://127.0.0.1:5178")
 
