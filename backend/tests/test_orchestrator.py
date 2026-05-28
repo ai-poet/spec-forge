@@ -500,6 +500,42 @@ def test_delete_iteration_cancels_active_cli(tmp_path):
     assert client.get(f"/api/iterations/{iteration_id}").status_code == 404
 
 
+def test_stop_iteration_records_stopped_at_node():
+    resp = client.post(
+        "/api/iterations",
+        json={"project_name": "stop-node", "goal": "record stop step", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    pipeline.db.update_iteration(iteration_id, current_node="planner", status="planning")
+    pipeline.stop_iteration(iteration_id, "stopped for test")
+    row = pipeline.db.get_iteration_row(iteration_id)
+    assert row["status"] == "stopped"
+    assert row["stopped_at_node"] == "planner"
+
+
+def test_resume_stopped_iteration(tmp_path):
+    project = post_project(tmp_path, "resume-stopped")
+    project_id = project.json()["id"]
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "goal": "resume after stop", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    pipeline.db.update_iteration(
+        iteration_id,
+        status="stopped",
+        current_node=None,
+        stopped_at_node="planner",
+        last_error="user stopped",
+    )
+    resume = client.post(f"/api/iterations/{iteration_id}/resume", json={"note": "continue"})
+    assert resume.status_code == 200
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] != "stopped"
+    assert any(event["type"] == "iteration.resumed" for event in detail["events"])
+
+
 def test_ui_spec_schema_validates():
     spec = UITestSpec.model_validate(
         {

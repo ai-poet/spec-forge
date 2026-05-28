@@ -18,6 +18,7 @@ interface Props {
   onLoadDocument: (name: string) => Promise<void>
   onApproveVerify: () => Promise<void>
   onStop: () => Promise<void>
+  onResume: () => Promise<void>
 }
 
 export function StageFocusPanel({
@@ -28,6 +29,7 @@ export function StageFocusPanel({
   onLoadDocument,
   onApproveVerify,
   onStop,
+  onResume,
 }: Props) {
   const [showAllDetails, setShowAllDetails] = useState(false)
   const focusStep = reviewStepKey ?? (detail ? inferFocusStep(detail) : null)
@@ -103,6 +105,7 @@ export function StageFocusPanel({
           busy={busy}
           onApproveVerify={onApproveVerify}
           onStop={onStop}
+          onResume={onResume}
         />
       </div>
 

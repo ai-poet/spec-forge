@@ -130,6 +130,8 @@ class Database:
                 conn.execute("ALTER TABLE iterations ADD COLUMN test_integrity_baseline TEXT NOT NULL DEFAULT '{}'")
             if "last_error" not in iteration_columns:
                 conn.execute("ALTER TABLE iterations ADD COLUMN last_error TEXT")
+            if "stopped_at_node" not in iteration_columns:
+                conn.execute("ALTER TABLE iterations ADD COLUMN stopped_at_node TEXT")
 
             project_columns = {
                 row["name"]
@@ -413,6 +415,7 @@ class Database:
         retry_counts: Optional[dict[str, int]] = None,
         test_integrity_baseline: Optional[dict[str, Any]] = None,
         last_error: Any = _UNSET,
+        stopped_at_node: Any = _UNSET,
     ) -> None:
         fields = []
         values: list[Any] = []
@@ -434,6 +437,9 @@ class Database:
         if last_error is not _UNSET:
             fields.append("last_error = ?")
             values.append(last_error)
+        if stopped_at_node is not _UNSET:
+            fields.append("stopped_at_node = ?")
+            values.append(stopped_at_node)
         fields.append("updated_at = ?")
         values.append(iso(utcnow()))
         values.append(iteration_id)

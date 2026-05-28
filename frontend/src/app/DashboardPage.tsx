@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { approveVerify, createIteration, listIterationsForProject, stopIteration } from '../shared/lib/api'
+import { approveVerify, createIteration, listIterationsForProject, resumeIteration, stopIteration } from '../shared/lib/api'
 import { parseEpicDraft } from '../features/epics/lib/parseEpicDraft'
 import { ProjectConfigPanel } from '../features/projects/components/ProjectConfigPanel'
 import { CreateProjectModal } from '../features/projects/components/CreateProjectModal'
@@ -142,6 +142,20 @@ export function DashboardPage() {
     setBusy(true)
     try {
       await stopIteration(selectedIterationId, '用户停止')
+      await live.loadDetail()
+      await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId)
+      await epics.refreshEpics(epics.selectedEpicId ?? undefined)
+      await projects.refreshProjects()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleResume() {
+    if (!selectedIterationId) return
+    setBusy(true)
+    try {
+      await resumeIteration(selectedIterationId, '用户恢复')
       await live.loadDetail()
       await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId)
       await epics.refreshEpics(epics.selectedEpicId ?? undefined)
@@ -294,6 +308,7 @@ export function DashboardPage() {
                   onLoadDocument={live.loadDocument}
                   onApproveVerify={handleApproveVerify}
                   onStop={handleStop}
+                  onResume={handleResume}
                 />
               </WorkspaceShell>
             </div>

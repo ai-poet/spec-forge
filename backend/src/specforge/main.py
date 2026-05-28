@@ -320,6 +320,7 @@ def get_iteration(iteration_id: str) -> IterationDetail:
         mode=snapshot["mode"],
         status=snapshot["status"],
         current_node=snapshot["current_node"],
+        stopped_at_node=snapshot.get("stopped_at_node"),
         retry_counts=snapshot["retry_counts"],
         last_error=snapshot["last_error"],
         created_at=snapshot["created_at"],
@@ -379,6 +380,16 @@ def retry_iteration(iteration_id: str, payload: RetryRequest) -> IterationSummar
 @app.post("/api/iterations/{iteration_id}/stop", response_model=IterationSummary)
 def stop_iteration(iteration_id: str, payload: RetryRequest) -> IterationSummary:
     pipeline.stop_iteration(iteration_id, reason=payload.note or "stopped")
+    refresh_iteration_epic(iteration_id)
+    return get_iteration(iteration_id)
+
+
+@app.post("/api/iterations/{iteration_id}/resume", response_model=IterationSummary)
+def resume_iteration(iteration_id: str, payload: RetryRequest) -> IterationSummary:
+    if not pipeline.can_resume_stopped(iteration_id):
+        raise HTTPException(status_code=409, detail="iteration is not resumable")
+    db.add_event(iteration_id, event_type="resume.queued", payload={"kind": "stopped"})
+    job_queue.enqueue_resume_stopped(iteration_id, payload.note)
     refresh_iteration_epic(iteration_id)
     return get_iteration(iteration_id)
 
@@ -504,6 +515,7 @@ def iteration_summary(row) -> IterationSummary:
         mode=row["mode"],
         status=row["status"],
         current_node=row["current_node"],
+        stopped_at_node=row["stopped_at_node"] if "stopped_at_node" in row.keys() else None,
         retry_counts=json_loads(row["retry_counts"]),
         last_error=row["last_error"],
         created_at=row["created_at"],

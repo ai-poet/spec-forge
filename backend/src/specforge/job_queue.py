@@ -8,7 +8,7 @@ from typing import Literal, Optional
 
 @dataclass(frozen=True)
 class PipelineJob:
-    kind: Literal["start", "resume"]
+    kind: Literal["start", "resume", "resume_stopped"]
     iteration_id: str
     checkpoint: Optional[str] = None
     note: Optional[str] = None
@@ -33,6 +33,9 @@ class PipelineJobQueue:
     def enqueue_resume(self, iteration_id: str, checkpoint: str, note: Optional[str]) -> None:
         self._queue.put(PipelineJob(kind="resume", iteration_id=iteration_id, checkpoint=checkpoint, note=note))
 
+    def enqueue_resume_stopped(self, iteration_id: str, note: Optional[str] = None) -> None:
+        self._queue.put(PipelineJob(kind="resume_stopped", iteration_id=iteration_id, note=note))
+
     def join(self) -> None:
         self._queue.join()
 
@@ -45,6 +48,8 @@ class PipelineJobQueue:
                 elif job.kind == "resume":
                     assert job.checkpoint is not None
                     self.pipeline.resume(job.iteration_id, job.checkpoint, job.note or "approved")
+                elif job.kind == "resume_stopped":
+                    self.pipeline.resume_stopped(job.iteration_id, job.note)
             except Exception as exc:  # pragma: no cover - defensive guard for the worker
                 self.pipeline.fail_job(job.iteration_id, str(exc))
             finally:

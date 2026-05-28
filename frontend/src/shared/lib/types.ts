@@ -25,6 +25,7 @@ export interface IterationSummary {
   mode: Mode
   status: IterationStatus
   current_node: NodeName | null
+  stopped_at_node: string | null
   retry_counts: Record<string, number>
   last_error: string | null
   created_at: string

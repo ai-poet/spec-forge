@@ -149,6 +149,7 @@ class IterationSummary(BaseModel):
     mode: Mode
     status: IterationStatus
     current_node: Optional[NodeName] = None
+    stopped_at_node: Optional[str] = None
     retry_counts: dict[str, int] = Field(default_factory=dict)
     last_error: Optional[str] = None
     created_at: datetime

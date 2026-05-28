@@ -84,6 +84,7 @@ export function eventLabel(value: string) {
     'verify.approved': '验证结果已确认',
     'iteration.delivered': '流水线已交付',
     'iteration.stopped': '流水线已停止',
+    'iteration.resumed': '流水线已恢复',
     'resume.queued': '继续执行已排队',
     'artifact.invalid': '产物格式无效',
     'test_integrity.failed': '测试完整性失败',

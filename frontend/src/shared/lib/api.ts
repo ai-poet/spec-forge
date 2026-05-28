@@ -179,3 +179,10 @@ export function stopIteration(id: string, note?: string): Promise<IterationSumma
     body: JSON.stringify({ note }),
   })
 }
+
+export function resumeIteration(id: string, note?: string): Promise<IterationSummary> {
+  return request(`/api/iterations/${id}/resume`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
+  })
+}

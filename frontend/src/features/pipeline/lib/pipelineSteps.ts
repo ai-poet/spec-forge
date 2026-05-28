@@ -74,7 +74,15 @@ function inferActiveStepIndex(detail: IterationDetail): number {
 
 export function inferFocusStep(detail: IterationDetail): PipelineStepKey {
   const status = detail.status
-  const node = detail.current_node
+  const node = detail.current_node ?? detail.stopped_at_node
+  if (status === 'stopped' && detail.stopped_at_node) {
+    if (detail.stopped_at_node === 'integrity_check') return 'integrity_check'
+    if (detail.stopped_at_node === 'planner_verify') return 'planner_verify'
+    if (detail.stopped_at_node === 'verify_approval') return 'verify_approval'
+    if (detail.stopped_at_node === 'tester') return 'tester'
+    if (detail.stopped_at_node === 'coder' || detail.stopped_at_node === 'coder_retry') return 'coder'
+    if (detail.stopped_at_node === 'planner' || detail.stopped_at_node === 'planner_clarification') return 'planner'
+  }
   if (['queued', 'planning', 'created'].includes(status)) return 'planner'
   if (['coding', 'retrying', 'awaiting_design_approval'].includes(status)) return 'coder'
   if (status === 'testing') {
