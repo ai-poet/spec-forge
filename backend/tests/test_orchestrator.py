@@ -103,6 +103,22 @@ def test_create_iteration_runs_dry_flow():
     assert detail.json()["status"] == "awaiting_design_approval"
 
 
+def test_dry_run_emits_semantic_events():
+    resp = client.post(
+        "/api/iterations",
+        json={"project_name": "semantic", "goal": "show readable agent activity", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    semantic = [event for event in detail["events"] if event["type"] in {"node.started", "node.completed", "artifact.created"}]
+
+    assert any(event["payload"]["node"] == "planner" and event["type"] == "node.started" for event in semantic)
+    assert any(event["type"] == "artifact.created" and event["payload"]["document"] == "system_design" for event in semantic)
+    assert all({"node", "title", "message", "severity"}.issubset(event["payload"]) for event in semantic)
+
+
 def test_iteration_detail_includes_documents():
     resp = client.post(
         "/api/iterations",
@@ -265,6 +281,35 @@ def test_checksum_gate_blocks_modified_protected_tests():
     detail = client.get(f"/api/iterations/{iteration_id}")
     assert detail.json()["status"] == "blocked"
     assert "modified protected test" in detail.json()["last_error"]
+    payload = detail.json()
+    classified = [event for event in payload["events"] if event["type"] == "error.classified"]
+    assert classified
+    assert "受保护测试" in classified[-1]["payload"]["action_hint"]
+
+
+def test_artifact_invalid_emits_classified_error():
+    original_planner = pipeline._planner_artifact
+
+    def bad_planner_artifact(state, run_result):
+        raise ValueError("planner returned invalid JSON")
+
+    pipeline._planner_artifact = bad_planner_artifact  # type: ignore[method-assign]
+    try:
+        resp = client.post(
+            "/api/iterations",
+            json={"project_name": "invalid-artifact", "goal": "bad planner output", "mode": "dry-run"},
+        )
+        iteration_id = resp.json()["id"]
+        drain_jobs()
+        detail = client.get(f"/api/iterations/{iteration_id}").json()
+    finally:
+        pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
+
+    assert detail["status"] == "blocked"
+    assert any(event["type"] == "artifact.invalid" for event in detail["events"])
+    classified = [event for event in detail["events"] if event["type"] == "error.classified"]
+    assert classified[-1]["payload"]["title"] == "Agent 产物格式无效"
+    assert "JSON artifact" in classified[-1]["payload"]["action_hint"]
 
 
 def test_tester_failure_retries_until_blocked():

@@ -22,7 +22,7 @@ export function useIterationLive(iterationId: string | null) {
       if (!iterationId) return
       setDocName(name)
       const response = await fetch(`${API_BASE}/api/iterations/${iterationId}/documents/${name}`)
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      if (!response.ok) throw new Error('文档读取失败，请刷新后重试。')
       const json = await response.json()
       setDocText(json.content)
     },
@@ -76,6 +76,7 @@ export function useIterationLive(iterationId: string | null) {
           const doc = snapshot.documents.find((item) => item.name === docNameRef.current) ?? snapshot.documents[0]
           if (doc) {
             const response = await fetch(`${API_BASE}/api/iterations/${iterationId}/documents/${doc.name}`)
+            if (!response.ok) throw new Error('文档读取失败，请刷新后重试。')
             const json = await response.json()
             setDocText(json.content)
             if (doc.name !== docNameRef.current) {
@@ -88,7 +89,7 @@ export function useIterationLive(iterationId: string | null) {
           setLiveError(error instanceof Error ? error.message : String(error))
         }
       }
-      socket.onerror = () => setLiveError('Live feed disconnected')
+      socket.onerror = () => setLiveError('实时连接异常，正在尝试恢复。')
       socket.onclose = () => {
         if (closed) return
         retry += 1

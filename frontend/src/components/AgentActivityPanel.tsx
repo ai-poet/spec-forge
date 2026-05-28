@@ -1,5 +1,5 @@
 import type { IterationDetail } from '../types'
-import { isAgentActivity, presentEvent } from '../presentation'
+import { isAgentActivity, presentEvent, presentNodeName } from '../presentation'
 
 interface Props {
   detail: IterationDetail | null
@@ -23,7 +23,7 @@ export function AgentActivityPanel({ detail }: Props) {
               <p>{event.message}</p>
               {event.action_hint ? <small>{event.action_hint}</small> : null}
             </div>
-            <span className={`status-dot ${event.severity}`}>{event.node}</span>
+            <span className={`status-dot ${event.severity}`}>{presentNodeName(event.node)}</span>
           </article>
         ))}
         {!visible.length ? <div className="empty">Agent 运行后，这里会显示中文步骤和产物状态。</div> : null}

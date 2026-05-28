@@ -11,7 +11,7 @@ function severityValue(value: unknown): EventSeverity | undefined {
   return undefined
 }
 
-function nodeName(value: string) {
+export function presentNodeName(value: string) {
   return value in nodeLabel ? nodeLabel[value as keyof typeof nodeLabel] : value === 'ui_driver' ? 'UI Driver' : value === 'done' ? '交付完成' : value === 'system' ? '系统' : value
 }
 
@@ -70,7 +70,7 @@ export function summarizeRun(run: NodeRunRecord) {
     ? `已捕获 ${outputSize} 个字符的原始输出。`
     : '没有原始输出。'
   return {
-    title: `${nodeName(run.node)}运行${status}`,
+    title: `${presentNodeName(run.node)}运行${status}`,
     message,
     severity: run.status === 'success' ? 'success' as EventSeverity : 'error' as EventSeverity,
   }

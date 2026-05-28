@@ -814,6 +814,16 @@ class LangGraphPipeline:
             return self._block(iteration_id, "tester.max_retries", run_id, notes)
         self._update_iteration(iteration_id, status=IterationStatus.retrying.value, current_node=None, retry_counts=retry_counts, last_error=notes)
         self._add_event(iteration_id, event_type="tester.failed_retry", payload={"run_id": run_id, "notes": notes, "count": retry_counts["coder_tester"]})
+        self._node_event(
+            iteration_id,
+            "node.progress",
+            NodeName.tester.value,
+            "验证失败，准备自动重试",
+            notes,
+            severity="warning",
+            run_id=run_id,
+            action_hint=f"系统将回到实现节点修复，这是第 {retry_counts['coder_tester']} 次实现/验证重试。",
+        )
         return {"status": "tester_failed_retry", "failure_notes": notes, "retry_counts": retry_counts, "tester_run_id": run_id}
 
     def _increment_count(self, state: PipelineState, key: str) -> dict[str, int]:

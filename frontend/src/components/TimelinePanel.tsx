@@ -1,6 +1,6 @@
 import type { IterationDetail, TimelineFilter } from '../types'
 import { timelineFilterLabel } from '../labels'
-import { presentEvent } from '../presentation'
+import { presentEvent, presentNodeName } from '../presentation'
 
 interface Props {
   detail: IterationDetail | null
@@ -38,7 +38,7 @@ export function TimelinePanel({ detail, filter = 'all', onFilterChange }: Props)
           <div key={event.id} className={`item event-item ${event.severity}`}>
             <div className="item-head">
               <strong>{event.title}</strong>
-              <span className={`status-dot ${event.severity}`}>{event.node}</span>
+              <span className={`status-dot ${event.severity}`}>{presentNodeName(event.node)}</span>
             </div>
             <div className="muted">{event.message}</div>
             {event.action_hint ? <div className="event-hint">{event.action_hint}</div> : null}
