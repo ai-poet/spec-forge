@@ -115,6 +115,7 @@ class LangGraphPipeline:
         return {
             "id": row["id"],
             "project_id": row["project_id"],
+            "epic_id": row["epic_id"],
             "project_name": row["project_name"],
             "goal": row["goal"],
             "mode": row["mode"],

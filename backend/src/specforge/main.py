@@ -14,12 +14,16 @@ from .events import EventBroker, EventEnvelope
 from .job_queue import PipelineJobQueue
 from .models import (
     ApproveRequest,
+    CreateEpicRequest,
     CreateIterationRequest,
     CreateProjectRequest,
+    EpicDetail,
+    EpicSummary,
     IterationDetail,
     IterationSummary,
     ProjectSummary,
     RetryRequest,
+    UpdateEpicRequest,
     UpdateProjectRequest,
 )
 from .pipeline import LangGraphPipeline
@@ -126,25 +130,52 @@ def update_project(project_id: str, payload: UpdateProjectRequest) -> ProjectSum
     return project_summary(updated, project_counts(project_id))
 
 
+@app.get("/api/epics", response_model=list[EpicSummary])
+def list_epics(project_id: str = Query()) -> list[EpicSummary]:
+    if db.get_project_row(project_id) is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return [epic_summary(row) for row in db.list_epics(project_id)]
+
+
+@app.post("/api/epics", response_model=EpicSummary)
+def create_epic(payload: CreateEpicRequest) -> EpicSummary:
+    if db.get_project_row(payload.project_id) is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    epic_id = db.create_epic(
+        project_id=payload.project_id,
+        title=payload.title,
+        description=payload.description,
+        acceptance_criteria=payload.acceptance_criteria,
+    )
+    row = db.get_epic_row(epic_id)
+    assert row is not None
+    return epic_summary(row)
+
+
+@app.get("/api/epics/{epic_id}", response_model=EpicDetail)
+def get_epic(epic_id: str) -> EpicDetail:
+    row = db.get_epic_row(epic_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="epic not found")
+    return epic_detail(row)
+
+
+@app.patch("/api/epics/{epic_id}", response_model=EpicSummary)
+def update_epic(epic_id: str, payload: UpdateEpicRequest) -> EpicSummary:
+    row = db.get_epic_row(epic_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="epic not found")
+    db.update_epic(epic_id, **payload.model_dump(exclude_unset=True))
+    updated = db.get_epic_row(epic_id)
+    assert updated is not None
+    return epic_summary(updated)
+
+
 @app.get("/api/iterations", response_model=list[IterationSummary])
-def list_iterations(project_id: Optional[str] = Query(default=None)) -> list[IterationSummary]:
+def list_iterations(project_id: Optional[str] = Query(default=None), epic_id: Optional[str] = Query(default=None)) -> list[IterationSummary]:
     items = []
-    for row in db.list_iterations(project_id=project_id):
-        items.append(
-            IterationSummary(
-                id=row["id"],
-                project_id=row["project_id"],
-                project_name=row["project_name"],
-                goal=row["goal"],
-                mode=row["mode"],
-                status=row["status"],
-                current_node=row["current_node"],
-                retry_counts=json_loads(row["retry_counts"]),
-                last_error=row["last_error"],
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-            )
-        )
+    for row in db.list_iterations(project_id=project_id, epic_id=epic_id):
+        items.append(iteration_summary(row))
     return items
 
 
@@ -156,6 +187,12 @@ def create_iteration(payload: CreateIterationRequest) -> IterationSummary:
         if project is None:
             raise HTTPException(status_code=404, detail="project not found")
         project_name = project["name"]
+    if payload.epic_id:
+        epic = db.get_epic_row(payload.epic_id)
+        if epic is None:
+            raise HTTPException(status_code=404, detail="epic not found")
+        if payload.project_id and epic["project_id"] != payload.project_id:
+            raise HTTPException(status_code=422, detail="epic does not belong to project")
     if not project_name:
         raise HTTPException(status_code=422, detail="project_name or project_id is required")
     iteration_id = db.create_iteration(
@@ -164,6 +201,7 @@ def create_iteration(payload: CreateIterationRequest) -> IterationSummary:
         goal=payload.goal,
         mode=payload.mode.value if payload.mode else None,
         test_command=payload.test_command,
+        epic_id=payload.epic_id,
     )
     db.update_iteration(iteration_id, status="queued", current_node=None)
     db.add_event(iteration_id, event_type="iteration.queued", payload={"job": "start"})
@@ -171,19 +209,9 @@ def create_iteration(payload: CreateIterationRequest) -> IterationSummary:
     job_queue.enqueue_start(iteration_id)
     row = db.get_iteration_row(iteration_id)
     assert row is not None
-    return IterationSummary(
-        id=row["id"],
-        project_id=row["project_id"],
-        project_name=row["project_name"],
-        goal=row["goal"],
-        mode=row["mode"],
-        status=row["status"],
-        current_node=row["current_node"],
-        retry_counts=json_loads(row["retry_counts"]),
-        last_error=row["last_error"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
-    )
+    if row["epic_id"]:
+        db.update_epic_status(row["epic_id"])
+    return iteration_summary(row)
 
 
 @app.get("/api/iterations/{iteration_id}", response_model=IterationDetail)
@@ -195,6 +223,7 @@ def get_iteration(iteration_id: str) -> IterationDetail:
     return IterationDetail(
         id=snapshot["id"],
         project_id=snapshot["project_id"],
+        epic_id=snapshot["epic_id"],
         project_name=snapshot["project_name"],
         goal=snapshot["goal"],
         mode=snapshot["mode"],
@@ -218,6 +247,7 @@ def approve_design(iteration_id: str, payload: ApproveRequest) -> IterationSumma
         raise HTTPException(status_code=409, detail="iteration is not awaiting design_approval")
     db.add_event(iteration_id, event_type="resume.queued", payload={"checkpoint": "design_approval"})
     job_queue.enqueue_resume(iteration_id, "design_approval", payload.note)
+    refresh_iteration_epic(iteration_id)
     return get_iteration(iteration_id)
 
 
@@ -227,6 +257,7 @@ def approve_verify(iteration_id: str, payload: ApproveRequest) -> IterationSumma
         raise HTTPException(status_code=409, detail="iteration is not awaiting verify_approval")
     db.add_event(iteration_id, event_type="resume.queued", payload={"checkpoint": "verify_approval"})
     job_queue.enqueue_resume(iteration_id, "verify_approval", payload.note)
+    refresh_iteration_epic(iteration_id)
     return get_iteration(iteration_id)
 
 
@@ -239,6 +270,7 @@ def retry_iteration(iteration_id: str, payload: RetryRequest) -> IterationSummar
 @app.post("/api/iterations/{iteration_id}/stop", response_model=IterationSummary)
 def stop_iteration(iteration_id: str, payload: RetryRequest) -> IterationSummary:
     pipeline.stop_iteration(iteration_id, reason=payload.note or "stopped")
+    refresh_iteration_epic(iteration_id)
     return get_iteration(iteration_id)
 
 
@@ -323,3 +355,65 @@ def project_summary(row, counts: dict[str, int] | None = None) -> ProjectSummary
         active_count=bucket["active"],
         delivered_count=bucket["delivered"],
     )
+
+
+def iteration_summary(row) -> IterationSummary:
+    return IterationSummary(
+        id=row["id"],
+        project_id=row["project_id"],
+        epic_id=row["epic_id"],
+        project_name=row["project_name"],
+        goal=row["goal"],
+        mode=row["mode"],
+        status=row["status"],
+        current_node=row["current_node"],
+        retry_counts=json_loads(row["retry_counts"]),
+        last_error=row["last_error"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def epic_counts(epic_id: str) -> dict[str, int]:
+    bucket = {"total": 0, "active": 0, "blocked": 0, "delivered": 0}
+    for iteration in db.list_iterations(epic_id=epic_id):
+        bucket["total"] += 1
+        if iteration["status"] == "delivered":
+            bucket["delivered"] += 1
+        elif iteration["status"] in {"blocked", "blocked_user", "failed", "stopped"}:
+            bucket["blocked"] += 1
+        else:
+            bucket["active"] += 1
+    return bucket
+
+
+def epic_summary(row) -> EpicSummary:
+    db.update_epic_status(row["id"])
+    refreshed = db.get_epic_row(row["id"]) or row
+    counts = epic_counts(row["id"])
+    return EpicSummary(
+        id=refreshed["id"],
+        project_id=refreshed["project_id"],
+        title=refreshed["title"],
+        description=refreshed["description"],
+        acceptance_criteria=refreshed["acceptance_criteria"],
+        status=refreshed["status"],
+        iteration_count=counts["total"],
+        active_count=counts["active"],
+        blocked_count=counts["blocked"],
+        delivered_count=counts["delivered"],
+        created_at=refreshed["created_at"],
+        updated_at=refreshed["updated_at"],
+    )
+
+
+def epic_detail(row) -> EpicDetail:
+    summary = epic_summary(row)
+    iterations = [iteration_summary(item) for item in db.list_iterations(epic_id=row["id"])]
+    return EpicDetail(**summary.model_dump(), iterations=iterations)
+
+
+def refresh_iteration_epic(iteration_id: str) -> None:
+    row = db.get_iteration_row(iteration_id)
+    if row is not None and row["epic_id"]:
+        db.update_epic_status(row["epic_id"])

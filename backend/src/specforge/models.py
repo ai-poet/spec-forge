@@ -41,6 +41,7 @@ class NodeName(str, Enum):
 class CreateIterationRequest(BaseModel):
     project_name: str = Field(default="", min_length=0)
     project_id: Optional[str] = None
+    epic_id: Optional[str] = None
     goal: str = Field(min_length=1)
     mode: Optional[Mode] = None
     test_command: Optional[str] = None
@@ -72,6 +73,26 @@ class UpdateProjectRequest(BaseModel):
     max_verify_rejects: Optional[int] = Field(default=None, ge=0, le=20)
 
 
+class EpicStatus(str, Enum):
+    draft = "draft"
+    active = "active"
+    blocked = "blocked"
+    delivered = "delivered"
+
+
+class CreateEpicRequest(BaseModel):
+    project_id: str
+    title: str = Field(min_length=1)
+    description: str = ""
+    acceptance_criteria: str = ""
+
+
+class UpdateEpicRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1)
+    description: Optional[str] = None
+    acceptance_criteria: Optional[str] = None
+
+
 class ProjectSummary(BaseModel):
     id: str
     name: str
@@ -94,6 +115,7 @@ class ProjectSummary(BaseModel):
 class IterationSummary(BaseModel):
     id: str
     project_id: Optional[str] = None
+    epic_id: Optional[str] = None
     project_name: str
     goal: str
     mode: Mode
@@ -103,6 +125,25 @@ class IterationSummary(BaseModel):
     last_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+
+
+class EpicSummary(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    description: str = ""
+    acceptance_criteria: str = ""
+    status: EpicStatus = EpicStatus.draft
+    iteration_count: int = 0
+    active_count: int = 0
+    blocked_count: int = 0
+    delivered_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
+class EpicDetail(EpicSummary):
+    iterations: list[IterationSummary] = Field(default_factory=list)
 
 
 class DocumentRecord(BaseModel):

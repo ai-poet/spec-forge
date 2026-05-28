@@ -3,10 +3,6 @@ import type { IterationDetail } from '../types'
 interface Props {
   detail: IterationDetail | null
   liveError: string | null
-  busy: boolean
-  onApproveDesign: () => Promise<void>
-  onApproveVerify: () => Promise<void>
-  onStop: () => Promise<void>
 }
 
 const steps = [
@@ -20,7 +16,7 @@ const steps = [
   { key: 'done', label: 'Delivered' },
 ]
 
-export function PipelineBoard({ detail, liveError, busy, onApproveDesign, onApproveVerify, onStop }: Props) {
+export function PipelineBoard({ detail, liveError }: Props) {
   const next = new Set(detail?.graph_next ?? [])
   const currentNode = detail?.current_node
   const status = detail?.status
@@ -52,17 +48,6 @@ export function PipelineBoard({ detail, liveError, busy, onApproveDesign, onAppr
             </div>
           ) : null}
           {liveError ? <div className="error-text">{liveError}</div> : null}
-        </div>
-        <div className="actions">
-          <button className="btn" onClick={onApproveDesign} disabled={busy || detail?.status !== 'awaiting_design_approval'}>
-            Approve design
-          </button>
-          <button className="btn" onClick={onApproveVerify} disabled={busy || detail?.status !== 'awaiting_verify_approval'}>
-            Approve verify
-          </button>
-          <button className="btn" onClick={onStop} disabled={busy || !detail}>
-            Stop
-          </button>
         </div>
       </div>
 

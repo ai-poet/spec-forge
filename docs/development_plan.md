@@ -1,10 +1,10 @@
 ---
 doc: iteration_log
-version: 0.3.0
+version: 0.4.0
 status: draft
-created: 2026-05-26
+created: 2026-05-28
 owner: user
-supersedes: docs/development_plan.md@0.1.0
+supersedes: docs/development_plan.md@0.3.0
 ---
 
 # SpecForge 开发计划
@@ -26,11 +26,31 @@ supersedes: docs/development_plan.md@0.1.0
 13. 增加 Coder/Tester retry、Coder clarification、Planner verify reject 计数。
 14. WebSocket 改为连接首包 snapshot + 后续事件驱动更新。
 15. 增加项目级默认 mode、测试命令、模型名和 retry 上限配置。
+16. 新增 Epic 大需求层：Project -> Epic -> Iteration。
+17. 后端提供 Epic CRUD API，并让 iteration 可归属到 Epic。
+18. Epic 状态按关联 iteration 自动汇总 draft、active、blocked、delivered。
+19. 前端改造为 Developer Workbench：左侧 Projects + Epics，主区域展示当前 Epic。
+20. 新增 Action Required 面板，把 LangGraph 技术状态翻译成人类动作。
+21. 新增 Summary-first iteration 工作区：Summary、Docs、Tests、Logs。
+22. Timeline 增加 Decisions、Failures、Tests、Runs 过滤。
+23. WebSocket hook 增加连接状态、最后消息时间和指数退避重连。
+24. 项目配置迁移到 Config tab，避免挤占 iteration 主流程。
+
+## 当前验收范围
+
+- 创建 Project。
+- 在 Project 下创建 Epic。
+- 在 Epic 下创建 dry-run iteration。
+- 审批设计后自动进入 Coder/Tester。
+- 验证审批后 iteration delivered。
+- Epic 进度同步变为 delivered / 100%。
+- Summary、Docs、Tests、Logs 和 Timeline 都能读取当前 iteration 的状态。
 
 ## 下一步
 
-1. 给 real-cli 增加 fixture 级真实 smoke test。
-2. 引入容器或只读挂载，替代仅 checksum gate 的本地保护。
-3. 接入 Cua MCP 或 Playwright 作为 UI 验证节点。
-4. 增加 wall-clock circuit breaker。
-5. 将迭代归档和 ADR 文档纳入前端控制台。
+1. 自动把 Epic 拆成多个 iteration，并允许用户编辑拆分计划后批量启动。
+2. 给 real-cli 增加 fixture 级真实 smoke test。
+3. 引入容器或只读挂载，替代仅 checksum gate 的本地保护。
+4. 接入 Cua MCP 或 Playwright 作为 UI 验证节点。
+5. 增加 wall-clock circuit breaker。
+6. 将迭代归档和 ADR 文档纳入前端控制台。

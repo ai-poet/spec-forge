@@ -36,6 +36,58 @@ def test_create_project_and_filter_iterations():
     assert filtered.json()[0]["project_id"] == project_id
 
 
+def test_create_epic_and_attach_iteration():
+    project = client.post("/api/projects", json={"name": "epic-project", "description": "demo"})
+    assert project.status_code == 200
+    project_id = project.json()["id"]
+
+    epic = client.post(
+        "/api/epics",
+        json={
+            "project_id": project_id,
+            "title": "Large requirement",
+            "description": "Build a workbench",
+            "acceptance_criteria": "- Iteration queue exists\n- Action panel exists",
+        },
+    )
+    assert epic.status_code == 200
+    epic_id = epic.json()["id"]
+    assert epic.json()["status"] == "draft"
+
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "epic_id": epic_id, "goal": "first slice", "mode": "dry-run"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["epic_id"] == epic_id
+    drain_jobs()
+
+    detail = client.get(f"/api/epics/{epic_id}")
+    assert detail.status_code == 200
+    assert detail.json()["status"] == "active"
+    assert detail.json()["iteration_count"] == 1
+    assert detail.json()["iterations"][0]["epic_id"] == epic_id
+
+
+def test_epic_status_delivered_after_all_iterations_deliver():
+    project = client.post("/api/projects", json={"name": "epic-delivered"})
+    project_id = project.json()["id"]
+    epic = client.post("/api/epics", json={"project_id": project_id, "title": "Deliver all"})
+    epic_id = epic.json()["id"]
+
+    resp = client.post("/api/iterations", json={"project_id": project_id, "epic_id": epic_id, "goal": "ship", "mode": "dry-run"})
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+    client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
+    drain_jobs()
+    client.post(f"/api/iterations/{iteration_id}/approve-verify", json={"note": "ok"})
+    drain_jobs()
+
+    detail = client.get(f"/api/epics/{epic_id}")
+    assert detail.json()["status"] == "delivered"
+    assert detail.json()["delivered_count"] == 1
+
+
 def test_create_iteration_runs_dry_flow():
     resp = client.post(
         "/api/iterations",

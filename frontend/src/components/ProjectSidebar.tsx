@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useState } from 'react'
 import type { ProjectSummary } from '../types'
 
@@ -6,9 +7,10 @@ interface Props {
   selectedProjectId: string | null
   onSelectProject: (id: string) => void
   onAddProject: (name: string, description?: string) => Promise<void>
+  children?: ReactNode
 }
 
-export function ProjectSidebar({ projects, selectedProjectId, onSelectProject, onAddProject }: Props) {
+export function ProjectSidebar({ projects, selectedProjectId, onSelectProject, onAddProject, children }: Props) {
   const [name, setName] = useState('specforge-demo')
   const [description, setDescription] = useState('Local agent pipeline')
   const [busy, setBusy] = useState(false)
@@ -60,6 +62,7 @@ export function ProjectSidebar({ projects, selectedProjectId, onSelectProject, o
           {!projects.length ? <div className="empty">暂无项目</div> : null}
         </div>
       </section>
+      {children}
     </aside>
   )
 }

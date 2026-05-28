@@ -1,21 +1,44 @@
-import type { IterationDetail } from '../types'
+import type { IterationDetail, TimelineFilter } from '../types'
 
 interface Props {
   detail: IterationDetail | null
+  filter?: TimelineFilter
+  onFilterChange?: (filter: TimelineFilter) => void
 }
 
-export function TimelinePanel({ detail }: Props) {
+function matchesFilter(type: string, filter: TimelineFilter) {
+  if (filter === 'all') return true
+  if (filter === 'decisions') return type.includes('approved') || type.includes('queued')
+  if (filter === 'failures') return type.includes('failed') || type.includes('blocked') || type.includes('max_retries')
+  if (filter === 'tests') return type.includes('test') || type.includes('integrity') || type.includes('tester')
+  if (filter === 'runs') return type.includes('planner') || type.includes('coder') || type.includes('tester')
+  return true
+}
+
+export function TimelinePanel({ detail, filter = 'all', onFilterChange }: Props) {
+  const events = detail?.events.filter((event) => matchesFilter(event.type, filter)) ?? []
   return (
     <section className="panel stack">
-      <h2 className="section-title">事件流</h2>
+      <div className="section-row">
+        <h2 className="section-title">事件流</h2>
+        {onFilterChange ? (
+          <select className="compact-select" value={filter} onChange={(event) => onFilterChange(event.target.value as TimelineFilter)}>
+            <option value="all">All</option>
+            <option value="decisions">Decisions</option>
+            <option value="failures">Failures</option>
+            <option value="tests">Tests</option>
+            <option value="runs">Runs</option>
+          </select>
+        ) : null}
+      </div>
       <div className="timeline">
-        {detail?.events.map((event) => (
-          <div key={event.id} className="item">
+        {events.map((event) => (
+          <div key={event.id} className={`item event-item ${event.type.includes('failed') || event.type.includes('blocked') ? 'danger' : ''}`}>
             <strong>{event.type}</strong>
             <div className="muted event-json">{JSON.stringify(event.payload)}</div>
           </div>
         ))}
-        {!detail?.events.length ? <div className="empty">暂无事件</div> : null}
+        {!events.length ? <div className="empty">暂无事件</div> : null}
       </div>
     </section>
   )

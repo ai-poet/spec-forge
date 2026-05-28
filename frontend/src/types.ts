@@ -19,6 +19,7 @@ export type Mode = 'dry-run' | 'real-cli'
 export interface IterationSummary {
   id: string
   project_id: string | null
+  epic_id: string | null
   project_name: string
   goal: string
   mode: Mode
@@ -28,6 +29,27 @@ export interface IterationSummary {
   last_error: string | null
   created_at: string
   updated_at: string
+}
+
+export type EpicStatus = 'draft' | 'active' | 'blocked' | 'delivered'
+
+export interface EpicSummary {
+  id: string
+  project_id: string
+  title: string
+  description: string
+  acceptance_criteria: string
+  status: EpicStatus
+  iteration_count: number
+  active_count: number
+  blocked_count: number
+  delivered_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface EpicDetail extends EpicSummary {
+  iterations: IterationSummary[]
 }
 
 export interface ProjectSummary {
@@ -90,6 +112,9 @@ export interface LiveMessage {
   snapshot?: IterationDetail
 }
 
+export type LiveConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+export type TimelineFilter = 'all' | 'decisions' | 'failures' | 'tests' | 'runs'
+
 export interface UpdateProjectInput {
   name?: string
   description?: string | null
@@ -101,4 +126,17 @@ export interface UpdateProjectInput {
   max_coder_tester_retries?: number
   max_clarifications?: number
   max_verify_rejects?: number
+}
+
+export interface CreateEpicInput {
+  project_id: string
+  title: string
+  description?: string
+  acceptance_criteria?: string
+}
+
+export interface UpdateEpicInput {
+  title?: string
+  description?: string
+  acceptance_criteria?: string
 }

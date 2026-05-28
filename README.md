@@ -1,34 +1,45 @@
 # SpecForge
 
-SpecForge 是一个本地优先、文档驱动、测试优先的 agent 工程流水线。它把一句业务目标转换成可追踪的设计文档、修改计划、测试计划、代码实现和验证报告。
+SpecForge 是一个本地优先、文档驱动、测试优先的 agent 工程工作台。它面向真实开发者的使用方式：先输入一个大需求，再把需求拆成一个或多个可验证的 iteration，让系统自动执行 Planner、Coder、Tester 回环，直到实现通过测试并由人类确认交付。
+
+核心层级：
+
+```text
+Project -> Epic -> Iteration -> Planner/Coder/Tester run
+```
 
 核心流程：
 
 ```text
-目标 -> Planner 产出文档和测试 -> 人类审批设计 -> Coder 实现 -> Tester 验证 -> 人类审批验证 -> 交付
+大需求 -> 创建 Epic -> 创建 iteration -> Planner 产出文档和测试
+-> 人类审批设计 -> Coder 实现 -> Tester 验证
+-> 失败自动重试 / 阻断交给人类 -> 人类审批验证 -> 交付
 ```
 
 ## 现在做到什么程度
 
-- 后端：FastAPI + SQLite
-- 编排：LangGraph `StateGraph` + SQLite checkpointer
-- 前端：React + Vite 控制台
-- 项目管理：侧边栏添加项目，每个项目有独立流水线列表
-- 后台执行：本地单 worker 队列执行 LangGraph，创建 iteration 不阻塞 HTTP 请求
-- 实时状态：WebSocket 连接后先发 snapshot，之后按事件推送更新
-- 模式：`dry-run` 可本地稳定演示，`real-cli` 接入结构化 artifact 协议
-- 人类检查点：设计审批和验证审批通过 LangGraph interrupt/resume 推进
-- 治理：Planner/Tester artifact 由后端校验后写入；Coder 后会做 protected tests checksum gate
+- 后端：FastAPI + SQLite。
+- 编排：LangGraph `StateGraph` + SQLite checkpointer。
+- 前端：React + Vite Developer Workbench。
+- 项目管理：左侧 Projects + Epics，主区域展示当前大需求进度。
+- Epic 层：一个大需求可以包含多个 iteration，并自动汇总 active、blocked、delivered 状态。
+- 后台执行：本地单 worker 队列执行 LangGraph，创建 iteration 不阻塞 HTTP 请求。
+- 实时状态：WebSocket 首包 snapshot，之后按事件推送，并在前端显示连接状态与自动重连。
+- 运行模式：`dry-run` 稳定演示，`real-cli` 接入结构化 artifact 协议。
+- 人类检查点：设计审批和验证审批通过 LangGraph interrupt/resume 推进。
+- 治理：Planner/Tester artifact 由后端校验后写入；Coder 后执行 protected tests checksum gate。
+- 开发者工作台：Action Required、Summary、Docs、Tests、Logs、事件过滤、项目配置面板。
 
 ## 为什么不是普通 coding agent
 
 SpecForge 不把“聊天上下文”当作事实源。每轮迭代都落到本地文件系统和 SQLite：
 
-- 文档是事实源
-- 测试先于实现
-- Planner、Coder、Tester 分离
-- 每个节点可以 fresh session 运行
-- 人类只在固定检查点审批，不需要每一步盯着
+- 文档是事实源。
+- 测试先于实现。
+- Planner、Coder、Tester 分离。
+- 每个节点可以 fresh session 运行。
+- 人类只在固定检查点审批，不需要每一步盯着。
+- 大需求通过 Epic 聚合，避免多个小 iteration 散落在聊天记录里。
 
 ## 快速启动
 
@@ -64,6 +75,17 @@ npm run dev
 http://127.0.0.1:5178
 ```
 
+## 基本使用方式
+
+1. 在左侧创建或选择 Project。
+2. 在 Project 下创建 Epic，填写大需求、验收标准和约束。
+3. 在 Epic 下创建第一个 iteration，默认 goal 会带入 Epic 摘要。
+4. 等待 Planner 生成设计、修改计划、测试计划和测试文件。
+5. 在 Action Required 面板审批设计。
+6. 等待 Coder/Tester 自动执行；失败时系统会按 retry 上限回环。
+7. 在 Summary、Docs、Tests、Logs 中查看结果。
+8. 验证通过后审批交付，Epic 进度会自动更新。
+
 ## 运行模式
 
 ### dry-run
@@ -91,11 +113,11 @@ Planner/Tester 必须输出 JSON artifact，后端校验 schema 和路径白名�
 
 每个项目可以配置：
 
-- 默认运行模式和默认测试命令
-- Planner / Coder / Tester 模型名
-- Coder/Tester retry 上限
-- Coder clarification 上限
-- Planner verify reject 上限
+- 默认运行模式和默认测试命令。
+- Planner / Coder / Tester 模型名。
+- Coder/Tester retry 上限。
+- Coder clarification 上限。
+- Planner verify reject 上限。
 
 创建 iteration 时会继承项目配置；创建请求里的显式字段优先生效。
 
@@ -104,7 +126,7 @@ Planner/Tester 必须输出 JSON artifact，后端校验 schema 和路径白名�
 ```text
 spec-forge/
 ├── backend/          # FastAPI + LangGraph
-├── frontend/         # React 控制台
+├── frontend/         # React Developer Workbench
 ├── docs/             # 系统设计和开发计划
 ├── scripts/dev.sh    # 本地启动脚本
 └── .specforge/       # 本地运行数据，不进入 Git
@@ -122,6 +144,7 @@ frontend/src/
 ## 当前限制
 
 - 单用户本地原型，无登录和多租户。
+- v0.4 只支持手动创建 Epic；自动拆分大需求留到后续版本。
 - `real-cli` 已有结构化输出协议，但还没有强文件系统隔离。
 - UI Driver / Cua MCP 尚未接入。
 - 生产部署、成本控制、量化成功标准留到后续版本。

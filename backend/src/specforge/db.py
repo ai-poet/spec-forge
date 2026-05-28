@@ -43,6 +43,7 @@ class Database:
                 CREATE TABLE IF NOT EXISTS iterations (
                     id TEXT PRIMARY KEY,
                     project_id TEXT,
+                    epic_id TEXT,
                     project_name TEXT NOT NULL,
                     goal TEXT NOT NULL,
                     mode TEXT NOT NULL,
@@ -68,6 +69,17 @@ class Database:
                     max_coder_tester_retries INTEGER NOT NULL DEFAULT 5,
                     max_clarifications INTEGER NOT NULL DEFAULT 3,
                     max_verify_rejects INTEGER NOT NULL DEFAULT 2,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS epics (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    acceptance_criteria TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'draft',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -110,6 +122,8 @@ class Database:
             }
             if "project_id" not in iteration_columns:
                 conn.execute("ALTER TABLE iterations ADD COLUMN project_id TEXT")
+            if "epic_id" not in iteration_columns:
+                conn.execute("ALTER TABLE iterations ADD COLUMN epic_id TEXT")
             if "retry_counts" not in iteration_columns:
                 conn.execute("ALTER TABLE iterations ADD COLUMN retry_counts TEXT NOT NULL DEFAULT '{}'")
             if "test_integrity_baseline" not in iteration_columns:
@@ -220,6 +234,68 @@ class Database:
         with self.connect() as conn:
             return conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
 
+    def create_epic(
+        self,
+        *,
+        project_id: str,
+        title: str,
+        description: str = "",
+        acceptance_criteria: str = "",
+    ) -> str:
+        now = iso(utcnow())
+        epic_id = f"epic_{uuid4().hex[:8]}"
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO epics (id, project_id, title, description, acceptance_criteria, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (epic_id, project_id, title, description, acceptance_criteria, "draft", now, now),
+            )
+            conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now, project_id))
+        return epic_id
+
+    def update_epic_status(self, epic_id: str) -> None:
+        iterations = self.list_iterations(epic_id=epic_id)
+        if not iterations:
+            status = "draft"
+        elif any(row["status"] in {"blocked", "blocked_user", "failed", "stopped"} for row in iterations):
+            status = "blocked"
+        elif all(row["status"] == "delivered" for row in iterations):
+            status = "delivered"
+        else:
+            status = "active"
+        self.update_epic(epic_id, status=status)
+
+    def update_epic(self, epic_id: str, **fields: Any) -> None:
+        allowed = {"title", "description", "acceptance_criteria", "status"}
+        updates = []
+        values: list[Any] = []
+        for key, value in fields.items():
+            if key not in allowed or value is _UNSET:
+                continue
+            updates.append(f"{key} = ?")
+            values.append(value)
+        if not updates:
+            return
+        updates.append("updated_at = ?")
+        values.append(iso(utcnow()))
+        values.append(epic_id)
+        with self.connect() as conn:
+            conn.execute(f"UPDATE epics SET {', '.join(updates)} WHERE id = ?", values)
+
+    def get_epic_row(self, epic_id: str) -> Optional[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute("SELECT * FROM epics WHERE id = ?", (epic_id,)).fetchone()
+
+    def list_epics(self, project_id: str) -> list[sqlite3.Row]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM epics WHERE project_id = ? ORDER BY updated_at DESC, created_at DESC",
+                (project_id,),
+            ).fetchall()
+        return list(rows)
+
     def create_iteration(
         self,
         *,
@@ -228,6 +304,7 @@ class Database:
         mode: Optional[str],
         test_command: Optional[str],
         project_id: Optional[str] = None,
+        epic_id: Optional[str] = None,
     ) -> str:
         iteration_id = f"iter_{uuid4().hex[:8]}"
         now = iso(utcnow())
@@ -243,10 +320,10 @@ class Database:
                 """
                 INSERT INTO iterations (
                     id, project_id, project_name, goal, mode, status, current_node,
-                    test_command, retry_counts, test_integrity_baseline, last_error,
+                    test_command, retry_counts, test_integrity_baseline, last_error, epic_id,
                     created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     iteration_id,
@@ -260,6 +337,7 @@ class Database:
                     "{}",
                     "{}",
                     None,
+                    epic_id,
                     now,
                     now,
                 ),
@@ -268,6 +346,11 @@ class Database:
                 "UPDATE projects SET updated_at = ? WHERE id = ?",
                 (now, resolved_project_id),
             )
+            if epic_id:
+                conn.execute(
+                    "UPDATE epics SET updated_at = ? WHERE id = ?",
+                    (now, epic_id),
+                )
         return iteration_id
 
     def update_iteration(
@@ -312,9 +395,14 @@ class Database:
         with self.connect() as conn:
             return conn.execute("SELECT * FROM iterations WHERE id = ?", (iteration_id,)).fetchone()
 
-    def list_iterations(self, project_id: Optional[str] = None) -> list[sqlite3.Row]:
+    def list_iterations(self, project_id: Optional[str] = None, epic_id: Optional[str] = None) -> list[sqlite3.Row]:
         with self.connect() as conn:
-            if project_id:
+            if epic_id:
+                rows = conn.execute(
+                    "SELECT * FROM iterations WHERE epic_id = ? ORDER BY created_at DESC",
+                    (epic_id,),
+                ).fetchall()
+            elif project_id:
                 rows = conn.execute(
                     "SELECT * FROM iterations WHERE project_id = ? ORDER BY created_at DESC",
                     (project_id,),

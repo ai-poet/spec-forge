@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getIteration } from '../api'
-import type { IterationDetail, LiveMessage } from '../types'
+import type { IterationDetail, LiveConnectionStatus, LiveMessage } from '../types'
 
 const API_BASE = 'http://127.0.0.1:8787'
 
@@ -9,6 +9,8 @@ export function useIterationLive(iterationId: string | null) {
   const [docName, setDocName] = useState('system_design')
   const [docText, setDocText] = useState('')
   const [liveError, setLiveError] = useState<string | null>(null)
+  const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('idle')
+  const [lastMessageAt, setLastMessageAt] = useState<string | null>(null)
   const docNameRef = useRef(docName)
 
   useEffect(() => {
@@ -48,32 +50,59 @@ export function useIterationLive(iterationId: string | null) {
   }, [loadDetail])
 
   useEffect(() => {
-    if (!iterationId) return
-    const socket = new WebSocket(`ws://127.0.0.1:8787/ws/iterations/${iterationId}`)
-    socket.onmessage = async (event) => {
-      try {
-        const message = JSON.parse(event.data) as LiveMessage
-        const snapshot = message.snapshot
-        if (!snapshot) return
-        setDetail(snapshot)
-        setLiveError(null)
-        const doc = snapshot.documents.find((item) => item.name === docNameRef.current) ?? snapshot.documents[0]
-        if (doc) {
-          const response = await fetch(`${API_BASE}/api/iterations/${iterationId}/documents/${doc.name}`)
-          const json = await response.json()
-          setDocText(json.content)
-          if (doc.name !== docNameRef.current) {
-            setDocName(doc.name)
+    if (!iterationId) {
+      setConnectionStatus('idle')
+      return
+    }
+    let closed = false
+    let retry = 0
+    let socket: WebSocket | null = null
+
+    function connect() {
+      setConnectionStatus(retry ? 'reconnecting' : 'connecting')
+      socket = new WebSocket(`ws://127.0.0.1:8787/ws/iterations/${iterationId}`)
+      socket.onopen = () => {
+        retry = 0
+        setConnectionStatus('connected')
+      }
+      socket.onmessage = async (event) => {
+        try {
+          const message = JSON.parse(event.data) as LiveMessage
+          const snapshot = message.snapshot
+          if (!snapshot) return
+          setDetail(snapshot)
+          setLastMessageAt(new Date().toISOString())
+          setLiveError(null)
+          const doc = snapshot.documents.find((item) => item.name === docNameRef.current) ?? snapshot.documents[0]
+          if (doc) {
+            const response = await fetch(`${API_BASE}/api/iterations/${iterationId}/documents/${doc.name}`)
+            const json = await response.json()
+            setDocText(json.content)
+            if (doc.name !== docNameRef.current) {
+              setDocName(doc.name)
+            }
+          } else {
+            setDocText('')
           }
-        } else {
-          setDocText('')
+        } catch (error) {
+          setLiveError(error instanceof Error ? error.message : String(error))
         }
-      } catch (error) {
-        setLiveError(error instanceof Error ? error.message : String(error))
+      }
+      socket.onerror = () => setLiveError('Live feed disconnected')
+      socket.onclose = () => {
+        if (closed) return
+        retry += 1
+        setConnectionStatus('reconnecting')
+        window.setTimeout(connect, Math.min(10000, 500 * 2 ** retry))
       }
     }
-    socket.onerror = () => setLiveError('Live feed disconnected')
-    return () => socket.close()
+
+    connect()
+    return () => {
+      closed = true
+      setConnectionStatus('disconnected')
+      socket?.close()
+    }
   }, [iterationId])
 
   return {
@@ -81,6 +110,8 @@ export function useIterationLive(iterationId: string | null) {
     docName,
     docText,
     liveError,
+    connectionStatus,
+    lastMessageAt,
     loadDetail,
     loadDocument,
   }

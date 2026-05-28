@@ -1,15 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Mode } from '../types'
 
 interface Props {
   disabled: boolean
+  defaultGoal?: string
   onCreate: (goal: string, mode: Mode | null) => Promise<void>
 }
 
-export function CreateIterationPanel({ disabled, onCreate }: Props) {
-  const [goal, setGoal] = useState('Build a spec-first pipeline dashboard')
+export function CreateIterationPanel({ disabled, defaultGoal = 'Build a spec-first pipeline dashboard', onCreate }: Props) {
+  const [goal, setGoal] = useState(defaultGoal)
   const [mode, setMode] = useState<Mode | 'project-default'>('project-default')
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    setGoal(defaultGoal)
+  }, [defaultGoal])
 
   async function handleCreate() {
     if (!goal.trim()) return

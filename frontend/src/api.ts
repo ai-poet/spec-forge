@@ -1,4 +1,14 @@
-import type { IterationDetail, IterationSummary, Mode, ProjectSummary, UpdateProjectInput } from './types'
+import type {
+  CreateEpicInput,
+  EpicDetail,
+  EpicSummary,
+  IterationDetail,
+  IterationSummary,
+  Mode,
+  ProjectSummary,
+  UpdateEpicInput,
+  UpdateProjectInput,
+} from './types'
 
 const API_BASE = 'http://127.0.0.1:8787'
 
@@ -19,6 +29,10 @@ export function listIterations(): Promise<IterationSummary[]> {
 
 export function listIterationsForProject(projectId: string): Promise<IterationSummary[]> {
   return request(`/api/iterations?project_id=${encodeURIComponent(projectId)}`)
+}
+
+export function listIterationsForEpic(epicId: string): Promise<IterationSummary[]> {
+  return request(`/api/iterations?epic_id=${encodeURIComponent(epicId)}`)
 }
 
 export function listProjects(): Promise<ProjectSummary[]> {
@@ -43,9 +57,32 @@ export function updateProject(id: string, input: UpdateProjectInput): Promise<Pr
   })
 }
 
+export function listEpicsForProject(projectId: string): Promise<EpicSummary[]> {
+  return request(`/api/epics?project_id=${encodeURIComponent(projectId)}`)
+}
+
+export function createEpic(input: CreateEpicInput): Promise<EpicSummary> {
+  return request('/api/epics', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function getEpic(id: string): Promise<EpicDetail> {
+  return request(`/api/epics/${id}`)
+}
+
+export function updateEpic(id: string, input: UpdateEpicInput): Promise<EpicSummary> {
+  return request(`/api/epics/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
 export function createIteration(input: {
   project_name?: string
   project_id?: string
+  epic_id?: string | null
   goal: string
   mode?: Mode | null
   test_command?: string | null
