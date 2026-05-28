@@ -167,6 +167,18 @@ export function DashboardPage() {
     }
   }
 
+  async function handleDeleteProject(projectId: string) {
+    setBusy(true)
+    try {
+      await projects.removeProject(projectId)
+      setSettingsOpen(false)
+      setSelectedIterationId(null)
+      epics.setSelectedEpicId(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   function handleSelectProject(id: string) {
     projects.setSelectedProjectId(id)
     setSettingsOpen(false)
@@ -215,7 +227,12 @@ export function DashboardPage() {
                 返回工作台
               </button>
             </div>
-            <ProjectConfigPanel project={projects.selectedProject} busy={busy} onSave={handleSaveProject} />
+            <ProjectConfigPanel
+              project={projects.selectedProject}
+              busy={busy}
+              onSave={handleSaveProject}
+              onDelete={handleDeleteProject}
+            />
           </div>
         ) : (
           <>

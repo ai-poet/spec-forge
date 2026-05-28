@@ -5,9 +5,10 @@ interface Props {
   project: ProjectSummary | null
   busy: boolean
   onSave: (projectId: string, input: UpdateProjectInput) => Promise<void>
+  onDelete: (projectId: string) => Promise<void>
 }
 
-export function ProjectConfigPanel({ project, busy, onSave }: Props) {
+export function ProjectConfigPanel({ project, busy, onSave, onDelete }: Props) {
   const [defaultMode, setDefaultMode] = useState<Mode>('dry-run')
   const [defaultTestCommand, setDefaultTestCommand] = useState('')
   const [coderRetries, setCoderRetries] = useState(5)
@@ -34,7 +35,17 @@ export function ProjectConfigPanel({ project, busy, onSave }: Props) {
     })
   }
 
+  async function handleDelete() {
+    if (!project) return
+    const confirmed = window.confirm(
+      `确定从 SpecForge 移除「${project.name}」？\n\n本地文件夹不会被删除，只是不再出现在项目列表中。`,
+    )
+    if (!confirmed) return
+    await onDelete(project.id)
+  }
+
   return (
+    <>
     <section className="surface stack">
       <div className="section-row">
         <div>
@@ -71,5 +82,16 @@ export function ProjectConfigPanel({ project, busy, onSave }: Props) {
         </label>
       </div>
     </section>
+
+    <section className="surface stack danger-zone">
+      <div>
+        <h2 className="section-title">移除项目</h2>
+        <p className="muted">从 SpecForge 项目列表中移除，不会删除本地文件夹或 `.specforge` 产物。</p>
+      </div>
+      <button type="button" className="btn danger" onClick={handleDelete} disabled={busy || !project}>
+        从 SpecForge 移除
+      </button>
+    </section>
+    </>
   )
 }

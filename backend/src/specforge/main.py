@@ -162,6 +162,22 @@ def update_project(project_id: str, payload: UpdateProjectRequest) -> ProjectSum
     return project_summary(updated, project_counts(project_id))
 
 
+_TERMINAL_ITERATION_STATUSES = {"delivered", "blocked", "blocked_user", "failed", "stopped"}
+
+
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: str) -> dict[str, bool]:
+    row = db.get_project_row(project_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    for iteration in db.list_iterations(project_id=project_id):
+        if iteration["status"] not in _TERMINAL_ITERATION_STATUSES:
+            pipeline.stop_iteration(iteration["id"], "project deleted")
+    if not db.delete_project(project_id):
+        raise HTTPException(status_code=404, detail="project not found")
+    return {"ok": True}
+
+
 @app.get("/api/epics", response_model=list[EpicSummary])
 def list_epics(project_id: str = Query()) -> list[EpicSummary]:
     if db.get_project_row(project_id) is None:

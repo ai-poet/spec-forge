@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { createProject, listProjects, updateProject } from '../../../shared/lib/api'
+import { createProject, deleteProject, listProjects, updateProject } from '../../../shared/lib/api'
 import type { CreateProjectInput, ProjectSummary, UpdateProjectInput } from '../../../shared/lib/types'
 
 export function useProjects() {
@@ -38,6 +38,15 @@ export function useProjects() {
     [refreshProjects],
   )
 
+  const removeProject = useCallback(
+    async (projectId: string) => {
+      await deleteProject(projectId)
+      setSelectedProjectId((current) => (current === projectId ? null : current))
+      await refreshProjects()
+    },
+    [refreshProjects],
+  )
+
   useEffect(() => {
     refreshProjects().catch(console.error)
   }, [refreshProjects])
@@ -51,5 +60,6 @@ export function useProjects() {
     refreshProjects,
     addProject,
     saveProject,
+    removeProject,
   }
 }

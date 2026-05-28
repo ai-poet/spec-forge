@@ -92,6 +92,12 @@ export function updateProject(id: string, input: UpdateProjectInput): Promise<Pr
   })
 }
 
+export function deleteProject(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/projects/${id}`, {
+    method: 'DELETE',
+  })
+}
+
 export function listEpicsForProject(projectId: string): Promise<EpicSummary[]> {
   return request(`/api/epics?project_id=${encodeURIComponent(projectId)}`)
 }

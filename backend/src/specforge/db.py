@@ -246,6 +246,15 @@ class Database:
         with self.connect() as conn:
             return conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
 
+    def delete_project(self, project_id: str) -> bool:
+        with self.connect() as conn:
+            exists = conn.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+            if exists is None:
+                return False
+            conn.execute("DELETE FROM iterations WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        return True
+
     def create_epic(
         self,
         *,

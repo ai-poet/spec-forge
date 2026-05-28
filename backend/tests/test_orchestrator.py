@@ -74,6 +74,26 @@ def test_duplicate_root_path_returns_409(tmp_path):
     assert second.status_code == 409
 
 
+def test_delete_project(tmp_path):
+    project = post_project(tmp_path, "delete-me")
+    project_id = project.json()["id"]
+    epic = client.post("/api/epics", json={"project_id": project_id, "title": "Epic"})
+    assert epic.status_code == 200
+    iteration = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "epic_id": epic.json()["id"], "goal": "test delete", "mode": "dry-run"},
+    )
+    assert iteration.status_code == 200
+    drain_jobs()
+
+    resp = client.delete(f"/api/projects/{project_id}")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert client.get(f"/api/projects/{project_id}").status_code == 404
+    assert client.get("/api/epics", params={"project_id": project_id}).status_code == 404
+    assert client.get("/api/iterations", params={"project_id": project_id}).json() == []
+
+
 def test_iteration_workspace_under_project_root(tmp_path):
     project = post_project(tmp_path, "workspace-project")
     project_id = project.json()["id"]
