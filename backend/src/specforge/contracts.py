@@ -90,16 +90,62 @@ def parse_json_artifact(raw: str, model: type[BaseModel]) -> BaseModel:
     text = raw.strip()
     if not text:
         raise ValueError("empty artifact output")
-    payload = _decode_payload(text)
+    payload = _decode_payload(_artifact_candidate(text))
     if isinstance(payload, dict) and "result" in payload and isinstance(payload["result"], str):
         payload = _decode_payload(payload["result"].strip())
+    if isinstance(payload, dict) and "structured_output" in payload:
+        payload = payload["structured_output"]
     try:
         return model.model_validate(payload)
     except ValidationError as exc:
         raise ValueError(str(exc)) from exc
 
 
+def _artifact_candidate(text: str):
+    for line in reversed([line.strip() for line in text.splitlines() if line.strip()]):
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        candidate = _artifact_from_event(payload)
+        if candidate is not None:
+            return candidate
+    return text
+
+
+def _artifact_from_event(payload):
+    if not isinstance(payload, dict):
+        return None
+    if "structured_output" in payload:
+        return payload["structured_output"]
+    if isinstance(payload.get("result"), str):
+        return payload["result"].strip()
+    item = payload.get("item")
+    if isinstance(item, dict):
+        candidate = _artifact_from_event(item)
+        if candidate is not None:
+            return candidate
+        if item.get("type") in {"agent_message", "message"} and isinstance(item.get("text"), str):
+            return item["text"].strip()
+    params = payload.get("params")
+    if isinstance(params, dict):
+        candidate = _artifact_from_event(params)
+        if candidate is not None:
+            return candidate
+    if payload.get("type") == "assistant":
+        message = payload.get("message")
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, list):
+                text = "".join(block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text")
+                if text.strip():
+                    return text.strip()
+    return None
+
+
 def _decode_payload(text: str):
+    if isinstance(text, dict):
+        return text
     try:
         return json.loads(text)
     except json.JSONDecodeError:

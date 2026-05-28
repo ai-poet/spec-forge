@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
+from pydantic import BaseModel
 from typing_extensions import TypedDict
 
 from .cli_runner import BaseRunner, CLIResult, DryRunRunner, RealCLIRunner
@@ -523,10 +524,28 @@ class LangGraphPipeline:
         iteration_id = state["iteration_id"]
         current_node = state.get("current_node") or "agent"
         seen_output = {"stdout": False, "stderr": False}
+        seen_cli_events: set[str] = set()
 
         def on_output(stream: str, chunk: str) -> None:
             if not chunk.strip():
                 return
+            if stream == "stdout" and self._is_real_cli(state.get("mode")):
+                for event in self._native_cli_events(chunk):
+                    key = event.get("key")
+                    if key and key in seen_cli_events:
+                        continue
+                    if key:
+                        seen_cli_events.add(key)
+                    self._node_event(
+                        iteration_id,
+                        "node.progress",
+                        str(current_node),
+                        event["title"],
+                        event["message"],
+                        severity=event["severity"],
+                    )
+                if seen_cli_events:
+                    return
             if seen_output[stream]:
                 return
             seen_output[stream] = True
@@ -540,6 +559,69 @@ class LangGraphPipeline:
             )
 
         return runner.run(command, cwd=self.project_root(iteration_id), on_output=on_output)
+
+    def _native_cli_events(self, chunk: str) -> list[dict[str, str]]:
+        events: list[dict[str, str]] = []
+        for line in [line.strip() for line in chunk.splitlines() if line.strip()]:
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            event = self._present_native_cli_event(payload)
+            if event:
+                events.append(event)
+        return events
+
+    def _present_native_cli_event(self, payload: dict[str, Any]) -> Optional[dict[str, str]]:
+        msg = payload.get("msg") if isinstance(payload.get("msg"), dict) else {}
+        event_type = str(payload.get("type") or payload.get("event") or msg.get("type") or "")
+        item = payload.get("item") if isinstance(payload.get("item"), dict) else msg.get("item") if isinstance(msg.get("item"), dict) else {}
+        item_type = str(item.get("type") or "")
+        subtype = str(payload.get("subtype") or "")
+        if event_type == "system" and subtype == "init":
+            return {"key": "claude.init", "title": "Claude Code 会话已初始化", "message": "CLI 已完成会话启动，正在准备工具和上下文。", "severity": "info"}
+        if event_type == "assistant":
+            return {"key": "claude.assistant", "title": "Claude 正在生成方案", "message": "模型正在输出规划或实现内容，最终 artifact 会由后端解析。", "severity": "info"}
+        if event_type == "result":
+            return {"key": "claude.result", "title": "Claude 输出已完成", "message": "CLI 已返回最终结果，正在进入 artifact 校验。", "severity": "success"}
+        if event_type == "thread.started":
+            return {"key": "codex.thread.started", "title": "Codex 验证会话已启动", "message": "Tester 已创建独立执行线程，准备运行验证。", "severity": "info"}
+        if event_type == "turn.started":
+            return {"key": "codex.turn.started", "title": "Codex 回合已开始", "message": "Tester 正在分析任务、执行命令或准备验证报告。", "severity": "info"}
+        if event_type == "turn.completed":
+            return {"key": "codex.turn.completed", "title": "Codex 回合已完成", "message": "Tester 已完成本轮验证输出，正在解析报告。", "severity": "success"}
+        if event_type == "turn.failed":
+            return {"key": "codex.turn.failed", "title": "Codex 回合失败", "message": "Tester 执行过程中出现失败，详情保存在原始日志。", "severity": "error"}
+        if event_type == "item.started":
+            return {"key": f"codex.item.started.{item_type}", "title": self._codex_item_title(item_type, started=True), "message": self._codex_item_message(item, started=True), "severity": "info"}
+        if event_type == "item.completed":
+            return {"key": f"codex.item.completed.{item_type}", "title": self._codex_item_title(item_type, started=False), "message": self._codex_item_message(item, started=False), "severity": "success" if item_type != "command_execution" else "info"}
+        if event_type == "agent_reasoning":
+            return {"key": "codex.agent_reasoning", "title": "Codex 正在推理", "message": str(payload.get("text") or "Tester 正在形成验证判断。"), "severity": "info"}
+        if event_type == "agent_message":
+            return {"key": "codex.agent_message", "title": "Codex 已生成验证说明", "message": "Tester 正在输出最终报告内容。", "severity": "info"}
+        return None
+
+    def _codex_item_title(self, item_type: str, *, started: bool) -> str:
+        action = "开始" if started else "完成"
+        labels = {
+            "reasoning": "推理",
+            "agent_reasoning": "推理",
+            "agent_message": "报告输出",
+            "command_execution": "命令执行",
+            "tool_call": "工具调用",
+        }
+        return f"Codex {labels.get(item_type, item_type or '步骤')}{action}"
+
+    def _codex_item_message(self, item: dict[str, Any], *, started: bool) -> str:
+        command = item.get("command") or item.get("cmd")
+        if isinstance(command, list):
+            command_text = " ".join(map(str, command))
+            return f"{'正在执行' if started else '已执行'}命令: {command_text}"
+        text = item.get("text") or item.get("summary")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+        return "原始 CLI 事件已保存，可以在日志中展开查看。"
 
     def _is_real_cli(self, mode: Optional[str]) -> bool:
         return mode == Mode.real_cli.value or settings.mode == Mode.real_cli.value
@@ -556,7 +638,21 @@ class LangGraphPipeline:
                 "{id,title,kind:web|native,target:{url|bundle_id|app_name},steps:[{action,text,value,key,keys,direction,amount}]}. "
                 f"Goal: {state['goal']}"
             )
-            command = ["claude", "-p", "--output-format", "json", "--permission-mode", "plan", prompt]
+            command = [
+                "claude",
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--input-format",
+                "text",
+                "--permission-mode",
+                "plan",
+                "--verbose",
+                "--include-partial-messages",
+                "--json-schema",
+                self._artifact_schema_inline(PlannerArtifact),
+                prompt,
+            ]
             model = self._project_field(state, "planner_model")
             if model:
                 command[1:1] = ["--model", model]
@@ -573,7 +669,21 @@ class LangGraphPipeline:
                 "{changed_paths:[string], summary:string, clarification_request?:string}. "
                 f"Failure notes to address: {notes}"
             )
-            command = ["claude", "-p", "--output-format", "json", "--permission-mode", "acceptEdits", prompt]
+            command = [
+                "claude",
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--input-format",
+                "text",
+                "--permission-mode",
+                "acceptEdits",
+                "--verbose",
+                "--include-partial-messages",
+                "--json-schema",
+                self._artifact_schema_inline(CoderArtifact),
+                prompt,
+            ]
             model = self._project_field(state, "coder_model")
             if model:
                 command[1:1] = ["--model", model]
@@ -591,12 +701,32 @@ class LangGraphPipeline:
                 "ui_results?:[], ui_warnings?:[], adversarial_tests:[{path:string, content:string}]}. "
                 "Only propose adversarial tests under tests/adversarial."
             )
-            command = ["codex", "exec", "--sandbox", "workspace-write", "--skip-git-repo-check", prompt]
+            command = [
+                "codex",
+                "exec",
+                "--json",
+                "--output-schema",
+                str(self._artifact_schema_file(iteration_id, "tester_artifact", TesterArtifact)),
+                "--sandbox",
+                "workspace-write",
+                "--skip-git-repo-check",
+                prompt,
+            ]
             model = self._project_field(state, "tester_model")
             if model:
                 command[2:2] = ["--model", model]
             return command
         return ["specforge", "tester", iteration_id]
+
+    def _artifact_schema_inline(self, model: type[BaseModel]) -> str:
+        return json.dumps(model.model_json_schema(), ensure_ascii=False)
+
+    def _artifact_schema_file(self, iteration_id: str, name: str, model: type[BaseModel]) -> Path:
+        schema_dir = self.project_root(iteration_id) / ".specforge" / "schemas"
+        schema_dir.mkdir(parents=True, exist_ok=True)
+        path = schema_dir / f"{name}.schema.json"
+        path.write_text(json.dumps(model.model_json_schema(), ensure_ascii=False, indent=2), encoding="utf-8")
+        return path
 
     def _project_field(self, state: PipelineState, field: str) -> Optional[str]:
         project_id = state.get("project_id")

@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from specforge import contracts as contract_models
 from specforge.contracts import ArtifactFile, PlannerArtifact, UIDriverRunResult, UITestResult, UITestSpec, parse_json_artifact
 from specforge.docs_io import compare_test_integrity, test_integrity_manifest as build_test_integrity_manifest
 from specforge.main import app, job_queue, pipeline
@@ -212,6 +213,33 @@ def test_parse_claude_wrapped_artifact():
     artifact = parse_json_artifact(raw, PlannerArtifact)
     assert artifact.system_design == "a"
     assert artifact.tests[0].path == "tests/unit/test_a.py"
+
+
+def test_parse_artifact_from_stream_json_lines():
+    raw = (
+        '{"type":"system","subtype":"init"}\n'
+        '{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}\n'
+        '{"type":"result","result":"{\\"system_design\\":\\"a\\",\\"modification_plan\\":\\"b\\",\\"testing_plan\\":\\"c\\",\\"tests\\":[]}"}\n'
+    )
+    artifact = parse_json_artifact(raw, PlannerArtifact)
+    assert artifact.system_design == "a"
+
+
+def test_parse_artifact_from_codex_jsonl_item_message():
+    raw = (
+        '{"type":"thread.started"}\n'
+        '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"verify_report\\":\\"# Verify Report\\\\nPass\\",\\"passed\\":true,\\"ux_notes\\":[],\\"delivery_recommendations\\":[],\\"adversarial_tests\\":[]}"}}\n'
+    )
+    artifact = parse_json_artifact(raw, contract_models.TesterArtifact)
+    assert artifact.passed is True
+    assert "Pass" in artifact.verify_report
+
+
+def test_native_cli_events_are_presented_as_semantic_progress():
+    event = pipeline._present_native_cli_event({"type": "item.started", "item": {"type": "command_execution", "command": ["pytest", "-q"]}})
+    assert event
+    assert event["title"] == "Codex 命令执行开始"
+    assert "pytest -q" in event["message"]
 
 
 def test_ui_spec_schema_validates():
