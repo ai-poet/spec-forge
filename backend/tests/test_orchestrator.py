@@ -273,8 +273,14 @@ def test_invalid_approval_returns_409():
     iteration_id = resp.json()["id"]
     drain_jobs()
 
-    invalid = client.post(f"/api/iterations/{iteration_id}/approve-verify", json={"note": "too early"})
-    assert invalid.status_code == 409
+    invalid_design = client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "removed checkpoint"})
+    assert invalid_design.status_code == 409
+
+    client.post(f"/api/iterations/{iteration_id}/approve-verify", json={"note": "ok"})
+    drain_jobs()
+
+    invalid_verify = client.post(f"/api/iterations/{iteration_id}/approve-verify", json={"note": "already delivered"})
+    assert invalid_verify.status_code == 409
 
 
 def test_project_config_is_inherited(tmp_path):
