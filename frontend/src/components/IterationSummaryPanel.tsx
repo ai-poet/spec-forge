@@ -1,5 +1,6 @@
 import { eventLabel, graphNodeLabel, iterationStatusLabel, nodeLabel, retryLabel } from '../labels'
 import type { IterationDetail } from '../types'
+import { documentSummary, presentEvent } from '../presentation'
 
 interface Props {
   detail: IterationDetail | null
@@ -24,6 +25,9 @@ export function IterationSummaryPanel({ detail }: Props) {
     ? adviceEvent.payload.delivery_recommendations.map(String)
     : []
   const currentNode = detail?.current_node ? nodeLabel[detail.current_node] : detail?.graph_next.map(graphNodeLabel).join(', ') || '结束'
+  const latest = detail?.events.map(presentEvent).filter((event) => event.type.startsWith('node.') || event.type.startsWith('artifact.')).slice(-1)[0]
+  const docs = documentSummary(detail)
+  const error = detail?.events.map(presentEvent).filter((event) => event.severity === 'error').slice(-1)[0]
 
   return (
     <section className="panel stack">
@@ -36,7 +40,14 @@ export function IterationSummaryPanel({ detail }: Props) {
             <span>模式: {detail.mode}</span>
             <span>节点: {currentNode}</span>
             <span>测试命令: {detail.test_command ?? '使用项目默认值'}</span>
+            <span>产物: {detail.documents.length} 份</span>
           </div>
+          {latest ? (
+            <div className={`status-narrative ${latest.severity}`}>
+              <strong>{latest.title}</strong>
+              <span>{latest.message}</span>
+            </div>
+          ) : null}
           {Object.keys(detail.retry_counts).length ? (
             <div className="retry-row">
               {Object.entries(detail.retry_counts).map(([key, value]) => (
@@ -44,7 +55,12 @@ export function IterationSummaryPanel({ detail }: Props) {
               ))}
             </div>
           ) : null}
-          {detail.last_error ? <div className="error-banner">{detail.last_error}</div> : null}
+          {error ? <div className="error-banner"><strong>{error.title}</strong><p>{error.message}</p>{error.action_hint ? <small>{error.action_hint}</small> : null}</div> : null}
+          <div className="artifact-summary">
+            {docs.map((doc) => (
+              <span key={doc.name} className={`artifact-chip ${doc.present ? 'present' : ''}`}>{doc.present ? '✓' : '·'} {doc.label}</span>
+            ))}
+          </div>
           <div className="summary-columns">
             <div>
               <strong>变更路径</strong>

@@ -1,5 +1,6 @@
 import type { IterationDetail, TimelineFilter } from '../types'
-import { eventLabel, timelineFilterLabel } from '../labels'
+import { timelineFilterLabel } from '../labels'
+import { presentEvent } from '../presentation'
 
 interface Props {
   detail: IterationDetail | null
@@ -17,7 +18,7 @@ function matchesFilter(type: string, filter: TimelineFilter) {
 }
 
 export function TimelinePanel({ detail, filter = 'all', onFilterChange }: Props) {
-  const events = detail?.events.filter((event) => matchesFilter(event.type, filter)) ?? []
+  const events = detail?.events.filter((event) => matchesFilter(event.type, filter)).map(presentEvent) ?? []
   return (
     <section className="panel stack">
       <div className="section-row">
@@ -34,9 +35,17 @@ export function TimelinePanel({ detail, filter = 'all', onFilterChange }: Props)
       </div>
       <div className="timeline">
         {events.map((event) => (
-          <div key={event.id} className={`item event-item ${event.type.includes('failed') || event.type.includes('blocked') ? 'danger' : event.type.includes('warning') ? 'warning' : ''}`}>
-            <strong>{eventLabel(event.type)}</strong>
-            <div className="muted event-json">{JSON.stringify(event.payload)}</div>
+          <div key={event.id} className={`item event-item ${event.severity}`}>
+            <div className="item-head">
+              <strong>{event.title}</strong>
+              <span className={`status-dot ${event.severity}`}>{event.node}</span>
+            </div>
+            <div className="muted">{event.message}</div>
+            {event.action_hint ? <div className="event-hint">{event.action_hint}</div> : null}
+            <details className="event-details">
+              <summary>查看详情</summary>
+              <pre className="event-json">{JSON.stringify(event.raw.payload, null, 2)}</pre>
+            </details>
           </div>
         ))}
         {!events.length ? <div className="empty">暂无事件</div> : null}

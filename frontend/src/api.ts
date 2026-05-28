@@ -18,9 +18,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
+    throw new Error(await readableHttpError(response))
   }
   return response.json() as Promise<T>
+}
+
+async function readableHttpError(response: Response): Promise<string> {
+  let detail: unknown
+  try {
+    const payload = await response.json()
+    detail = payload?.detail
+  } catch {
+    detail = undefined
+  }
+  const message = typeof detail === 'string'
+    ? detail
+    : detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string'
+      ? detail.message
+      : undefined
+  if (response.status === 404) return message ?? '没有找到对应的项目、需求或迭代。'
+  if (response.status === 409) return message ?? '当前状态不允许执行这个操作，请刷新后确认流水线状态。'
+  if (response.status === 422) return message ?? '输入内容不完整或格式不正确，请检查表单。'
+  if (response.status >= 500) return message ?? '后端执行出错，请查看事件流和运行日志。'
+  return message ?? `请求失败，状态码 ${response.status}。`
 }
 
 export function listIterations(): Promise<IterationSummary[]> {

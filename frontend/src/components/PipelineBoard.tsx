@@ -7,14 +7,14 @@ interface Props {
 }
 
 const steps = [
-  { key: 'planner', label: '规划' },
-  { key: 'design_approval', label: '设计审批' },
-  { key: 'coder', label: '实现' },
-  { key: 'integrity_check', label: '测试完整性' },
-  { key: 'tester', label: '独立验证' },
-  { key: 'planner_verify', label: '规格复核' },
-  { key: 'verify_approval', label: '验证确认' },
-  { key: 'done', label: '交付完成' },
+  { key: 'planner', label: '规划', hint: '生成设计、计划和测试' },
+  { key: 'design_approval', label: '设计审批', hint: '人工确认规格' },
+  { key: 'coder', label: '实现', hint: '写入代码变更' },
+  { key: 'integrity_check', label: '测试完整性', hint: '保护测试基线' },
+  { key: 'tester', label: '独立验证', hint: '运行验证与交付评审' },
+  { key: 'planner_verify', label: '规格复核', hint: '机械检查报告' },
+  { key: 'verify_approval', label: '验证确认', hint: '人工确认交付' },
+  { key: 'done', label: '交付完成', hint: '归档本轮结果' },
 ]
 
 const stepStateLabel: Record<string, string> = {
@@ -70,6 +70,7 @@ export function PipelineBoard({ detail, liveError }: Props) {
             <div key={step.key} className={`graph-step ${state}`}>
               <strong>{step.label}</strong>
               <span>{stepStateLabel[state]}</span>
+              <small>{step.hint}</small>
             </div>
           )
         })}

@@ -86,6 +86,31 @@ export interface EventRecord {
   created_at: string
 }
 
+export type EventSeverity = 'info' | 'success' | 'warning' | 'error'
+
+export interface SemanticEvent {
+  id: string
+  type: string
+  node: string
+  title: string
+  message: string
+  severity: EventSeverity
+  created_at: string
+  run_id?: string
+  document?: string
+  action_hint?: string
+  raw: EventRecord
+}
+
+export interface AgentActivityItem extends SemanticEvent {}
+
+export interface ReadableError {
+  title: string
+  message: string
+  action_hint: string
+  severity: EventSeverity
+}
+
 export interface NodeRunRecord {
   id: string
   node: NodeName

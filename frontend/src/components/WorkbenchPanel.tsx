@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { IterationDetail, TimelineFilter } from '../types'
 import { documentLabel } from '../labels'
 import { DocumentPanel } from './DocumentPanel'
+import { AgentActivityPanel } from './AgentActivityPanel'
 import { IterationSummaryPanel } from './IterationSummaryPanel'
 import { RunLogPanel } from './RunLogPanel'
 import { TimelinePanel } from './TimelinePanel'
@@ -38,7 +39,10 @@ export function WorkbenchPanel({ detail, docText, onLoadDocument }: Props) {
 
       {tab === 'summary' ? (
         <div className="grid">
-          <IterationSummaryPanel detail={detail} />
+          <div className="stack">
+            <IterationSummaryPanel detail={detail} />
+            <AgentActivityPanel detail={detail} />
+          </div>
           <TimelinePanel detail={detail} filter={timelineFilter} onFilterChange={setTimelineFilter} />
         </div>
       ) : null}

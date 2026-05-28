@@ -92,6 +92,7 @@ export function useIterationLive(iterationId: string | null) {
       socket.onclose = () => {
         if (closed) return
         retry += 1
+        setLiveError('实时连接断开，正在重连')
         setConnectionStatus('reconnecting')
         window.setTimeout(connect, Math.min(10000, 500 * 2 ** retry))
       }

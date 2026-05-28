@@ -1,5 +1,6 @@
 import type { IterationDetail } from '../types'
 import { documentLabel } from '../labels'
+import { documentSummary } from '../presentation'
 
 interface Props {
   detail: IterationDetail | null
@@ -8,9 +9,22 @@ interface Props {
 }
 
 export function DocumentPanel({ detail, docText, onLoadDocument }: Props) {
+  const summaries = documentSummary(detail)
   return (
     <section className="panel stack">
       <h2 className="section-title">文档</h2>
+      <div className="artifact-summary">
+        {summaries.map((doc) => (
+          <button
+            key={doc.name}
+            className={`artifact-chip ${doc.present ? 'present' : ''}`}
+            onClick={() => doc.present && onLoadDocument(doc.name)}
+            disabled={!doc.present}
+          >
+            {doc.present ? '✓' : '·'} {doc.label}
+          </button>
+        ))}
+      </div>
       <div className="actions">
         {detail?.documents.map((doc) => (
           <button key={doc.name} className="btn" onClick={() => onLoadDocument(doc.name)}>
