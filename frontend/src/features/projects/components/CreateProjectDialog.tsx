@@ -1,35 +1,45 @@
 import { useMemo, useState } from 'react'
 import { validateProjectPath } from '../../../shared/lib/api'
 import type { CreateProjectInput } from '../../../shared/lib/types'
+import { FolderPicker } from './FolderPicker'
 
 type FolderMode = 'open' | 'create'
 
 interface Props {
+  embedded?: boolean
   onCreate: (input: CreateProjectInput) => Promise<void>
 }
 
-export function CreateProjectDialog({ onCreate }: Props) {
+export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
   const [mode, setMode] = useState<FolderMode>('open')
-  const [rootPath, setRootPath] = useState('')
+  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [folderName, setFolderName] = useState('')
   const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
   const [busy, setBusy] = useState(false)
   const [validationMessage, setValidationMessage] = useState<string | null>(null)
   const [validationOk, setValidationOk] = useState<boolean | null>(null)
 
+  const targetPath = useMemo(() => {
+    if (!selectedPath) return ''
+    if (mode === 'open') return selectedPath
+    const trimmed = folderName.trim()
+    if (!trimmed) return selectedPath
+    return `${selectedPath.replace(/\/+$/, '')}/${trimmed}`
+  }, [selectedPath, folderName, mode])
+
   const suggestedName = useMemo(() => {
-    const trimmed = rootPath.trim()
-    if (!trimmed) return ''
-    const parts = trimmed.split('/').filter(Boolean)
+    if (mode === 'create' && folderName.trim()) return folderName.trim()
+    if (!targetPath) return ''
+    const parts = targetPath.split('/').filter(Boolean)
     return parts[parts.length - 1] ?? ''
-  }, [rootPath])
+  }, [targetPath, folderName, mode])
 
   async function handleValidate() {
-    if (!rootPath.trim()) return
+    if (!targetPath) return
     setBusy(true)
     try {
       const result = await validateProjectPath({
-        root_path: rootPath.trim(),
+        root_path: targetPath,
         create_if_missing: mode === 'create',
       })
       setValidationOk(result.ok)
@@ -47,18 +57,17 @@ export function CreateProjectDialog({ onCreate }: Props) {
   }
 
   async function handleCreate() {
-    if (!rootPath.trim()) return
+    if (!targetPath) return
     setBusy(true)
     try {
       await onCreate({
-        root_path: rootPath.trim(),
+        root_path: targetPath,
         create_if_missing: mode === 'create',
         name: name.trim() || suggestedName || undefined,
-        description: description.trim() || undefined,
       })
-      setRootPath('')
+      setSelectedPath(null)
+      setFolderName('')
       setName('')
-      setDescription('')
       setValidationMessage(null)
       setValidationOk(null)
     } finally {
@@ -66,44 +75,86 @@ export function CreateProjectDialog({ onCreate }: Props) {
     }
   }
 
+  function handleModeChange(next: FolderMode) {
+    setMode(next)
+    setValidationOk(null)
+    setValidationMessage(null)
+    if (next === 'open') {
+      setFolderName('')
+    }
+  }
+
+  function handleSelectPath(path: string) {
+    setSelectedPath(path)
+    setValidationOk(null)
+    setValidationMessage(null)
+    if (mode === 'open' && !name.trim()) {
+      const parts = path.split('/').filter(Boolean)
+      setName(parts[parts.length - 1] ?? '')
+    }
+  }
+
   return (
-    <section className="panel stack create-project-dialog">
-      <h2 className="section-title">新建项目</h2>
+    <section className={`create-project-dialog stack ${embedded ? 'embedded' : 'surface'}`}>
+      {!embedded ? <h2 className="section-title">打开 / 新建项目</h2> : null}
+
       <div className="folder-mode-toggle">
         <label className="folder-mode-option">
-          <input type="radio" name="folder-mode" checked={mode === 'open'} onChange={() => setMode('open')} />
-          打开已有目录
+          <input type="radio" name="folder-mode" checked={mode === 'open'} onChange={() => handleModeChange('open')} />
+          打开已有文件夹
         </label>
         <label className="folder-mode-option">
-          <input type="radio" name="folder-mode" checked={mode === 'create'} onChange={() => setMode('create')} />
-          创建新目录
+          <input type="radio" name="folder-mode" checked={mode === 'create'} onChange={() => handleModeChange('create')} />
+          在此目录下新建项目文件夹
         </label>
       </div>
-      <div className="form compact">
+
+      <FolderPicker selectedPath={selectedPath} onSelectPath={handleSelectPath} />
+
+      {mode === 'create' ? (
+        <label className="folder-name-field">
+          <span>新建文件夹名称</span>
+          <input
+            value={folderName}
+            onChange={(event) => {
+              setFolderName(event.target.value)
+              setValidationOk(null)
+              setValidationMessage(null)
+              if (!name.trim()) {
+                setName(event.target.value.trim())
+              }
+            }}
+            placeholder="my-app"
+          />
+        </label>
+      ) : null}
+
+      <label className="folder-name-field">
+        <span>项目显示名称（可选）</span>
         <input
-          value={rootPath}
-          onChange={(event) => {
-            setRootPath(event.target.value)
-            setValidationOk(null)
-            setValidationMessage(null)
-          }}
-          placeholder="/Users/me/Projects/my-app"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder={suggestedName || '默认使用文件夹名'}
         />
-        <input value={name} onChange={(event) => setName(event.target.value)} placeholder={`显示名称（默认 ${suggestedName || '目录名'}）`} />
-        <input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="描述（可选）" />
-        {validationMessage ? (
-          <p className={validationOk ? 'ok-text' : 'error-text'}>{validationMessage}</p>
-        ) : (
-          <p className="muted">项目会绑定到该文件夹，iteration 产物写入 `.specforge/iterations/`。</p>
-        )}
-        <div className="actions">
-          <button className="btn" onClick={handleValidate} disabled={busy || !rootPath.trim()}>
-            校验路径
-          </button>
-          <button className="btn primary" onClick={handleCreate} disabled={busy || !rootPath.trim()}>
-            创建项目
-          </button>
-        </div>
+      </label>
+
+      {validationMessage ? (
+        <p className={validationOk ? 'ok-text' : 'error-text'}>{validationMessage}</p>
+      ) : (
+        <p className="muted">
+          {mode === 'open'
+            ? '在上方选择已有项目目录，双击文件夹可进入子目录。'
+            : '先选择父目录，再输入要创建的项目文件夹名称。'}
+        </p>
+      )}
+
+      <div className="actions">
+        <button type="button" className="btn btn-ghost" onClick={handleValidate} disabled={busy || !targetPath}>
+          校验路径
+        </button>
+        <button type="button" className="btn primary" onClick={handleCreate} disabled={busy || !targetPath || (mode === 'create' && !folderName.trim())}>
+          {mode === 'open' ? '打开项目' : '创建项目'}
+        </button>
       </div>
     </section>
   )

@@ -28,9 +28,10 @@ from .models import (
     UpdateEpicRequest,
     UpdateProjectRequest,
     ValidateProjectPathRequest,
+    BrowseDirectoryResponse,
 )
 from .pipeline import LangGraphPipeline
-from .project_paths import ProjectPathError, prepare_project_root, validate_project_root
+from .project_paths import ProjectPathError, browse_directory, prepare_project_root, validate_project_root
 
 
 db = Database(settings.db_path)
@@ -97,6 +98,15 @@ def validate_path(payload: ValidateProjectPathRequest) -> dict[str, str | bool]:
     return validate_project_root(payload.root_path, payload.create_if_missing)
 
 
+@app.get("/api/projects/browse", response_model=BrowseDirectoryResponse)
+def browse_projects(path: Optional[str] = Query(default=None)) -> BrowseDirectoryResponse:
+    try:
+        payload = browse_directory(path)
+    except ProjectPathError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return BrowseDirectoryResponse.model_validate(payload)
+
+
 @app.post("/api/projects", response_model=ProjectSummary)
 def create_project(payload: CreateProjectRequest) -> ProjectSummary:
     try:
@@ -115,9 +125,6 @@ def create_project(payload: CreateProjectRequest) -> ProjectSummary:
             description=payload.description,
             default_mode=payload.default_mode.value,
             default_test_command=payload.default_test_command,
-            planner_model=payload.planner_model,
-            coder_model=payload.coder_model,
-            tester_model=payload.tester_model,
             max_coder_tester_retries=payload.max_coder_tester_retries,
             max_clarifications=payload.max_clarifications,
             max_verify_rejects=payload.max_verify_rejects,

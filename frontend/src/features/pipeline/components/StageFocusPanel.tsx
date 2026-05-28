@@ -138,7 +138,7 @@ export function StageFocusPanel({
 
   if (!detail) {
     return (
-      <section className="panel stage-focus">
+      <section className="stage-section">
         <p className="muted">请选择一条流水线查看当前阶段。</p>
       </section>
     )
@@ -147,29 +147,31 @@ export function StageFocusPanel({
   const isBlocked = ['blocked', 'blocked_user', 'stopped', 'failed'].includes(detail.status)
 
   return (
-    <div className="stage-focus stack">
+    <div className="stage-focus">
       {reviewStepKey ? (
         <div className="stage-focus-banner">
           <strong>回顾：{stepMeta?.label}</strong>
-          <span className="muted">只读查看该阶段产物，不影响流水线状态</span>
+          <span className="muted">只读查看该阶段产物</span>
         </div>
       ) : null}
 
-      <ActionPanel
-        detail={detail}
-        busy={busy}
-        onApproveDesign={onApproveDesign}
-        onApproveVerify={onApproveVerify}
-        onStop={onStop}
-      />
+      <div className="action-bar-sticky">
+        <ActionPanel
+          detail={detail}
+          busy={busy}
+          onApproveDesign={onApproveDesign}
+          onApproveVerify={onApproveVerify}
+          onStop={onStop}
+        />
+      </div>
 
       {isBlocked && !reviewStepKey ? (
-        <section className="panel stack">
+        <section className="surface stack stage-section">
           <TimelinePanel detail={detail} filter="failures" />
         </section>
       ) : null}
 
-      <section className="panel stack stage-focus-content">
+      <section className="stage-section stack stage-focus-content">
         <div className="section-row">
           <div>
             <p className="eyebrow">{reviewStepKey ? '阶段回顾' : '当前阶段'}</p>
@@ -177,12 +179,12 @@ export function StageFocusPanel({
             <p className="muted">{stepMeta?.hint}</p>
           </div>
           {!reviewStepKey && focusStep === 'design_approval' ? (
-            <button className="btn" onClick={() => loadFirstDoc(designDocs)}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => loadFirstDoc(designDocs)}>
               打开设计文档
             </button>
           ) : null}
           {!reviewStepKey && focusStep === 'verify_approval' ? (
-            <button className="btn" onClick={() => loadFirstDoc(['verify_report', 'delivery_advice'])}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => loadFirstDoc(['verify_report', 'delivery_advice'])}>
               打开验证报告
             </button>
           ) : null}
@@ -190,10 +192,10 @@ export function StageFocusPanel({
         {renderStepContent()}
       </section>
 
-      <section className="panel stack stage-focus-details">
+      <section className="stage-section stack stage-focus-details">
         <div className="section-row">
           <h2 className="section-title">全部详情</h2>
-          <button className="btn" onClick={() => setShowAllDetails((value) => !value)}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowAllDetails((value) => !value)}>
             {showAllDetails ? '收起' : '展开'}
           </button>
         </div>

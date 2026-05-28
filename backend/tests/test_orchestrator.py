@@ -28,6 +28,19 @@ def test_health():
     assert resp.json()["status"] == "ok"
 
 
+def test_browse_project_directory(tmp_path):
+    root = tmp_path / "browse-root"
+    child = root / "child-app"
+    root.mkdir()
+    child.mkdir()
+    resp = client.get("/api/projects/browse", params={"path": str(root)})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["path"] == str(root.resolve())
+    assert payload["parent"] == str(tmp_path.resolve())
+    assert any(entry["path"] == str(child.resolve()) for entry in payload["entries"])
+
+
 def test_create_project_open_existing_folder(tmp_path):
     root = tmp_path / "existing-app"
     root.mkdir()
@@ -247,9 +260,9 @@ def test_project_config_is_inherited(tmp_path):
     assert project.status_code == 200
     project_id = project.json()["id"]
 
-    update = client.patch(f"/api/projects/{project_id}", json={"tester_model": "gpt-test"})
+    update = client.patch(f"/api/projects/{project_id}", json={"max_coder_tester_retries": 3})
     assert update.status_code == 200
-    assert update.json()["tester_model"] == "gpt-test"
+    assert update.json()["max_coder_tester_retries"] == 3
 
     resp = client.post("/api/iterations", json={"project_id": project_id, "goal": "inherit defaults"})
     assert resp.status_code == 200

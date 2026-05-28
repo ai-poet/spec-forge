@@ -143,10 +143,11 @@ Planner/Tester 必须输出 JSON artifact，后端校验 schema 和路径白名�
 每个项目可以配置：
 
 - 默认运行模式和默认测试命令。
-- Planner / Coder / Tester 模型名。
 - Coder/Tester retry 上限。
 - Coder clarification 上限。
 - Planner verify reject 上限。
+
+`real-cli` 模式下 Planner/Coder 使用 Claude CLI、Tester 使用 Codex CLI 的默认模型，无需在项目里单独配置。
 
 创建 iteration 时会继承项目配置；创建请求里的显式字段优先生效。
 

@@ -56,9 +56,6 @@ class CreateProjectRequest(BaseModel):
     description: Optional[str] = None
     default_mode: Mode = Mode.dry_run
     default_test_command: Optional[str] = None
-    planner_model: Optional[str] = None
-    coder_model: Optional[str] = None
-    tester_model: Optional[str] = None
     max_coder_tester_retries: int = Field(default=5, ge=0, le=20)
     max_clarifications: int = Field(default=3, ge=0, le=20)
     max_verify_rejects: int = Field(default=2, ge=0, le=20)
@@ -69,14 +66,28 @@ class ValidateProjectPathRequest(BaseModel):
     create_if_missing: bool = False
 
 
+class BrowseDirectoryEntry(BaseModel):
+    name: str
+    path: str
+
+
+class BrowseQuickRoot(BaseModel):
+    label: str
+    path: str
+
+
+class BrowseDirectoryResponse(BaseModel):
+    path: str
+    parent: Optional[str] = None
+    entries: list[BrowseDirectoryEntry]
+    quick_roots: list[BrowseQuickRoot] = Field(default_factory=list)
+
+
 class UpdateProjectRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1)
     description: Optional[str] = None
     default_mode: Optional[Mode] = None
     default_test_command: Optional[str] = None
-    planner_model: Optional[str] = None
-    coder_model: Optional[str] = None
-    tester_model: Optional[str] = None
     max_coder_tester_retries: Optional[int] = Field(default=None, ge=0, le=20)
     max_clarifications: Optional[int] = Field(default=None, ge=0, le=20)
     max_verify_rejects: Optional[int] = Field(default=None, ge=0, le=20)

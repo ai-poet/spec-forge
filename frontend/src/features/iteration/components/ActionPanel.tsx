@@ -26,65 +26,46 @@ const readable: Record<string, { title: string; body: string }> = {
 
 export function ActionPanel({ detail, busy, onApproveDesign, onApproveVerify, onStop }: Props) {
   const state = detail ? readable[detail.status] ?? { title: detail.status, body: '查看事件流了解当前状态。' } : null
-  const designDocs = detail?.documents.filter((doc) => ['system_design', 'modification_plan', 'testing_plan'].includes(doc.name)).length ?? 0
-  const verifyReady = detail?.documents.some((doc) => doc.name === 'verify_report') ?? false
   const problem = classifyIterationProblem(detail)
-  const activities = detail?.events.map(presentEvent).filter((event) => event.type.startsWith('node.') || event.type.startsWith('artifact.')) ?? []
-  const latestActivity = activities[activities.length - 1]
   const docs = documentSummary(detail)
   const designReady = docs.filter((doc) => ['system_design', 'modification_plan', 'testing_plan'].includes(doc.name)).every((doc) => doc.present)
-  const warnings = detail?.events.map(presentEvent).filter((event) => event.severity === 'warning').length ?? 0
+  const verifyReady = detail?.documents.some((doc) => doc.name === 'verify_report') ?? false
 
   return (
-    <section className={`panel action-panel ${detail?.status ?? 'empty'}`}>
-      <div>
-        <p className="eyebrow">需要处理</p>
-        <h2>{state?.title ?? '请选择迭代'}</h2>
-        <p className="muted">{state?.body ?? '选中一个迭代后，这里会显示下一步动作。'}</p>
-        {latestActivity ? (
-          <div className={`status-narrative ${latestActivity.severity}`}>
-            <strong>{latestActivity.title}</strong>
-            <span>{latestActivity.message}</span>
-          </div>
-        ) : null}
+    <section className={`action-bar ${detail?.status ?? 'empty'}`}>
+      <div className="action-bar-main">
+        <div>
+          <strong>{state?.title ?? '请选择迭代'}</strong>
+          <p className="muted action-bar-body">{state?.body ?? '选中一条流水线后，这里会显示下一步动作。'}</p>
+        </div>
         {problem ? (
-          <div className={`error-banner ${problem.severity === 'warning' ? 'warning-banner' : ''}`}>
+          <div className={`action-bar-alert ${problem.severity === 'warning' ? 'warning' : 'error'}`}>
             <strong>{problem.title}</strong>
-            <p>{problem.message}</p>
-            <small>{problem.action_hint}</small>
-          </div>
-        ) : null}
-        {detail ? (
-          <div className="summary-grid">
-            <span>{designDocs} 份设计文档</span>
-            <span>{verifyReady ? '验证报告已生成' : '验证报告未生成'}</span>
-            <span>{Object.values(detail.retry_counts).reduce((sum, value) => sum + value, 0)} 次重试</span>
-            <span>{warnings ? `${warnings} 个 warning` : '无 warning'}</span>
+            <span>{problem.message}</span>
           </div>
         ) : null}
         {detail?.status === 'awaiting_design_approval' || detail?.status === 'awaiting_verify_approval' ? (
-          <div className="approval-checklist">
-            <span className={designReady ? 'ok-text' : 'muted'}>{designReady ? '✓' : '·'} 设计/计划/测试文档齐全</span>
-            <span className={verifyReady || detail.status === 'awaiting_design_approval' ? 'ok-text' : 'muted'}>{verifyReady ? '✓' : '·'} 验证报告{verifyReady ? '已生成' : '未生成'}</span>
-            <span className={warnings ? 'warning-text' : 'ok-text'}>{warnings ? '!' : '✓'} {warnings ? '存在 warning，交付前请确认' : '暂无 warning'}</span>
+          <div className="approval-checklist compact-checklist">
+            <span className={designReady ? 'ok-text' : 'muted'}>{designReady ? '✓' : '○'} 设计文档齐全</span>
+            <span className={verifyReady || detail.status === 'awaiting_design_approval' ? 'ok-text' : 'muted'}>{verifyReady ? '✓' : '○'} 验证报告</span>
           </div>
         ) : null}
         {detail?.retry_counts && Object.keys(detail.retry_counts).length ? (
-          <div className="retry-row">
+          <div className="retry-row compact-retry">
             {Object.entries(detail.retry_counts).map(([key, value]) => (
               <span className="pill" key={key}>{retryLabel(key)}: {value}</span>
             ))}
           </div>
         ) : null}
       </div>
-      <div className="actions">
-        <button className="btn primary" onClick={onApproveDesign} disabled={busy || detail?.status !== 'awaiting_design_approval'}>
+      <div className="action-bar-actions">
+        <button type="button" className="btn primary" onClick={onApproveDesign} disabled={busy || detail?.status !== 'awaiting_design_approval'}>
           批准设计
         </button>
-        <button className="btn primary" onClick={onApproveVerify} disabled={busy || detail?.status !== 'awaiting_verify_approval'}>
+        <button type="button" className="btn primary" onClick={onApproveVerify} disabled={busy || detail?.status !== 'awaiting_verify_approval'}>
           确认验证
         </button>
-        <button className="btn" onClick={onStop} disabled={busy || !detail || ['delivered', 'blocked', 'stopped'].includes(detail.status)}>
+        <button type="button" className="btn btn-ghost" onClick={onStop} disabled={busy || !detail || ['delivered', 'blocked', 'stopped'].includes(detail.status)}>
           停止
         </button>
       </div>

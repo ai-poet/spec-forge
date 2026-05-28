@@ -10,6 +10,7 @@ import type {
   UpdateEpicInput,
   UpdateProjectInput,
   ValidateProjectPathResult,
+  BrowseDirectoryResult,
 } from './types'
 
 const API_BASE = 'http://127.0.0.1:8787'
@@ -66,6 +67,11 @@ export function validateProjectPath(input: { root_path: string; create_if_missin
     method: 'POST',
     body: JSON.stringify(input),
   })
+}
+
+export function browseProjectDirectory(path?: string | null): Promise<BrowseDirectoryResult> {
+  const query = path ? `?path=${encodeURIComponent(path)}` : ''
+  return request(`/api/projects/browse${query}`)
 }
 
 export function createProject(input: CreateProjectInput): Promise<ProjectSummary> {

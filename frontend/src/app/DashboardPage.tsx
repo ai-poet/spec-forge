@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { approveDesign, approveVerify, createIteration, listIterationsForEpic, stopIteration } from '../shared/lib/api'
 import { ProjectConfigPanel } from '../features/projects/components/ProjectConfigPanel'
+import { CreateProjectModal } from '../features/projects/components/CreateProjectModal'
 import { ProjectSidebar } from '../features/projects/components/ProjectSidebar'
 import { useEpics } from '../features/epics/hooks/useEpics'
 import { PipelineRail } from '../features/pipeline/components/PipelineRail'
@@ -22,6 +23,7 @@ export function DashboardPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [showCreateEpic, setShowCreateEpic] = useState(false)
   const [showCreateIteration, setShowCreateIteration] = useState(false)
+  const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const live = useIterationLive(selectedIterationId)
 
   const goalPlaceholder = useMemo(() => {
@@ -188,21 +190,28 @@ export function DashboardPage() {
         projects={projects.projects}
         selectedProjectId={projects.selectedProjectId}
         onSelectProject={handleSelectProject}
-        onAddProject={handleAddProject}
+        onOpenCreateModal={() => setCreateProjectOpen(true)}
         settingsOpen={settingsOpen}
         onToggleSettings={() => setSettingsOpen((value) => !value)}
       />
 
-      <main className="main workspace-main stack">
+      <CreateProjectModal
+        open={createProjectOpen}
+        onClose={() => setCreateProjectOpen(false)}
+        onCreate={handleAddProject}
+      />
+
+      <main className="main workspace-main">
+        <div className="workspace-scroll">
         {settingsOpen && projects.selectedProject ? (
-          <div className="stack">
+          <div className="settings-view stack">
             <div className="section-row">
               <div>
                 <p className="eyebrow">项目设置</p>
                 <h1 className="workspace-title">{projects.selectedProject.name}</h1>
                 <p className="muted project-path-inline">{projects.selectedProject.root_path ?? '未绑定目录'}</p>
               </div>
-              <button className="btn" onClick={() => setSettingsOpen(false)}>
+              <button type="button" className="btn btn-ghost" onClick={() => setSettingsOpen(false)}>
                 返回工作台
               </button>
             </div>
@@ -258,6 +267,7 @@ export function DashboardPage() {
             </WorkspaceShell>
           </>
         )}
+        </div>
       </main>
 
       {showRail ? (

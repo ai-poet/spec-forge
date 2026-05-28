@@ -657,9 +657,6 @@ class LangGraphPipeline:
                 self._artifact_schema_inline(PlannerArtifact),
                 prompt,
             ]
-            model = self._project_field(state, "planner_model")
-            if model:
-                command[1:1] = ["--model", model]
             return command
         return ["specforge", "planner", iteration_id]
 
@@ -688,9 +685,6 @@ class LangGraphPipeline:
                 self._artifact_schema_inline(CoderArtifact),
                 prompt,
             ]
-            model = self._project_field(state, "coder_model")
-            if model:
-                command[1:1] = ["--model", model]
             return command
         return ["specforge", "coder", iteration_id]
 
@@ -716,9 +710,6 @@ class LangGraphPipeline:
                 "--skip-git-repo-check",
                 prompt,
             ]
-            model = self._project_field(state, "tester_model")
-            if model:
-                command[2:2] = ["--model", model]
             return command
         return ["specforge", "tester", iteration_id]
 

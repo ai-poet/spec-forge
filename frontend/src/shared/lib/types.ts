@@ -166,9 +166,6 @@ export interface UpdateProjectInput {
   description?: string | null
   default_mode?: Mode
   default_test_command?: string | null
-  planner_model?: string | null
-  coder_model?: string | null
-  tester_model?: string | null
   max_coder_tester_retries?: number
   max_clarifications?: number
   max_verify_rejects?: number
@@ -181,9 +178,6 @@ export interface CreateProjectInput {
   description?: string | null
   default_mode?: Mode
   default_test_command?: string | null
-  planner_model?: string | null
-  coder_model?: string | null
-  tester_model?: string | null
   max_coder_tester_retries?: number
   max_clarifications?: number
   max_verify_rejects?: number
@@ -193,6 +187,23 @@ export interface ValidateProjectPathResult {
   ok: boolean
   resolved_path: string
   message: string
+}
+
+export interface BrowseDirectoryEntry {
+  name: string
+  path: string
+}
+
+export interface BrowseQuickRoot {
+  label: string
+  path: string
+}
+
+export interface BrowseDirectoryResult {
+  path: string
+  parent: string | null
+  entries: BrowseDirectoryEntry[]
+  quick_roots: BrowseQuickRoot[]
 }
 
 export interface CreateEpicInput {

@@ -10,9 +10,6 @@ interface Props {
 export function ProjectConfigPanel({ project, busy, onSave }: Props) {
   const [defaultMode, setDefaultMode] = useState<Mode>('dry-run')
   const [defaultTestCommand, setDefaultTestCommand] = useState('')
-  const [plannerModel, setPlannerModel] = useState('')
-  const [coderModel, setCoderModel] = useState('')
-  const [testerModel, setTesterModel] = useState('')
   const [coderRetries, setCoderRetries] = useState(5)
   const [clarifications, setClarifications] = useState(3)
   const [verifyRejects, setVerifyRejects] = useState(2)
@@ -21,9 +18,6 @@ export function ProjectConfigPanel({ project, busy, onSave }: Props) {
     if (!project) return
     setDefaultMode(project.default_mode)
     setDefaultTestCommand(project.default_test_command ?? '')
-    setPlannerModel(project.planner_model ?? '')
-    setCoderModel(project.coder_model ?? '')
-    setTesterModel(project.tester_model ?? '')
     setCoderRetries(project.max_coder_tester_retries)
     setClarifications(project.max_clarifications)
     setVerifyRejects(project.max_verify_rejects)
@@ -34,9 +28,6 @@ export function ProjectConfigPanel({ project, busy, onSave }: Props) {
     await onSave(project.id, {
       default_mode: defaultMode,
       default_test_command: defaultTestCommand.trim() || null,
-      planner_model: plannerModel.trim() || null,
-      coder_model: coderModel.trim() || null,
-      tester_model: testerModel.trim() || null,
       max_coder_tester_retries: coderRetries,
       max_clarifications: clarifications,
       max_verify_rejects: verifyRejects,
@@ -44,10 +35,13 @@ export function ProjectConfigPanel({ project, busy, onSave }: Props) {
   }
 
   return (
-    <section className="panel stack">
+    <section className="surface stack">
       <div className="section-row">
-        <h2 className="section-title">项目配置</h2>
-        <button className="btn" onClick={handleSave} disabled={busy || !project}>
+        <div>
+          <h2 className="section-title">项目配置</h2>
+          <p className="muted">real-cli 模式下各 CLI 使用其默认模型，无需单独配置。</p>
+        </div>
+        <button type="button" className="btn primary" onClick={handleSave} disabled={busy || !project}>
           保存配置
         </button>
       </div>
@@ -62,18 +56,6 @@ export function ProjectConfigPanel({ project, busy, onSave }: Props) {
         <label>
           <span>默认测试命令</span>
           <input value={defaultTestCommand} onChange={(event) => setDefaultTestCommand(event.target.value)} placeholder="pytest" disabled={!project} />
-        </label>
-        <label>
-          <span>Planner 模型</span>
-          <input value={plannerModel} onChange={(event) => setPlannerModel(event.target.value)} placeholder="sonnet" disabled={!project} />
-        </label>
-        <label>
-          <span>Coder 模型</span>
-          <input value={coderModel} onChange={(event) => setCoderModel(event.target.value)} placeholder="sonnet" disabled={!project} />
-        </label>
-        <label>
-          <span>Tester 模型</span>
-          <input value={testerModel} onChange={(event) => setTesterModel(event.target.value)} placeholder="gpt-5.2" disabled={!project} />
         </label>
         <label>
           <span>Coder/Tester 重试上限</span>
