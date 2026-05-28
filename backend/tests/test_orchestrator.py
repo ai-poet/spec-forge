@@ -506,6 +506,7 @@ def test_stop_iteration_records_stopped_at_node():
         json={"project_name": "stop-node", "goal": "record stop step", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
+    drain_jobs()
     pipeline.db.update_iteration(iteration_id, current_node="planner", status="planning")
     pipeline.stop_iteration(iteration_id, "stopped for test")
     row = pipeline.db.get_iteration_row(iteration_id)
@@ -521,6 +522,7 @@ def test_resume_stopped_iteration(tmp_path):
         json={"project_id": project_id, "goal": "resume after stop", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
+    drain_jobs()
     pipeline.db.update_iteration(
         iteration_id,
         status="stopped",

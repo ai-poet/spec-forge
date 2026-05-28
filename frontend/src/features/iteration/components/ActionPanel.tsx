@@ -1,6 +1,6 @@
 import type { IterationDetail } from '../../../shared/lib/types'
 import { nodeLabel, retryLabel } from '../../../shared/lib/labels'
-import { classifyIterationProblem, documentSummary, presentEvent } from '../../../shared/lib/presentation'
+import { classifyIterationProblem, documentSummary, presentNodeName } from '../../../shared/lib/presentation'
 
 interface Props {
   detail: IterationDetail | null
@@ -26,7 +26,7 @@ const readable: Record<string, { title: string; body: string }> = {
 
 export function ActionPanel({ detail, busy, onApproveVerify, onStop, onResume }: Props) {
   const state = detail ? readable[detail.status] ?? { title: detail.status, body: '查看事件流了解当前状态。' } : null
-  const stoppedStep = detail?.stopped_at_node ? (nodeLabel[detail.stopped_at_node] ?? detail.stopped_at_node) : null
+  const stoppedStep = detail?.stopped_at_node ? presentNodeName(detail.stopped_at_node) : null
   const problem = classifyIterationProblem(detail)
   const docs = documentSummary(detail)
   const verifyReady = detail?.documents.some((doc) => doc.name === 'verify_report') ?? false
