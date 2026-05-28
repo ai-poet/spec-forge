@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 from fastapi.testclient import TestClient
 
 from specforge import contracts as contract_models
@@ -25,6 +26,51 @@ def test_health():
     resp = client.get("/api/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+
+
+def test_create_project_open_existing_folder(tmp_path):
+    root = tmp_path / "existing-app"
+    root.mkdir()
+    resp = client.post(
+        "/api/projects",
+        json={"root_path": str(root), "create_if_missing": False, "description": "bound repo"},
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["root_path"] == str(root.resolve())
+    assert payload["name"] == "existing-app"
+
+
+def test_create_project_create_if_missing(tmp_path):
+    root = tmp_path / "new-app"
+    resp = client.post(
+        "/api/projects",
+        json={"root_path": str(root), "create_if_missing": True, "name": "new-app"},
+    )
+    assert resp.status_code == 200
+    assert root.is_dir()
+    assert resp.json()["root_path"] == str(root.resolve())
+
+
+def test_duplicate_root_path_returns_409(tmp_path):
+    root = tmp_path / "dup-app"
+    root.mkdir()
+    first = client.post("/api/projects", json={"root_path": str(root), "create_if_missing": False})
+    assert first.status_code == 200
+    second = client.post("/api/projects", json={"root_path": str(root), "create_if_missing": False, "name": "other"})
+    assert second.status_code == 409
+
+
+def test_iteration_workspace_under_project_root(tmp_path):
+    project = post_project(tmp_path, "workspace-project")
+    project_id = project.json()["id"]
+    root_path = project.json()["root_path"]
+    resp = client.post("/api/iterations", json={"project_id": project_id, "goal": "write under project", "mode": "dry-run"})
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+    workspace = pipeline.project_root(iteration_id)
+    assert str(workspace).startswith(str((Path(root_path) / ".specforge" / "iterations").resolve()))
+    assert (workspace / "docs" / "system_design.md").exists()
 
 
 def test_create_project_and_filter_iterations(tmp_path):
