@@ -21,8 +21,6 @@ interface Props {
   onStop: () => Promise<void>
 }
 
-const designDocs = ['system_design', 'modification_plan', 'testing_plan']
-
 export function StageFocusPanel({
   detail,
   docText,

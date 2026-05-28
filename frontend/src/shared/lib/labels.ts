@@ -4,11 +4,11 @@ export const iterationStatusLabel: Record<IterationStatus, string> = {
   created: '已创建',
   queued: '已排队',
   planning: '正在规划',
-  awaiting_design_approval: '等待设计审批',
+  awaiting_design_approval: '自动推进中',
   coding: '正在实现',
   retrying: '自动重试中',
   testing: '正在验证',
-  awaiting_verify_approval: '等待验证确认',
+  awaiting_verify_approval: '等待确认交付',
   delivered: '已交付',
   blocked: '已阻断',
   blocked_user: '等待人工处理',
@@ -51,8 +51,7 @@ export const timelineFilterLabel: Record<TimelineFilter, string> = {
 
 export function graphNodeLabel(value: string) {
   if (value in nodeLabel) return nodeLabel[value as NodeName]
-  if (value === 'design_approval') return '设计审批'
-  if (value === 'verify_approval') return '验证确认'
+  if (value === 'verify_approval') return '交付确认'
   if (value === 'done') return '交付完成'
   if (value === 'END') return '结束'
   return value

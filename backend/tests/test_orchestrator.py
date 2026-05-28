@@ -459,8 +459,6 @@ def test_ui_driver_unavailable_warns_and_continues():
         )
         iteration_id = resp.json()["id"]
         drain_jobs()
-        client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
-        drain_jobs()
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
@@ -482,8 +480,6 @@ def test_ui_driver_pass_writes_results_and_artifacts():
             json={"project_name": "ui-pass", "goal": "run UI pass", "mode": "dry-run"},
         )
         iteration_id = resp.json()["id"]
-        drain_jobs()
-        client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
         drain_jobs()
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
@@ -510,8 +506,6 @@ def test_ui_driver_failure_retries_until_blocked(tmp_path):
             json={"project_id": project_id, "goal": "run UI fail"},
         )
         iteration_id = resp.json()["id"]
-        drain_jobs()
-        client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
         drain_jobs()
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:

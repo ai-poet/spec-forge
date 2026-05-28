@@ -26,7 +26,7 @@ Project -> Epic -> Iteration -> Planner/Coder/Tester run
 - 后台执行：本地单 worker 队列执行 LangGraph，创建 iteration 不阻塞 HTTP 请求。
 - 实时状态：WebSocket 首包 snapshot，之后按事件推送，并在前端显示连接状态与自动重连。
 - 运行模式：默认 `real-cli`，通过 Claude / Codex CLI 执行流水线；测试环境仍可使用 `dry-run`。
-- 人类检查点：设计审批和验证审批通过 LangGraph interrupt/resume 推进。
+- 人类检查点：仅在最终交付处 interrupt/resume，规划完成后自动进入实现。
 - 治理：Planner/Tester artifact 由后端校验后写入；Coder 后执行 protected tests checksum gate。
 - 开发者工作台：需要处理、摘要、文档、测试、日志、事件过滤、项目配置面板。
 - 独立交付评审：Tester 除了验证测试，也会生成用户体验观察和后续交付建议。
@@ -83,10 +83,10 @@ http://127.0.0.1:5178
 2. 在 Project 下创建 Epic，填写大需求、验收标准和约束。
 3. 在 Epic 下创建第一个 iteration，默认 goal 会带入 Epic 摘要。
 4. 等待 Planner 生成设计、修改计划、测试计划和测试文件。
-5. 在 Action Required 面板审批设计。
+5. 在 Action Required 面板确认交付（规划与实现自动推进）。
 6. 等待 Coder/Tester 自动执行；失败时系统会按 retry 上限回环。
 7. 在摘要、文档、测试、日志中查看结果。
-8. 验证通过后审批交付，Epic 进度会自动更新。
+8. 验证通过后确认交付，Epic 进度会自动更新。
 
 ## 当前工作流与原始边语义
 
