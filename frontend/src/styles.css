@@ -604,6 +604,101 @@ button {
   gap: 16px;
 }
 
+.workspace-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-body-stage {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.workspace-stage {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: min(100%, 560px);
+}
+
+.workspace-stage-inner {
+  width: min(640px, 100%);
+  display: grid;
+  gap: 16px;
+}
+
+.workspace-stage-card {
+  width: 100%;
+}
+
+.workspace-flow {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.compose-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 16px;
+}
+
+.compose-card .section-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.compose-textarea {
+  width: 100%;
+  min-height: 280px;
+  resize: vertical;
+  line-height: 1.55;
+  padding: 12px 14px;
+  background: var(--bg-inset);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+}
+
+.compose-textarea:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+.compose-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.compact-list .section-title {
+  font-size: 13px;
+  margin: 0;
+}
+
+.compact-list .list.compact {
+  max-height: 180px;
+  overflow-y: auto;
+  display: grid;
+  gap: 6px;
+}
+
+.compact-list .item {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
 .workspace-title {
   margin: 0;
   font-size: 22px;
@@ -1546,7 +1641,7 @@ button.artifact-chip:disabled {
   justify-items: center;
   text-align: center;
   gap: 8px;
-  padding: 80px 24px;
+  padding: 16px 0;
   border: 0;
   background: transparent;
 }
@@ -1568,7 +1663,7 @@ button.artifact-chip:disabled {
 }
 
 .workspace-setup {
-  max-width: 720px;
+  width: min(640px, 100%);
 }
 
 .pipeline-rail {

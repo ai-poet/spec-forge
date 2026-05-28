@@ -5,16 +5,19 @@ interface Props {
   iterations: IterationSummary[]
   selectedIterationId: string | null
   onSelectIteration: (id: string) => void
+  compact?: boolean
 }
 
-export function IterationList({ iterations, selectedIterationId, onSelectIteration }: Props) {
+export function IterationList({ iterations, selectedIterationId, onSelectIteration, compact = false }: Props) {
+  if (!iterations.length) return null
+
   return (
-    <section className="panel stack">
+    <section className={compact ? 'compact-list stack' : 'panel stack'}>
       <div className="section-row">
-        <h2 className="section-title">流水线</h2>
+        <h2 className="section-title">已有流水线</h2>
         <span className="pill">{iterations.length}</span>
       </div>
-      <div className="list iteration-list">
+      <div className={`list iteration-list ${compact ? 'compact' : ''}`}>
         {iterations.map((item) => (
           <button
             key={item.id}
@@ -29,7 +32,6 @@ export function IterationList({ iterations, selectedIterationId, onSelectIterati
             <div className="muted clamp">{item.goal}</div>
           </button>
         ))}
-        {!iterations.length ? <div className="empty">当前项目还没有流水线</div> : null}
       </div>
     </section>
   )

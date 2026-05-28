@@ -23,6 +23,14 @@ interface Props {
   children: ReactNode
 }
 
+function StageContent({ children }: { children: ReactNode }) {
+  return (
+    <div className="workspace-stage">
+      <div className="workspace-stage-inner stack">{children}</div>
+    </div>
+  )
+}
+
 export function WorkspaceShell({
   project,
   epics,
@@ -40,46 +48,48 @@ export function WorkspaceShell({
   children,
 }: Props) {
   if (!project) {
-    return <EmptyWorkspace variant="no-project" />
+    return (
+      <StageContent>
+        <EmptyWorkspace variant="no-project" />
+      </StageContent>
+    )
   }
 
   if (showCreateEpic) {
     return (
-      <div className="workspace-setup stack">
-        <EmptyWorkspace variant="no-epic" projectName={project.name} />
-        <EpicList epics={epics} selectedEpicId={selectedEpicId} onSelectEpic={onSelectEpic} />
+      <StageContent>
         <CreateEpicPanel disabled={busy} onCreate={onCreateEpic} />
-      </div>
+        <EpicList epics={epics} selectedEpicId={selectedEpicId} onSelectEpic={onSelectEpic} compact />
+      </StageContent>
     )
   }
 
   if (!selectedEpicId) {
     return (
-      <div className="workspace-setup stack">
+      <StageContent>
         <EmptyWorkspace variant="no-epic" projectName={project.name} />
-        <EpicList epics={epics} selectedEpicId={selectedEpicId} onSelectEpic={onSelectEpic} />
-      </div>
+        <EpicList epics={epics} selectedEpicId={selectedEpicId} onSelectEpic={onSelectEpic} compact />
+      </StageContent>
     )
   }
 
   if (showCreateIteration) {
     return (
-      <div className="workspace-setup stack">
-        <EmptyWorkspace variant="no-iteration" projectName={project.name} epicTitle={epics.find((e) => e.id === selectedEpicId)?.title} />
-        <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={onSelectIteration} />
+      <StageContent>
         <CreateIterationPanel disabled={busy} goalPlaceholder={goalPlaceholder} onCreate={onCreateIteration} />
-      </div>
+        <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={onSelectIteration} compact />
+      </StageContent>
     )
   }
 
   if (!selectedIterationId) {
     return (
-      <div className="workspace-setup stack">
+      <StageContent>
         <EmptyWorkspace variant="no-iteration" projectName={project.name} epicTitle={epics.find((e) => e.id === selectedEpicId)?.title} />
-        <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={onSelectIteration} />
-      </div>
+        <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={onSelectIteration} compact />
+      </StageContent>
     )
   }
 
-  return <>{children}</>
+  return <div className="workspace-flow">{children}</div>
 }

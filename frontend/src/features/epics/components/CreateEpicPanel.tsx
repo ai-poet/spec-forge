@@ -1,46 +1,46 @@
 import { useState } from 'react'
+import { parseEpicDraft } from '../lib/parseEpicDraft'
 
 interface Props {
   disabled: boolean
   onCreate: (input: { title: string; description: string; acceptance_criteria: string }) => Promise<void>
 }
 
+const PLACEHOLDER = `第一行作为标题
+详细描述业务目标与背景...
+
+验收标准:
+- ...`
+
 export function CreateEpicPanel({ disabled, onCreate }: Props) {
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [acceptanceCriteria, setAcceptanceCriteria] = useState('')
+  const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const parsed = parseEpicDraft(draft)
+
   async function handleCreate() {
-    if (!title.trim()) return
+    if (!parsed) return
     setBusy(true)
     try {
-      await onCreate({
-        title: title.trim(),
-        description: description.trim(),
-        acceptance_criteria: acceptanceCriteria.trim(),
-      })
-      setTitle('')
-      setDescription('')
-      setAcceptanceCriteria('')
+      await onCreate(parsed)
+      setDraft('')
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <section className="panel stack">
+    <section className="workspace-stage-card compose-card stack">
       <h2 className="section-title">新建大需求</h2>
-      <div className="form">
-        <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="需求标题" disabled={disabled} />
-        <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="需求描述" disabled={disabled} />
-        <textarea
-          value={acceptanceCriteria}
-          onChange={(event) => setAcceptanceCriteria(event.target.value)}
-          placeholder="验收标准"
-          disabled={disabled}
-        />
-        <button className="btn primary" onClick={handleCreate} disabled={busy || disabled || !title.trim()}>
+      <textarea
+        className="compose-textarea"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        placeholder={PLACEHOLDER}
+        disabled={disabled || busy}
+      />
+      <div className="compose-actions">
+        <button className="btn primary" onClick={handleCreate} disabled={busy || disabled || !parsed}>
           创建大需求
         </button>
       </div>

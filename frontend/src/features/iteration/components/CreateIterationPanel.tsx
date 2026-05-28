@@ -24,22 +24,23 @@ export function CreateIterationPanel({ disabled, goalPlaceholder, onCreate }: Pr
   }
 
   return (
-    <section className="panel stack">
+    <section className="workspace-stage-card compose-card stack">
       <h2 className="section-title">新建流水线</h2>
-      <div className="form">
-        <textarea
-          value={goal}
-          onChange={(event) => setGoal(event.target.value)}
-          placeholder={goalPlaceholder || '描述本次迭代的业务目标或系统改动'}
-          disabled={disabled}
-        />
-        <select value={mode} onChange={(event) => setMode(event.target.value as Mode | 'project-default')} disabled={disabled}>
-          <option value="project-default">使用项目默认模式</option>
-          <option value="dry-run">演示模式 dry-run</option>
-          <option value="real-cli">真实 CLI 模式</option>
-        </select>
+      <textarea
+        className="compose-textarea"
+        value={goal}
+        onChange={(event) => setGoal(event.target.value)}
+        placeholder={goalPlaceholder || '描述本次迭代的业务目标或系统改动'}
+        disabled={disabled || busy}
+      />
+      <select value={mode} onChange={(event) => setMode(event.target.value as Mode | 'project-default')} disabled={disabled || busy}>
+        <option value="project-default">使用项目默认模式</option>
+        <option value="dry-run">演示模式 dry-run</option>
+        <option value="real-cli">真实 CLI 模式</option>
+      </select>
+      <div className="compose-actions">
         <button className="btn primary" onClick={handleCreate} disabled={busy || disabled || !goal.trim()}>
-          创建迭代
+          创建流水线
         </button>
       </div>
     </section>

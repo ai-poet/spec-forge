@@ -214,25 +214,26 @@ export function DashboardPage() {
       />
 
       <main className="main workspace-main">
-        <div className="workspace-scroll">
         {settingsOpen && projects.selectedProject ? (
-          <div className="settings-view stack">
-            <div className="section-row">
-              <div>
-                <p className="eyebrow">项目设置</p>
-                <h1 className="workspace-title">{projects.selectedProject.name}</h1>
-                <p className="muted project-path-inline">{projects.selectedProject.root_path ?? '未绑定目录'}</p>
+          <div className="workspace-scroll">
+            <div className="settings-view stack">
+              <div className="section-row">
+                <div>
+                  <p className="eyebrow">项目设置</p>
+                  <h1 className="workspace-title">{projects.selectedProject.name}</h1>
+                  <p className="muted project-path-inline">{projects.selectedProject.root_path ?? '未绑定目录'}</p>
+                </div>
+                <button type="button" className="btn btn-ghost" onClick={() => setSettingsOpen(false)}>
+                  返回工作台
+                </button>
               </div>
-              <button type="button" className="btn btn-ghost" onClick={() => setSettingsOpen(false)}>
-                返回工作台
-              </button>
+              <ProjectConfigPanel
+                project={projects.selectedProject}
+                busy={busy}
+                onSave={handleSaveProject}
+                onDelete={handleDeleteProject}
+              />
             </div>
-            <ProjectConfigPanel
-              project={projects.selectedProject}
-              busy={busy}
-              onSave={handleSaveProject}
-              onDelete={handleDeleteProject}
-            />
           </div>
         ) : (
           <>
@@ -256,35 +257,36 @@ export function DashboardPage() {
               />
             ) : null}
 
-            <WorkspaceShell
-              project={projects.selectedProject}
-              epics={epics.epics}
-              selectedEpicId={epics.selectedEpicId}
-              onSelectEpic={epics.setSelectedEpicId}
-              iterations={iterations}
-              selectedIterationId={selectedIterationId}
-              onSelectIteration={setSelectedIterationId}
-              busy={busy}
-              showCreateEpic={showCreateEpic}
-              showCreateIteration={showCreateIteration}
-              onCreateEpic={handleCreateEpic}
-              onCreateIteration={handleCreateIteration}
-              goalPlaceholder={goalPlaceholder}
-            >
-              <StageFocusPanel
-                detail={live.detail}
-                docText={live.docText}
-                reviewStepKey={reviewStepKey}
+            <div className={`workspace-body ${!selectedIterationId ? 'workspace-body-stage' : ''}`}>
+              <WorkspaceShell
+                project={projects.selectedProject}
+                epics={epics.epics}
+                selectedEpicId={epics.selectedEpicId}
+                onSelectEpic={epics.setSelectedEpicId}
+                iterations={iterations}
+                selectedIterationId={selectedIterationId}
+                onSelectIteration={setSelectedIterationId}
                 busy={busy}
-                onLoadDocument={live.loadDocument}
-                onApproveDesign={handleApproveDesign}
-                onApproveVerify={handleApproveVerify}
-                onStop={handleStop}
-              />
-            </WorkspaceShell>
+                showCreateEpic={showCreateEpic}
+                showCreateIteration={showCreateIteration}
+                onCreateEpic={handleCreateEpic}
+                onCreateIteration={handleCreateIteration}
+                goalPlaceholder={goalPlaceholder}
+              >
+                <StageFocusPanel
+                  detail={live.detail}
+                  docText={live.docText}
+                  reviewStepKey={reviewStepKey}
+                  busy={busy}
+                  onLoadDocument={live.loadDocument}
+                  onApproveDesign={handleApproveDesign}
+                  onApproveVerify={handleApproveVerify}
+                  onStop={handleStop}
+                />
+              </WorkspaceShell>
+            </div>
           </>
         )}
-        </div>
       </main>
 
       {showRail ? (
