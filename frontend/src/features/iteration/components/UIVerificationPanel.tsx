@@ -1,6 +1,6 @@
-import { artifactUrl } from '../api'
-import { uiStatusLabel } from '../labels'
-import type { IterationDetail, UITestResult } from '../types'
+import { artifactUrl } from '../../../shared/lib/api'
+import { uiStatusLabel } from '../../../shared/lib/labels'
+import type { IterationDetail, UITestResult } from '../../../shared/lib/types'
 
 interface Props {
   detail: IterationDetail | null

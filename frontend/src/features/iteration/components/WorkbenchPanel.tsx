@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import type { IterationDetail, TimelineFilter } from '../types'
-import { documentLabel } from '../labels'
+import type { IterationDetail, TimelineFilter } from '../../../shared/lib/types'
+import { documentLabel } from '../../../shared/lib/labels'
 import { DocumentPanel } from './DocumentPanel'
 import { AgentActivityPanel } from './AgentActivityPanel'
 import { IterationSummaryPanel } from './IterationSummaryPanel'

@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { approveDesign, approveVerify, createIteration, listIterationsForEpic, stopIteration } from '../api'
-import { ContextHeader } from '../components/ContextHeader'
-import { PipelineRail } from '../components/PipelineRail'
-import { ProjectConfigPanel } from '../components/ProjectConfigPanel'
-import { ProjectSidebar } from '../components/ProjectSidebar'
-import { StageFocusPanel } from '../components/StageFocusPanel'
-import { WorkspaceShell } from '../components/WorkspaceShell'
-import { useEpics } from '../hooks/useEpics'
-import { useIterationLive } from '../hooks/useIterationLive'
-import { useProjects } from '../hooks/useProjects'
-import type { PipelineStepKey } from '../pipelineSteps'
-import type { IterationSummary, Mode, UpdateProjectInput } from '../types'
+import { approveDesign, approveVerify, createIteration, listIterationsForEpic, stopIteration } from '../shared/lib/api'
+import { ProjectConfigPanel } from '../features/projects/components/ProjectConfigPanel'
+import { ProjectSidebar } from '../features/projects/components/ProjectSidebar'
+import { useEpics } from '../features/epics/hooks/useEpics'
+import { PipelineRail } from '../features/pipeline/components/PipelineRail'
+import { StageFocusPanel } from '../features/pipeline/components/StageFocusPanel'
+import type { PipelineStepKey } from '../features/pipeline/lib/pipelineSteps'
+import { useIterationLive } from '../features/iteration/hooks/useIterationLive'
+import { useProjects } from '../features/projects/hooks/useProjects'
+import { ContextHeader } from '../features/workspace/components/ContextHeader'
+import { WorkspaceShell } from '../features/workspace/components/WorkspaceShell'
+import type { CreateProjectInput, IterationSummary, Mode, UpdateProjectInput } from '../shared/lib/types'
 
 export function DashboardPage() {
   const projects = useProjects()
@@ -78,8 +78,8 @@ export function DashboardPage() {
     projects.refreshProjects().catch(console.error)
   }, [live.detail?.status])
 
-  async function handleAddProject(name: string, description?: string) {
-    await projects.addProject(name, description)
+  async function handleAddProject(input: CreateProjectInput) {
+    await projects.addProject(input)
   }
 
   async function handleCreateEpic(input: { title: string; description: string; acceptance_criteria: string }) {
@@ -200,6 +200,7 @@ export function DashboardPage() {
               <div>
                 <p className="eyebrow">项目设置</p>
                 <h1 className="workspace-title">{projects.selectedProject.name}</h1>
+                <p className="muted project-path-inline">{projects.selectedProject.root_path ?? '未绑定目录'}</p>
               </div>
               <button className="btn" onClick={() => setSettingsOpen(false)}>
                 返回工作台

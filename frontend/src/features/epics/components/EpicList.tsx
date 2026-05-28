@@ -1,5 +1,5 @@
-import type { EpicSummary } from '../types'
-import { epicStatusLabel } from '../labels'
+import type { EpicSummary } from '../../../shared/lib/types'
+import { epicStatusLabel } from '../../../shared/lib/labels'
 
 interface Props {
   epics: EpicSummary[]

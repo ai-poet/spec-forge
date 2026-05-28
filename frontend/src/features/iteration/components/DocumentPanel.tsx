@@ -1,6 +1,6 @@
-import type { IterationDetail } from '../types'
-import { documentLabel } from '../labels'
-import { documentSummary } from '../presentation'
+import type { IterationDetail } from '../../../shared/lib/types'
+import { documentLabel } from '../../../shared/lib/labels'
+import { documentSummary } from '../../../shared/lib/presentation'
 
 interface Props {
   detail: IterationDetail | null

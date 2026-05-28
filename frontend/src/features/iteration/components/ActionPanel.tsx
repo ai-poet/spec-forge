@@ -1,6 +1,6 @@
-import type { IterationDetail } from '../types'
-import { retryLabel } from '../labels'
-import { classifyIterationProblem, documentSummary, presentEvent } from '../presentation'
+import type { IterationDetail } from '../../../shared/lib/types'
+import { retryLabel } from '../../../shared/lib/labels'
+import { classifyIterationProblem, documentSummary, presentEvent } from '../../../shared/lib/presentation'
 
 interface Props {
   detail: IterationDetail | null

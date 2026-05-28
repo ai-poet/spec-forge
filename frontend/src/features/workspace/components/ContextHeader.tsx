@@ -1,5 +1,5 @@
-import type { EpicSummary, IterationSummary, ProjectSummary } from '../types'
-import { epicStatusLabel, iterationStatusLabel } from '../labels'
+import type { EpicSummary, IterationSummary, ProjectSummary } from '../../../shared/lib/types'
+import { epicStatusLabel, iterationStatusLabel } from '../../../shared/lib/labels'
 
 interface Props {
   project: ProjectSummary | null

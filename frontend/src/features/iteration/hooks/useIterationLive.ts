@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getIteration } from '../api'
-import type { IterationDetail, LiveConnectionStatus, LiveMessage } from '../types'
+import { getIteration } from '../../../shared/lib/api'
+import type { IterationDetail, LiveConnectionStatus, LiveMessage } from '../../../shared/lib/types'
 
 const API_BASE = 'http://127.0.0.1:8787'
 

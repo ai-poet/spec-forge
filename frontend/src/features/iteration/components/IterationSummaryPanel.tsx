@@ -1,6 +1,6 @@
-import { eventLabel, graphNodeLabel, iterationStatusLabel, nodeLabel, retryLabel } from '../labels'
-import type { IterationDetail } from '../types'
-import { documentSummary, presentEvent } from '../presentation'
+import { eventLabel, graphNodeLabel, iterationStatusLabel, nodeLabel, retryLabel } from '../../../shared/lib/labels'
+import type { IterationDetail } from '../../../shared/lib/types'
+import { documentSummary, presentEvent } from '../../../shared/lib/presentation'
 
 interface Props {
   detail: IterationDetail | null

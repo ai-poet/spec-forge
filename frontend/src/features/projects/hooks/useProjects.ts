@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { createProject, listProjects, updateProject } from '../api'
-import type { ProjectSummary, UpdateProjectInput } from '../types'
+import { createProject, listProjects, updateProject } from '../../../shared/lib/api'
+import type { CreateProjectInput, ProjectSummary, UpdateProjectInput } from '../../../shared/lib/types'
 
 export function useProjects() {
   const [projects, setProjects] = useState<ProjectSummary[]>([])
@@ -19,8 +19,8 @@ export function useProjects() {
   }, [])
 
   const addProject = useCallback(
-    async (name: string, description?: string) => {
-      const project = await createProject({ name, description })
+    async (input: CreateProjectInput) => {
+      const project = await createProject(input)
       await refreshProjects()
       setSelectedProjectId(project.id)
       return project

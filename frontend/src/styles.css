@@ -196,8 +196,38 @@ button {
 }
 
 .project-item span,
-.project-item small {
+.project-item small,
+.project-path {
   color: #9facbf;
+}
+
+.project-path {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-path-inline {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.folder-mode-toggle {
+  display: grid;
+  gap: 8px;
+}
+
+.folder-mode-option {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #b8c4d6;
+  font-size: 13px;
+}
+
+.create-project-dialog .actions {
+  justify-content: flex-end;
 }
 
 .iteration-list,

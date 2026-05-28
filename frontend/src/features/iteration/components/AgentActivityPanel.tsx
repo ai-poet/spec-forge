@@ -1,5 +1,5 @@
-import type { IterationDetail } from '../types'
-import { isAgentActivity, presentEvent, presentNodeName } from '../presentation'
+import type { IterationDetail } from '../../../shared/lib/types'
+import { isAgentActivity, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
 
 interface Props {
   detail: IterationDetail | null

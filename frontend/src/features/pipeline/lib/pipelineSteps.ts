@@ -1,4 +1,4 @@
-import type { IterationDetail } from './types'
+import type { IterationDetail } from '../../../shared/lib/types'
 
 export type PipelineStepKey =
   | 'planner'

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { createEpic, listEpicsForProject, updateEpic } from '../api'
-import type { CreateEpicInput, EpicSummary, UpdateEpicInput } from '../types'
+import { createEpic, listEpicsForProject, updateEpic } from '../../../shared/lib/api'
+import type { CreateEpicInput, EpicSummary, UpdateEpicInput } from '../../../shared/lib/types'
 
 export function useEpics(projectId: string | null) {
   const [epics, setEpics] = useState<EpicSummary[]>([])

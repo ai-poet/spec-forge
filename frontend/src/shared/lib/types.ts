@@ -55,6 +55,7 @@ export interface EpicDetail extends EpicSummary {
 export interface ProjectSummary {
   id: string
   name: string
+  root_path: string | null
   description: string | null
   default_mode: Mode
   default_test_command: string | null
@@ -171,6 +172,27 @@ export interface UpdateProjectInput {
   max_coder_tester_retries?: number
   max_clarifications?: number
   max_verify_rejects?: number
+}
+
+export interface CreateProjectInput {
+  root_path: string
+  create_if_missing: boolean
+  name?: string
+  description?: string | null
+  default_mode?: Mode
+  default_test_command?: string | null
+  planner_model?: string | null
+  coder_model?: string | null
+  tester_model?: string | null
+  max_coder_tester_retries?: number
+  max_clarifications?: number
+  max_verify_rejects?: number
+}
+
+export interface ValidateProjectPathResult {
+  ok: boolean
+  resolved_path: string
+  message: string
 }
 
 export interface CreateEpicInput {

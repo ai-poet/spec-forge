@@ -1,6 +1,6 @@
-import { connectionLabel, graphNodeLabel, iterationStatusLabel, retryLabel } from '../labels'
-import { PIPELINE_STEPS, pipelineStepState, stepStateLabel, type PipelineStepKey } from '../pipelineSteps'
-import type { EpicSummary, IterationDetail, LiveConnectionStatus } from '../types'
+import { connectionLabel, graphNodeLabel, iterationStatusLabel, retryLabel } from '../../../shared/lib/labels'
+import { PIPELINE_STEPS, pipelineStepState, stepStateLabel, type PipelineStepKey } from '../lib/pipelineSteps'
+import type { EpicSummary, IterationDetail, LiveConnectionStatus } from '../../../shared/lib/types'
 
 interface Props {
   detail: IterationDetail | null

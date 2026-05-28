@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import type { ProjectSummary } from '../types'
+import type { CreateProjectInput, ProjectSummary } from '../../../shared/lib/types'
+import { formatProjectPath } from '../lib/formatPath'
+import { CreateProjectDialog } from './CreateProjectDialog'
 
 interface Props {
   projects: ProjectSummary[]
   selectedProjectId: string | null
   onSelectProject: (id: string) => void
-  onAddProject: (name: string, description?: string) => Promise<void>
+  onAddProject: (input: CreateProjectInput) => Promise<void>
   settingsOpen: boolean
   onToggleSettings: () => void
 }
@@ -18,23 +20,7 @@ export function ProjectSidebar({
   settingsOpen,
   onToggleSettings,
 }: Props) {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
   const [showCreateForm, setShowCreateForm] = useState(false)
-  const [busy, setBusy] = useState(false)
-
-  async function handleAdd() {
-    if (!name.trim()) return
-    setBusy(true)
-    try {
-      await onAddProject(name.trim(), description.trim() || undefined)
-      setName('')
-      setDescription('')
-      setShowCreateForm(false)
-    } finally {
-      setBusy(false)
-    }
-  }
 
   return (
     <aside className="sidebar sidebar-layout">
@@ -49,15 +35,12 @@ export function ProjectSidebar({
         </button>
 
         {showCreateForm ? (
-          <section className="panel stack">
-            <div className="form compact">
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="项目名称" />
-              <input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="描述（可选）" />
-              <button className="btn primary" onClick={handleAdd} disabled={busy || !name.trim()}>
-                创建
-              </button>
-            </div>
-          </section>
+          <CreateProjectDialog
+            onCreate={async (input) => {
+              await onAddProject(input)
+              setShowCreateForm(false)
+            }}
+          />
         ) : null}
 
         <section className="sidebar-projects stack">
@@ -70,13 +53,13 @@ export function ProjectSidebar({
                 onClick={() => onSelectProject(project.id)}
               >
                 <strong>{project.name}</strong>
-                <span>{project.iteration_count} 条流水线</span>
+                <span className="project-path">{formatProjectPath(project.root_path)}</span>
                 <small>
-                  {project.active_count} 进行中 / {project.delivered_count} 已交付
+                  {project.iteration_count} 条流水线 · {project.active_count} 进行中 / {project.delivered_count} 已交付
                 </small>
               </button>
             ))}
-            {!projects.length ? <div className="empty">暂无项目，创建一个开始</div> : null}
+            {!projects.length ? <div className="empty">暂无项目，绑定一个文件夹开始</div> : null}
           </div>
         </section>
       </div>

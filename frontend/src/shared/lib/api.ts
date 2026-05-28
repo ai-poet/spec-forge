@@ -1,5 +1,6 @@
 import type {
   CreateEpicInput,
+  CreateProjectInput,
   EpicDetail,
   EpicSummary,
   IterationDetail,
@@ -8,6 +9,7 @@ import type {
   ProjectSummary,
   UpdateEpicInput,
   UpdateProjectInput,
+  ValidateProjectPathResult,
 } from './types'
 
 const API_BASE = 'http://127.0.0.1:8787'
@@ -59,7 +61,14 @@ export function listProjects(): Promise<ProjectSummary[]> {
   return request('/api/projects')
 }
 
-export function createProject(input: { name: string; description?: string | null }): Promise<ProjectSummary> {
+export function validateProjectPath(input: { root_path: string; create_if_missing: boolean }): Promise<ValidateProjectPathResult> {
+  return request('/api/projects/validate-path', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function createProject(input: CreateProjectInput): Promise<ProjectSummary> {
   return request('/api/projects', {
     method: 'POST',
     body: JSON.stringify(input),

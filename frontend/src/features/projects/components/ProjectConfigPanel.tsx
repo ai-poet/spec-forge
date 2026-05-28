@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Mode, ProjectSummary, UpdateProjectInput } from '../types'
+import type { Mode, ProjectSummary, UpdateProjectInput } from '../../../shared/lib/types'
 
 interface Props {
   project: ProjectSummary | null

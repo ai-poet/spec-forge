@@ -1,5 +1,5 @@
-import type { IterationSummary } from '../types'
-import { iterationStatusLabel } from '../labels'
+import type { IterationSummary } from '../../../shared/lib/types'
+import { iterationStatusLabel } from '../../../shared/lib/labels'
 
 interface Props {
   iterations: IterationSummary[]

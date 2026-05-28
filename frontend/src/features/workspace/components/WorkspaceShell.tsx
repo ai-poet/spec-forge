@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
-import { CreateEpicPanel } from './CreateEpicPanel'
-import { CreateIterationPanel } from './CreateIterationPanel'
+import { CreateEpicPanel } from '../../epics/components/CreateEpicPanel'
+import { CreateIterationPanel } from '../../iteration/components/CreateIterationPanel'
 import { EmptyWorkspace } from './EmptyWorkspace'
-import { EpicList } from './EpicList'
-import { IterationList } from './IterationList'
-import type { EpicSummary, IterationSummary, Mode, ProjectSummary } from '../types'
+import { EpicList } from '../../epics/components/EpicList'
+import { IterationList } from '../../iteration/components/IterationList'
+import type { EpicSummary, IterationSummary, Mode, ProjectSummary } from '../../../shared/lib/types'
 
 interface Props {
   project: ProjectSummary | null

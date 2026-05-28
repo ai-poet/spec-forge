@@ -1,6 +1,6 @@
-import type { IterationDetail, TimelineFilter } from '../types'
-import { timelineFilterLabel } from '../labels'
-import { presentEvent, presentNodeName } from '../presentation'
+import type { IterationDetail, TimelineFilter } from '../../../shared/lib/types'
+import { timelineFilterLabel } from '../../../shared/lib/labels'
+import { presentEvent, presentNodeName } from '../../../shared/lib/presentation'
 
 interface Props {
   detail: IterationDetail | null

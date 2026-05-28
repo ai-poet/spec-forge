@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Mode } from '../types'
+import type { Mode } from '../../../shared/lib/types'
 
 interface Props {
   disabled: boolean
