@@ -132,6 +132,8 @@ class Database:
                 conn.execute("ALTER TABLE iterations ADD COLUMN last_error TEXT")
             if "stopped_at_node" not in iteration_columns:
                 conn.execute("ALTER TABLE iterations ADD COLUMN stopped_at_node TEXT")
+            if "docs_slug" not in iteration_columns:
+                conn.execute("ALTER TABLE iterations ADD COLUMN docs_slug TEXT")
 
             project_columns = {
                 row["name"]
@@ -368,14 +370,19 @@ class Database:
         if resolved_test_command is None and project_row is not None:
             resolved_test_command = project_row["default_test_command"]
         with self.connect() as conn:
+            sequence = conn.execute(
+                "SELECT COUNT(*) FROM iterations WHERE project_id = ?",
+                (resolved_project_id,),
+            ).fetchone()[0]
+            docs_slug = f"iteration_{int(sequence) + 1:03d}"
             conn.execute(
                 """
                 INSERT INTO iterations (
                     id, project_id, project_name, goal, mode, status, current_node,
                     test_command, retry_counts, test_integrity_baseline, last_error, epic_id,
-                    created_at, updated_at
+                    docs_slug, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     iteration_id,
@@ -390,6 +397,7 @@ class Database:
                     "{}",
                     None,
                     epic_id,
+                    docs_slug,
                     now,
                     now,
                 ),

@@ -32,6 +32,7 @@ from .models import (
     PickFolderResponse,
 )
 from .pipeline import LangGraphPipeline
+from .docs_scaffold import ensure_project_docs
 from .native_dialog import pick_folder, resolve_picked_folder
 from .project_paths import ProjectPathError, browse_directory, prepare_project_root, validate_project_root
 
@@ -148,6 +149,7 @@ def create_project(payload: CreateProjectRequest) -> ProjectSummary:
         if "root_path" in message:
             raise HTTPException(status_code=409, detail=message) from exc
         raise HTTPException(status_code=409, detail=message) from exc
+    ensure_project_docs(resolved, project_name=display_name, description=payload.description)
     row = db.get_project_row(project_id)
     assert row is not None
     return project_summary(row)

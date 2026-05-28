@@ -18,6 +18,11 @@ class PlannerArtifact(BaseModel):
     tests: list[ArtifactFile] = Field(default_factory=list)
 
 
+class PlannerClarificationArtifact(BaseModel):
+    answer: str
+    summary: str = ""
+
+
 class CoderArtifact(BaseModel):
     changed_paths: list[str] = Field(default_factory=list)
     summary: str = ""

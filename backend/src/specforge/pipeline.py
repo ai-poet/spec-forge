@@ -18,6 +18,7 @@ from .contracts import (
     ArtifactFile,
     CoderArtifact,
     PlannerArtifact,
+    PlannerClarificationArtifact,
     TesterArtifact,
     UIDriverRunResult,
     UITestResult,
@@ -26,6 +27,7 @@ from .contracts import (
 )
 from .db import Database, iso, utcnow
 from .docs_io import IterationDocs, checksum, compare_test_integrity, safe_relative_path, test_integrity_manifest
+from .docs_scaffold import append_iteration_log, ensure_iteration_docs, ensure_project_docs, iteration_docs_root
 from .events import EventBroker, EventEnvelope
 from .models import IterationStatus, Mode, NodeName
 from .ui_driver import UIDriverRunner
@@ -74,6 +76,13 @@ class LangGraphPipeline:
         self._live_cli_chunk_last_publish: dict[str, float] = {}
         self._aborted_iterations: set[str] = set()
 
+    def project_repo_root(self, iteration_id: str) -> Path:
+        row = self._require_iteration(iteration_id)
+        project = self.db.get_project_row(row["project_id"]) if row["project_id"] else None
+        if project is not None and project["root_path"]:
+            return Path(project["root_path"])
+        return settings.projects_dir / row["project_name"]
+
     def project_root(self, iteration_id: str) -> Path:
         row = self._require_iteration(iteration_id)
         project = self.db.get_project_row(row["project_id"]) if row["project_id"] else None
@@ -82,7 +91,19 @@ class LangGraphPipeline:
         return settings.projects_dir / iteration_id
 
     def docs_root(self, iteration_id: str) -> Path:
-        return self.project_root(iteration_id) / "docs"
+        row = self._require_iteration(iteration_id)
+        docs_slug = row["docs_slug"] if "docs_slug" in row.keys() and row["docs_slug"] else iteration_id
+        return iteration_docs_root(self.project_repo_root(iteration_id), docs_slug)
+
+    def _prepare_iteration_docs(self, iteration_id: str) -> Path:
+        row = self._require_iteration(iteration_id)
+        repo_root = self.project_repo_root(iteration_id)
+        project = self.db.get_project_row(row["project_id"]) if row["project_id"] else None
+        project_name = project["name"] if project is not None else row["project_name"]
+        description = project["description"] if project is not None else None
+        docs_slug = row["docs_slug"] if "docs_slug" in row.keys() and row["docs_slug"] else iteration_id
+        ensure_project_docs(repo_root, project_name=project_name, description=description)
+        return ensure_iteration_docs(repo_root, docs_slug)
 
     def start(self, iteration_id: str) -> None:
         state = self._build_state(iteration_id)
@@ -394,6 +415,15 @@ class LangGraphPipeline:
         iteration_id = state["iteration_id"]
         goal = state["goal"]
         self.project_root(iteration_id).mkdir(parents=True, exist_ok=True)
+        self._prepare_iteration_docs(iteration_id)
+        row = self._require_iteration(iteration_id)
+        docs_slug = row["docs_slug"] if "docs_slug" in row.keys() and row["docs_slug"] else iteration_id
+        append_iteration_log(
+            self.project_repo_root(iteration_id),
+            docs_slug=docs_slug,
+            event="iteration.started",
+            detail=f"Planning started for goal: {goal}",
+        )
         self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.planner.value, last_error=None)
         self._reset_live_cli(iteration_id, NodeName.planner.value)
         self._publish_snapshot(iteration_id)
@@ -405,7 +435,11 @@ class LangGraphPipeline:
             "正在读取大需求并拆分任务，准备生成系统设计、修改计划和测试。",
         )
         self._add_event(iteration_id, event_type="iteration.started", payload={"status": "planning"})
-        run_result = self._execute(state, self._planner_command(state), node=NodeName.planner.value)
+        run_result = self._execute(
+            state,
+            self._planner_command(state),
+            node=NodeName.planner.value,
+        )
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.planner.value, run_result)
@@ -465,7 +499,11 @@ class LangGraphPipeline:
             "实现节点已启动" if not is_retry else "实现节点正在重试",
             "Coder 正在根据规划产出的规格修改代码。" if not is_retry else "Coder 正在根据上一轮失败信息修复实现。",
         )
-        run_result = self._execute(state, self._coder_command(state), node=NodeName.coder.value)
+        run_result = self._execute(
+            state,
+            self._coder_command(state),
+            node=NodeName.coder.value,
+        )
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.coder.value, run_result)
@@ -504,16 +542,97 @@ class LangGraphPipeline:
 
     def _planner_clarification_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
         retry_counts = self._increment_count(state, "coder_planner_clarify")
         if retry_counts["coder_planner_clarify"] > state.get("max_clarifications", 3):
             self._update_iteration(iteration_id, retry_counts=retry_counts)
             return self._block(iteration_id, "clarification.max_retries", None, state.get("clarification_request") or "clarification cap reached", blocked_user=True)
-        self._update_iteration(iteration_id, status=IterationStatus.retrying.value, current_node=NodeName.planner_clarification.value, retry_counts=retry_counts)
-        self._node_event(iteration_id, "node.progress", NodeName.planner_clarification.value, "Planner 已处理澄清", "系统将带着澄清结果回到实现节点。", severity="info", action_hint="无需人工处理，系统会继续回环。")
-        self._add_event(iteration_id, event_type="clarification.answered", payload={"request": state.get("clarification_request"), "count": retry_counts["coder_planner_clarify"]})
+
+        clarification_request = state.get("clarification_request") or ""
+        self._prepare_iteration_docs(iteration_id)
+        docs = IterationDocs(self.docs_root(iteration_id))
+        docs.ensure()
+        count = retry_counts["coder_planner_clarify"]
+        question_path = docs.write_text(
+            f"clarifications/{count:02d}_question.md",
+            f"---\ndoc: clarification\nstatus: open\nowner: node2\n---\n\n# Clarification Request {count:02d}\n\n{clarification_request}\n",
+        )
+        self._record_document(iteration_id, f"clarification_question_{count:02d}", question_path)
+
+        self._update_iteration(
+            iteration_id,
+            status=IterationStatus.retrying.value,
+            current_node=NodeName.planner_clarification.value,
+            retry_counts=retry_counts,
+        )
+        self._reset_live_cli(iteration_id, NodeName.planner_clarification.value)
+        self._publish_snapshot(iteration_id)
+        self._node_event(
+            iteration_id,
+            "node.started",
+            NodeName.planner_clarification.value,
+            "Planner 澄清节点已启动",
+            "Planner 正在根据 Coder 的澄清请求生成正式回答。",
+        )
+
+        run_result = self._execute(
+            state,
+            self._planner_clarification_command(state, clarification_request),
+            node=NodeName.planner_clarification.value,
+        )
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
+        run_id = self._record_run(iteration_id, NodeName.planner_clarification.value, run_result)
+        if run_result.returncode:
+            self._node_event(
+                iteration_id,
+                "node.failed",
+                NodeName.planner_clarification.value,
+                "Planner 澄清失败",
+                "Planner CLI 未能回答 Coder 的澄清请求。",
+                severity="error",
+                run_id=run_id,
+                action_hint="查看 Planner 原始日志，确认 claude CLI 可用。",
+            )
+            return self._block(iteration_id, "planner_clarification.failed", run_id, run_result.stderr)
+
+        try:
+            artifact = self._planner_clarification_artifact(state, run_result)
+        except Exception as exc:
+            self._node_event(
+                iteration_id,
+                "node.failed",
+                NodeName.planner_clarification.value,
+                "澄清产物无效",
+                "Planner 澄清输出无法被解析为合法 artifact。",
+                severity="error",
+                run_id=run_id,
+            )
+            return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
+
+        answer_path = docs.write_text(
+            f"clarifications/{count:02d}_answer.md",
+            f"---\ndoc: clarification\nstatus: answered\nowner: node1\n---\n\n# Clarification Answer {count:02d}\n\n{artifact.answer}\n",
+        )
+        self._record_document(iteration_id, f"clarification_answer_{count:02d}", answer_path)
+        self._add_event(
+            iteration_id,
+            event_type="clarification.answered",
+            payload={"request": clarification_request, "count": count, "answer": artifact.answer},
+        )
+        self._node_event(
+            iteration_id,
+            "node.completed",
+            NodeName.planner_clarification.value,
+            "Planner 已回答澄清",
+            artifact.summary or "Planner 已生成澄清回答，系统将回到实现节点。",
+            severity="success",
+            run_id=run_id,
+        )
         return {
             "status": IterationStatus.coding.value,
-            "failure_notes": f"Planner clarification answer: proceed using the approved spec. Request was: {state.get('clarification_request')}",
+            "failure_notes": artifact.answer,
             "clarification_request": None,
             "retry_counts": retry_counts,
         }
@@ -622,7 +741,14 @@ class LangGraphPipeline:
 
     def _done_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
+        row = self._require_iteration(iteration_id)
         self._update_iteration(iteration_id, status=IterationStatus.delivered.value, current_node=None, last_error=None)
+        append_iteration_log(
+            self.project_repo_root(iteration_id),
+            docs_slug=row["docs_slug"] if "docs_slug" in row.keys() and row["docs_slug"] else iteration_id,
+            event="iteration.delivered",
+            detail=f"Iteration delivered after goal: {row['goal']}",
+        )
         self._add_event(iteration_id, event_type="iteration.delivered", payload={"status": "delivered"})
         self._node_event(iteration_id, "node.completed", "done", "迭代已交付", "本轮流水线已完成并归档为已交付状态。", severity="success")
         return {"status": IterationStatus.delivered.value, "current_node": None}
@@ -732,7 +858,13 @@ class LangGraphPipeline:
         )
         return {"status": status, "current_node": None, "blocked_reason": reason}
 
-    def _execute(self, state: PipelineState, command: list[str], *, node: str | None = None) -> CLIResult:
+    def _execute(
+        self,
+        state: PipelineState,
+        command: list[str],
+        *,
+        node: str | None = None,
+    ) -> CLIResult:
         runner = self.real_runner if self._is_real_cli(state.get("mode")) else self.dry_runner
         iteration_id = state["iteration_id"]
         if node is None:
@@ -859,7 +991,15 @@ class LangGraphPipeline:
         return mode == Mode.real_cli.value or settings.mode == Mode.real_cli.value
 
     def _planner_brief(self, state: PipelineState) -> str:
-        parts = [f"Iteration goal: {state['goal']}"]
+        iteration_id = state["iteration_id"]
+        docs_root = self.docs_root(iteration_id)
+        repo_root = self.project_repo_root(iteration_id)
+        parts = [
+            f"Iteration goal: {state['goal']}",
+            f"Project docs root: {repo_root / 'docs'}",
+            f"Iteration docs root: {docs_root}",
+            "Read docs/00_convention.md, docs/01_project_goal.md, docs/03_invariants/, and docs/04_decisions/ before planning.",
+        ]
         if state.get("epic_title"):
             parts.append(f"Epic title: {state['epic_title']}")
         if state.get("epic_description"):
@@ -901,13 +1041,40 @@ class LangGraphPipeline:
             return command
         return ["specforge", "planner", iteration_id]
 
+    def _planner_clarification_command(self, state: PipelineState, clarification_request: str) -> list[str]:
+        if self._is_real_cli(state.get("mode")):
+            prompt = (
+                "You are Planner for SpecForge answering a Coder clarification request. "
+                "Read the approved system_design.md, modification_plan.md, testing_plan.md, and project invariants. "
+                "Return only JSON matching {answer:string, summary:string}. "
+                "The answer must be actionable for Coder and should not change protected tests. "
+                f"Clarification request: {clarification_request}"
+            )
+            return [
+                "claude",
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--input-format",
+                "text",
+                "--permission-mode",
+                "bypassPermissions",
+                "--verbose",
+                "--include-partial-messages",
+                "--json-schema",
+                self._artifact_schema_inline(PlannerClarificationArtifact),
+                prompt,
+            ]
+        return ["specforge", "planner_clarification", state["iteration_id"]]
+
     def _coder_command(self, state: PipelineState) -> list[str]:
         iteration_id = state["iteration_id"]
         if self._is_real_cli(state.get("mode")):
             notes = state.get("failure_notes") or ""
             prompt = (
                 "You are Coder for SpecForge. Edit only src/** in this iteration workspace. "
-                "Do not edit docs/tests. Return only JSON matching "
+                "Read project docs under docs/ and iteration specs under the iteration docs root. "
+                "Do not edit docs/tests or protected planning documents. Return only JSON matching "
                 "{changed_paths:[string], summary:string, clarification_request?:string}. "
                 f"Failure notes to address: {notes}"
             )
@@ -986,6 +1153,15 @@ class LangGraphPipeline:
                     content="from specforge.models import IterationStatus\n\n\ndef test_status_names_exist():\n    assert IterationStatus.created.value == 'created'\n",
                 )
             ],
+        )
+
+    def _planner_clarification_artifact(self, state: PipelineState, run_result: CLIResult) -> PlannerClarificationArtifact:
+        if self._is_real_cli(state.get("mode")):
+            return parse_json_artifact(run_result.stdout, PlannerClarificationArtifact)  # type: ignore[return-value]
+        request = state.get("clarification_request") or "unspecified clarification"
+        return PlannerClarificationArtifact(
+            answer=f"Proceed with the approved spec. Clarification resolved: {request}",
+            summary="Dry-run planner clarification answered the coder request.",
         )
 
     def _run_ui_specs(self, iteration_id: str, docs: IterationDocs) -> UIDriverRunResult:

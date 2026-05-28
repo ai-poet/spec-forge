@@ -180,8 +180,11 @@ def test_iteration_workspace_under_project_root(tmp_path):
     iteration_id = resp.json()["id"]
     drain_jobs()
     workspace = pipeline.project_root(iteration_id)
+    docs_root = pipeline.docs_root(iteration_id)
     assert str(workspace).startswith(str((Path(root_path) / ".specforge" / "iterations").resolve()))
-    assert (workspace / "docs" / "system_design.md").exists()
+    assert (docs_root / "system_design.md").exists()
+    assert (Path(root_path) / "docs" / "00_convention.md").exists()
+    assert (Path(root_path) / "docs" / "04_decisions" / "ADR-001-langgraph.md").exists()
 
 
 def test_create_project_and_filter_iterations(tmp_path):
@@ -512,6 +515,30 @@ def test_stop_iteration_records_stopped_at_node():
     row = pipeline.db.get_iteration_row(iteration_id)
     assert row["status"] == "stopped"
     assert row["stopped_at_node"] == "planner"
+
+
+def test_planner_clarification_writes_question_and_answer(tmp_path):
+    project = post_project(tmp_path, "clarify-flow")
+    project_id = project.json()["id"]
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "goal": "clarify path", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    pipeline._prepare_iteration_docs(iteration_id)
+    state = {
+        "iteration_id": iteration_id,
+        "mode": "dry-run",
+        "clarification_request": "Should src live under api/ or services/?",
+        "retry_counts": {},
+        "max_clarifications": 3,
+    }
+    result = pipeline._planner_clarification_node(state)
+    assert result["status"] == "coding"
+    docs_root = pipeline.docs_root(iteration_id)
+    assert (docs_root / "clarifications" / "01_question.md").exists()
+    assert (docs_root / "clarifications" / "01_answer.md").exists()
+    assert "clarification.answered" in [event["type"] for event in pipeline.db.list_events(iteration_id)]
 
 
 def test_resume_stopped_iteration(tmp_path):
