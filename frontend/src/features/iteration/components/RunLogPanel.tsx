@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { IterationDetail } from '../../../shared/lib/types'
+import type { IterationDetail, LiveCliOutput } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
 import { nodeLabel } from '../../../shared/lib/labels'
@@ -10,10 +10,31 @@ interface Props {
   stepKey?: PipelineStepKey | null
 }
 
+const CLI_ACTIVE_STATUSES = new Set(['planning', 'coding', 'testing', 'retrying'])
+
+function resolveLiveCli(detail: IterationDetail | null, stepKey: PipelineStepKey | null): LiveCliOutput | null {
+  if (!detail?.live_cli) return null
+  if (!stepKey) return detail.live_cli
+  const nodes = new Set(nodesForStep(stepKey))
+  const live = detail.live_cli
+  if (nodes.has(live.node)) return live
+  if (detail.current_node && nodes.has(detail.current_node)) {
+    return { ...live, node: detail.current_node }
+  }
+  return null
+}
+
+function isCliStarting(detail: IterationDetail | null, stepKey: PipelineStepKey | null): boolean {
+  if (!detail || !stepKey || !detail.current_node) return false
+  if (!CLI_ACTIVE_STATUSES.has(detail.status)) return false
+  return nodesForStep(stepKey).includes(detail.current_node)
+}
+
 export function RunLogPanel({ detail, stepKey = null }: Props) {
   const liveRef = useRef<HTMLPreElement>(null)
   const nodes = stepKey ? new Set(nodesForStep(stepKey)) : null
-  const live = detail?.live_cli && (!nodes || nodes.has(detail.live_cli.node)) ? detail.live_cli : null
+  const live = resolveLiveCli(detail, stepKey)
+  const cliStarting = !live && isCliStarting(detail, stepKey)
   const runs = (detail?.runs ?? []).filter((run) => {
     if (!nodes) return true
     return nodes.has(run.node)
@@ -25,6 +46,7 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
   }, [live?.stdout, live?.stderr])
 
   const liveText = live ? `${live.stdout}${live.stderr}` : ''
+  const pendingNode = detail?.current_node ?? 'agent'
 
   return (
     <section className="panel stack">
@@ -37,6 +59,15 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
               <span className="ok-text">streaming</span>
             </div>
             <pre ref={liveRef} className="code log live-cli-stream">{liveText || '等待 CLI 输出…'}</pre>
+          </div>
+        ) : null}
+        {cliStarting ? (
+          <div className="item run-card live">
+            <div className="item-head">
+              <strong>{presentNodeName(pendingNode)} · 实时输出</strong>
+              <span className="ok-text">starting</span>
+            </div>
+            <pre className="code log live-cli-stream">CLI 启动中…</pre>
           </div>
         ) : null}
         {runs.map((run) => (
@@ -53,7 +84,7 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
             </details>
           </div>
         ))}
-        {!runs.length && !live ? <div className="empty">{stepKey ? '本阶段暂无 CLI 运行记录' : '暂无日志'}</div> : null}
+        {!runs.length && !live && !cliStarting ? <div className="empty">{stepKey ? '本阶段暂无 CLI 运行记录' : '暂无日志'}</div> : null}
       </div>
     </section>
   )

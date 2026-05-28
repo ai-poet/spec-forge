@@ -400,6 +400,47 @@ def test_native_cli_events_are_presented_as_semantic_progress():
     assert "pytest -q" in event["message"]
 
 
+def test_execute_live_cli_node_from_db_current_node():
+    resp = client.post(
+        "/api/iterations",
+        json={"project_name": "live-cli-node", "goal": "check live_cli node", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    pipeline.db.update_iteration(iteration_id, current_node="planner", status="planning")
+    state = {"iteration_id": iteration_id, "mode": "dry-run", "current_node": None}
+
+    pipeline._execute(state, ["echo", "planner"], node="planner")
+    snapshot = pipeline._live_cli_snapshot(iteration_id)
+    assert snapshot is not None
+    assert snapshot["node"] == "planner"
+
+    pipeline.db.update_iteration(iteration_id, current_node="coder")
+    pipeline._execute(state, ["echo", "coder"])
+    snapshot = pipeline._live_cli_snapshot(iteration_id)
+    assert snapshot is not None
+    assert snapshot["node"] == "coder"
+
+
+def test_append_live_cli_publishes_cli_output_event():
+    resp = client.post(
+        "/api/iterations",
+        json={"project_name": "cli-output-event", "goal": "stream chunks", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    pipeline._reset_live_cli(iteration_id, "planner")
+    queue = pipeline.broker.subscribe(iteration_id)
+    try:
+        pipeline._append_live_cli(iteration_id, "stdout", "hello")
+        envelope = queue.get(timeout=1)
+        assert envelope.type == "cli.output"
+        assert envelope.event is not None
+        assert envelope.event["payload"]["node"] == "planner"
+        assert envelope.event["payload"]["stream"] == "stdout"
+        assert envelope.event["payload"]["chunk"] == "hello"
+    finally:
+        pipeline.broker.unsubscribe(iteration_id, queue)
+
+
 def test_ui_spec_schema_validates():
     spec = UITestSpec.model_validate(
         {

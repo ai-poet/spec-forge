@@ -149,6 +149,12 @@ export interface LiveCliOutput {
   stderr: string
 }
 
+export interface CliOutputPayload {
+  node: string
+  stream: 'stdout' | 'stderr'
+  chunk: string
+}
+
 export interface IterationDetail extends IterationSummary {
   test_command: string | null
   graph_next: string[]
@@ -160,8 +166,8 @@ export interface IterationDetail extends IterationSummary {
 }
 
 export interface LiveMessage {
-  type: 'snapshot' | 'event'
-  event?: EventRecord
+  type: 'snapshot' | 'event' | 'cli.output'
+  event?: EventRecord | { type: 'cli.output'; payload: CliOutputPayload }
   snapshot?: IterationDetail
 }
 

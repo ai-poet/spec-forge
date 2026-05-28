@@ -71,6 +71,7 @@ class LangGraphPipeline:
         self._live_cli_lock = Lock()
         self._live_cli: dict[str, dict[str, str]] = {}
         self._live_cli_last_publish: dict[str, float] = {}
+        self._live_cli_chunk_last_publish: dict[str, float] = {}
 
     def project_root(self, iteration_id: str) -> Path:
         row = self._require_iteration(iteration_id)
@@ -205,16 +206,38 @@ class LangGraphPipeline:
             self._live_cli_last_publish.pop(iteration_id, None)
 
     def _append_live_cli(self, iteration_id: str, stream: str, chunk: str) -> None:
+        node = ""
         with self._live_cli_lock:
             live = self._live_cli.get(iteration_id)
             if live is None:
                 return
             live[stream] += chunk
+            node = live["node"]
+        self._maybe_publish_cli_output(iteration_id, node, stream, chunk)
 
     def _clear_live_cli(self, iteration_id: str) -> None:
         with self._live_cli_lock:
             self._live_cli.pop(iteration_id, None)
             self._live_cli_last_publish.pop(iteration_id, None)
+            self._live_cli_chunk_last_publish.pop(iteration_id, None)
+
+    def _maybe_publish_cli_output(self, iteration_id: str, node: str, stream: str, chunk: str) -> None:
+        now = time.monotonic()
+        with self._live_cli_lock:
+            last = self._live_cli_chunk_last_publish.get(iteration_id, 0.0)
+            if now - last < 0.05:
+                return
+            self._live_cli_chunk_last_publish[iteration_id] = now
+        try:
+            self.broker.publish(
+                iteration_id,
+                EventEnvelope(
+                    type="cli.output",
+                    event={"type": "cli.output", "payload": {"node": node, "stream": stream, "chunk": chunk}},
+                ),
+            )
+        except Exception:
+            pass
 
     def _maybe_publish_live_cli(self, iteration_id: str) -> None:
         now = time.monotonic()
@@ -259,6 +282,8 @@ class LangGraphPipeline:
         goal = state["goal"]
         self.project_root(iteration_id).mkdir(parents=True, exist_ok=True)
         self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.planner.value, last_error=None)
+        self._reset_live_cli(iteration_id, NodeName.planner.value)
+        self._publish_snapshot(iteration_id)
         self._node_event(
             iteration_id,
             "node.started",
@@ -267,7 +292,7 @@ class LangGraphPipeline:
             "正在读取大需求并拆分任务，准备生成系统设计、修改计划和测试。",
         )
         self._add_event(iteration_id, event_type="iteration.started", payload={"status": "planning"})
-        run_result = self._execute(state, self._planner_command(state))
+        run_result = self._execute(state, self._planner_command(state), node=NodeName.planner.value)
         run_id = self._record_run(iteration_id, NodeName.planner.value, run_result)
         if run_result.returncode:
             self._node_event(iteration_id, "node.failed", NodeName.planner.value, "规划失败", "Planner CLI 执行失败。", severity="error", run_id=run_id, action_hint="查看运行日志，确认 claude CLI 可用并能返回 JSON artifact。")
@@ -314,6 +339,8 @@ class LangGraphPipeline:
             retry_counts=retry_counts,
             last_error=None,
         )
+        self._reset_live_cli(iteration_id, NodeName.coder.value)
+        self._publish_snapshot(iteration_id)
         self._node_event(
             iteration_id,
             "node.started",
@@ -321,7 +348,7 @@ class LangGraphPipeline:
             "实现节点已启动" if not is_retry else "实现节点正在重试",
             "Coder 正在根据规划产出的规格修改代码。" if not is_retry else "Coder 正在根据上一轮失败信息修复实现。",
         )
-        run_result = self._execute(state, self._coder_command(state))
+        run_result = self._execute(state, self._coder_command(state), node=NodeName.coder.value)
         run_id = self._record_run(iteration_id, NodeName.coder.value, run_result)
         if run_result.returncode:
             self._node_event(iteration_id, "node.failed", NodeName.coder.value, "实现失败", "Coder CLI 执行失败。", severity="error", run_id=run_id, action_hint="查看运行日志，确认 claude CLI 和工作区权限。")
@@ -387,8 +414,10 @@ class LangGraphPipeline:
     def _tester_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
         self._update_iteration(iteration_id, status=IterationStatus.testing.value, current_node=NodeName.tester.value, last_error=None)
+        self._reset_live_cli(iteration_id, NodeName.tester.value)
+        self._publish_snapshot(iteration_id)
         self._node_event(iteration_id, "node.started", NodeName.tester.value, "验证节点已启动", "Tester 正在独立运行验证并准备交付建议。")
-        run_result = self._execute(state, self._tester_command(state))
+        run_result = self._execute(state, self._tester_command(state), node=NodeName.tester.value)
         run_id = self._record_run(iteration_id, NodeName.tester.value, run_result)
         if run_result.returncode:
             self._node_event(iteration_id, "node.failed", NodeName.tester.value, "验证命令失败", "Tester CLI 执行失败，系统将尝试回到实现节点修复。", severity="error", run_id=run_id, action_hint="查看 Tester 原始日志和失败信息。")
@@ -570,10 +599,14 @@ class LangGraphPipeline:
         )
         return {"status": status, "current_node": None, "blocked_reason": reason}
 
-    def _execute(self, state: PipelineState, command: list[str]) -> CLIResult:
+    def _execute(self, state: PipelineState, command: list[str], *, node: str | None = None) -> CLIResult:
         runner = self.real_runner if self._is_real_cli(state.get("mode")) else self.dry_runner
         iteration_id = state["iteration_id"]
-        current_node = state.get("current_node") or "agent"
+        if node is None:
+            row = self._require_iteration(iteration_id)
+            current_node = row["current_node"] or state.get("current_node") or "agent"
+        else:
+            current_node = node
         self._reset_live_cli(iteration_id, current_node)
         self._publish_snapshot(iteration_id)
         seen_output = {"stdout": False, "stderr": False}
