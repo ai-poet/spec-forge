@@ -34,6 +34,9 @@ class PipelineState(TypedDict, total=False):
     project_id: Optional[str]
     project_name: str
     goal: str
+    epic_title: Optional[str]
+    epic_description: Optional[str]
+    epic_acceptance_criteria: Optional[str]
     mode: str
     status: str
     current_node: Optional[str]
@@ -77,12 +80,16 @@ class LangGraphPipeline:
     def start(self, iteration_id: str) -> None:
         row = self._require_iteration(iteration_id)
         project = self.db.get_project_row(row["project_id"]) if row["project_id"] else None
+        epic = self.db.get_epic_row(row["epic_id"]) if row["epic_id"] else None
         retry_counts = self._json(row["retry_counts"], {})
         state: PipelineState = {
             "iteration_id": iteration_id,
             "project_id": row["project_id"],
             "project_name": row["project_name"],
             "goal": row["goal"],
+            "epic_title": epic["title"] if epic else None,
+            "epic_description": epic["description"] if epic else None,
+            "epic_acceptance_criteria": epic["acceptance_criteria"] if epic else None,
             "mode": row["mode"],
             "status": row["status"],
             "current_node": row["current_node"],
@@ -117,9 +124,7 @@ class LangGraphPipeline:
 
     def retry(self, iteration_id: str, note: Optional[str] = None) -> None:
         row = self._require_iteration(iteration_id)
-        if row["status"] == IterationStatus.awaiting_design_approval.value:
-            self.approve_design(iteration_id, note=note)
-        elif row["status"] == IterationStatus.awaiting_verify_approval.value:
+        if row["status"] == IterationStatus.awaiting_verify_approval.value:
             self.approve_verify(iteration_id, note=note)
 
     def fail_job(self, iteration_id: str, reason: str) -> None:
@@ -184,7 +189,6 @@ class LangGraphPipeline:
     def _build_graph(self) -> StateGraph:
         builder = StateGraph(PipelineState)
         builder.add_node("planner", self._planner_node)
-        builder.add_node("design_approval", self._design_approval_node)
         builder.add_node("coder", self._coder_node)
         builder.add_node("planner_clarification", self._planner_clarification_node)
         builder.add_node("integrity_check", self._integrity_check_node)
@@ -193,8 +197,7 @@ class LangGraphPipeline:
         builder.add_node("verify_approval", self._verify_approval_node)
         builder.add_node("done", self._done_node)
         builder.add_edge(START, "planner")
-        builder.add_conditional_edges("planner", self._route_after_planner, {"blocked": END, "approval": "design_approval"})
-        builder.add_edge("design_approval", "coder")
+        builder.add_conditional_edges("planner", self._route_after_planner, {"blocked": END, "coder": "coder"})
         builder.add_conditional_edges(
             "coder",
             self._route_after_coder,
@@ -222,7 +225,7 @@ class LangGraphPipeline:
             "node.started",
             NodeName.planner.value,
             "规划节点已启动",
-            "正在读取需求并准备生成系统设计、修改计划和测试。",
+            "正在读取大需求并拆分任务，准备生成系统设计、修改计划和测试。",
         )
         self._add_event(iteration_id, event_type="iteration.started", payload={"status": "planning"})
         run_result = self._execute(state, self._planner_command(state))
@@ -240,22 +243,26 @@ class LangGraphPipeline:
             baseline = test_integrity_manifest(docs.root)
             self._update_iteration(
                 iteration_id,
-                status=IterationStatus.awaiting_design_approval.value,
+                status=IterationStatus.coding.value,
                 current_node=None,
                 test_integrity_baseline=baseline,
                 last_error=None,
             )
             self._add_event(iteration_id, event_type="planner.completed", payload={"documents": 3 + len(artifact.tests), "run_id": run_id})
-            self._node_event(iteration_id, "node.completed", NodeName.planner.value, "规划完成", f"已生成 3 份规划文档和 {len(artifact.tests)} 个测试文件，等待设计审批。", severity="success", run_id=run_id)
-            return {"status": IterationStatus.awaiting_design_approval.value, "current_node": None, "planner_run_id": run_id}
+            self._add_event(iteration_id, event_type="design.approved", payload={"note": "auto-approved"})
+            self._node_event(
+                iteration_id,
+                "node.completed",
+                NodeName.planner.value,
+                "规划完成",
+                f"已根据大需求生成 3 份规划文档和 {len(artifact.tests)} 个测试文件，自动进入实现。",
+                severity="success",
+                run_id=run_id,
+            )
+            return {"status": IterationStatus.coding.value, "current_node": None, "planner_run_id": run_id, "design_approval": "auto-approved"}
         except Exception as exc:
             self._node_event(iteration_id, "node.failed", NodeName.planner.value, "规划产物无效", "Planner 输出无法被解析为合法 artifact。", severity="error", run_id=run_id, action_hint="查看 Planner 原始日志，要求模型只输出符合 schema 的 JSON。")
             return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
-
-    def _design_approval_node(self, state: PipelineState) -> PipelineState:
-        answer = interrupt({"checkpoint": "design", "iteration_id": state["iteration_id"]})
-        self._add_event(state["iteration_id"], event_type="design.approved", payload={"note": answer})
-        return {"design_approval": str(answer), "status": IterationStatus.coding.value}
 
     def _coder_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
@@ -273,7 +280,7 @@ class LangGraphPipeline:
             "node.started",
             NodeName.coder.value,
             "实现节点已启动" if not is_retry else "实现节点正在重试",
-            "Coder 正在根据批准后的规格修改代码。" if not is_retry else "Coder 正在根据上一轮失败信息修复实现。",
+            "Coder 正在根据规划产出的规格修改代码。" if not is_retry else "Coder 正在根据上一轮失败信息修复实现。",
         )
         run_result = self._execute(state, self._coder_command(state))
         run_id = self._record_run(iteration_id, NodeName.coder.value, run_result)
@@ -427,8 +434,8 @@ class LangGraphPipeline:
         self._node_event(iteration_id, "node.completed", "done", "迭代已交付", "本轮流水线已完成并归档为已交付状态。", severity="success")
         return {"status": IterationStatus.delivered.value, "current_node": None}
 
-    def _route_after_planner(self, state: PipelineState) -> Literal["blocked", "approval"]:
-        return "blocked" if state.get("status") == IterationStatus.blocked.value else "approval"
+    def _route_after_planner(self, state: PipelineState) -> Literal["blocked", "coder"]:
+        return "blocked" if state.get("status") == IterationStatus.blocked.value else "coder"
 
     def _route_after_coder(self, state: PipelineState) -> Literal["blocked", "clarification", "integrity"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value}:
@@ -630,17 +637,30 @@ class LangGraphPipeline:
     def _is_real_cli(self, mode: Optional[str]) -> bool:
         return mode == Mode.real_cli.value or settings.mode == Mode.real_cli.value
 
+    def _planner_brief(self, state: PipelineState) -> str:
+        parts = [f"Iteration goal: {state['goal']}"]
+        if state.get("epic_title"):
+            parts.append(f"Epic title: {state['epic_title']}")
+        if state.get("epic_description"):
+            parts.append(f"Epic description: {state['epic_description']}")
+        if state.get("epic_acceptance_criteria"):
+            parts.append(f"Epic acceptance criteria: {state['epic_acceptance_criteria']}")
+        return "\n".join(parts)
+
     def _planner_command(self, state: PipelineState) -> list[str]:
         iteration_id = state["iteration_id"]
+        brief = self._planner_brief(state)
         if self._is_real_cli(state.get("mode")):
             prompt = (
-                "You are Planner for SpecForge. Return only JSON matching this shape: "
+                "You are Planner for SpecForge. Read the epic (大需求) below and split it into concrete "
+                "implementation tasks for this iteration. Produce system design, modification plan, testing plan, "
+                "and protected tests. Return only JSON matching this shape: "
                 "{system_design:string, modification_plan:string, testing_plan:string, "
                 "tests:[{path:string, content:string}]}. "
                 "Use code test paths under tests/unit or tests/integration. "
                 "For UI tests, write JSON specs under tests/ui/*.json with shape "
                 "{id,title,kind:web|native,target:{url|bundle_id|app_name},steps:[{action,text,value,key,keys,direction,amount}]}. "
-                f"Goal: {state['goal']}"
+                f"{brief}"
             )
             command = [
                 "claude",
@@ -738,8 +758,8 @@ class LangGraphPipeline:
         goal = state["goal"]
         return PlannerArtifact(
             system_design=f"""---\ndoc: system_design\niteration: 1\nstatus: draft\nowner: node1\n---\n\n# Iteration 1 - System Design\n\nGoal: {goal}\n\nThis dry-run design was produced by the LangGraph planner node.\n""",
-            modification_plan="""---\ndoc: modification_plan\niteration: 1\nstatus: draft\nowner: node1\n---\n\n# Iteration 1 - Modification Plan\n\n- Generate a minimal source module.\n- Preserve planner-authored tests.\n- Hand off implementation to the coder node after approval.\n""",
-            testing_plan="""---\ndoc: testing_plan\niteration: 1\nstatus: draft\nowner: node1\n---\n\n# Iteration 1 - Testing Plan\n\n- T01: backend health endpoint responds.\n- T02: dry-run reaches verify approval.\n- T03: delivered status requires verify approval.\n""",
+            modification_plan="""---\ndoc: modification_plan\niteration: 1\nstatus: draft\nowner: node1\n---\n\n# Iteration 1 - Modification Plan\n\n- Generate a minimal source module.\n- Preserve planner-authored tests.\n- Proceed directly to the coder node after planning.\n""",
+            testing_plan="""---\ndoc: testing_plan\niteration: 1\nstatus: draft\nowner: node1\n---\n\n# Iteration 1 - Testing Plan\n\n- T01: backend health endpoint responds.\n- T02: dry-run reaches delivery approval.\n- T03: delivered status requires final approval.\n""",
             tests=[
                 ArtifactFile(
                     path="tests/unit/test_transitions.py",

@@ -17,7 +17,6 @@ interface Props {
   reviewStepKey: PipelineStepKey | null
   busy: boolean
   onLoadDocument: (name: string) => Promise<void>
-  onApproveDesign: () => Promise<void>
   onApproveVerify: () => Promise<void>
   onStop: () => Promise<void>
 }
@@ -30,7 +29,6 @@ export function StageFocusPanel({
   reviewStepKey,
   busy,
   onLoadDocument,
-  onApproveDesign,
   onApproveVerify,
   onStop,
 }: Props) {
@@ -56,13 +54,8 @@ export function StageFocusPanel({
         return (
           <div className="stack">
             <AgentActivityPanel detail={detail} />
-            <TimelinePanel detail={detail} filter="runs" />
-          </div>
-        )
-      case 'design_approval':
-        return (
-          <div className="stack">
             <DocumentPanel detail={detail} docText={docText} onLoadDocument={onLoadDocument} />
+            <TimelinePanel detail={detail} filter="runs" />
           </div>
         )
       case 'coder':
@@ -107,11 +100,9 @@ export function StageFocusPanel({
         return (
           <div className="stack">
             <AgentActivityPanel detail={detail} />
-            <TimelinePanel detail={detail} filter="runs" />
+            <DocumentPanel detail={detail} docText={docText} onLoadDocument={onLoadDocument} />
           </div>
         )
-      case 'design_approval':
-        return <DocumentPanel detail={detail} docText={docText} onLoadDocument={onLoadDocument} />
       case 'coder':
         return <RunLogPanel detail={detail} />
       case 'integrity_check':
@@ -159,7 +150,6 @@ export function StageFocusPanel({
         <ActionPanel
           detail={detail}
           busy={busy}
-          onApproveDesign={onApproveDesign}
           onApproveVerify={onApproveVerify}
           onStop={onStop}
         />
@@ -178,11 +168,6 @@ export function StageFocusPanel({
             <h2 className="section-title">{stepMeta?.label ?? '流转中'}</h2>
             <p className="muted">{stepMeta?.hint}</p>
           </div>
-          {!reviewStepKey && focusStep === 'design_approval' ? (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => loadFirstDoc(designDocs)}>
-              打开设计文档
-            </button>
-          ) : null}
           {!reviewStepKey && focusStep === 'verify_approval' ? (
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => loadFirstDoc(['verify_report', 'delivery_advice'])}>
               打开验证报告

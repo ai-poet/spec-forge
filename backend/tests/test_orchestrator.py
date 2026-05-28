@@ -182,8 +182,6 @@ def test_epic_status_delivered_after_all_iterations_deliver(tmp_path):
     resp = client.post("/api/iterations", json={"project_id": project_id, "epic_id": epic_id, "goal": "ship", "mode": "dry-run"})
     iteration_id = resp.json()["id"]
     drain_jobs()
-    client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
-    drain_jobs()
     client.post(f"/api/iterations/{iteration_id}/approve-verify", json={"note": "ok"})
     drain_jobs()
 
@@ -202,7 +200,7 @@ def test_create_iteration_runs_dry_flow():
     assert data["status"] == "queued"
     drain_jobs()
     detail = client.get(f"/api/iterations/{data['id']}")
-    assert detail.json()["status"] == "awaiting_design_approval"
+    assert detail.json()["status"] == "awaiting_verify_approval"
 
 
 def test_dry_run_emits_semantic_events():
@@ -243,9 +241,6 @@ def test_design_to_delivery_flow():
     iteration_id = resp.json()["id"]
     drain_jobs()
 
-    after_design = client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
-    assert after_design.status_code == 200
-    drain_jobs()
     detail = client.get(f"/api/iterations/{iteration_id}")
     assert detail.json()["status"] == "awaiting_verify_approval"
 
@@ -264,8 +259,6 @@ def test_tester_writes_delivery_advice():
     iteration_id = resp.json()["id"]
     drain_jobs()
 
-    client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
-    drain_jobs()
     detail = client.get(f"/api/iterations/{iteration_id}").json()
 
     assert any(doc["name"] == "delivery_advice" for doc in detail["documents"])
@@ -402,11 +395,9 @@ def test_checksum_gate_blocks_modified_protected_tests():
     test_file = pipeline.docs_root(iteration_id) / "tests" / "unit" / "test_transitions.py"
     test_file.write_text("def test_bad():\n    assert True\n", encoding="utf-8")
 
-    after_design = client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
-    assert after_design.status_code == 200
-    drain_jobs()
+    result = pipeline._integrity_check_node({"iteration_id": iteration_id})
+    assert result["status"] == "blocked"
     detail = client.get(f"/api/iterations/{iteration_id}")
-    assert detail.json()["status"] == "blocked"
     assert "modified protected test" in detail.json()["last_error"]
     payload = detail.json()
     classified = [event for event in payload["events"] if event["type"] == "error.classified"]
@@ -449,9 +440,6 @@ def test_tester_failure_retries_until_blocked(tmp_path):
     iteration_id = resp.json()["id"]
     drain_jobs()
 
-    after_design = client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
-    assert after_design.status_code == 200
-    drain_jobs()
     detail = client.get(f"/api/iterations/{iteration_id}")
     payload = detail.json()
     assert payload["status"] == "blocked"

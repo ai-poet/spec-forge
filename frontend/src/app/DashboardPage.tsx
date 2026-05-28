@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { approveDesign, approveVerify, createIteration, listIterationsForEpic, stopIteration } from '../shared/lib/api'
+import { approveVerify, createIteration, listIterationsForEpic, stopIteration } from '../shared/lib/api'
 import { parseEpicDraft } from '../features/epics/lib/parseEpicDraft'
 import { ProjectConfigPanel } from '../features/projects/components/ProjectConfigPanel'
 import { CreateProjectModal } from '../features/projects/components/CreateProjectModal'
@@ -116,20 +116,6 @@ export function DashboardPage() {
       await epics.refreshEpics(epicId)
       await refreshIterations(item.id)
       setShowCreatePipeline(false)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleApproveDesign() {
-    if (!selectedIterationId) return
-    setBusy(true)
-    try {
-      await approveDesign(selectedIterationId)
-      await live.loadDetail()
-      await refreshIterations(selectedIterationId)
-      await epics.refreshEpics(epics.selectedEpicId ?? undefined)
-      await projects.refreshProjects()
     } finally {
       setBusy(false)
     }
@@ -295,7 +281,6 @@ export function DashboardPage() {
                   reviewStepKey={reviewStepKey}
                   busy={busy}
                   onLoadDocument={live.loadDocument}
-                  onApproveDesign={handleApproveDesign}
                   onApproveVerify={handleApproveVerify}
                   onStop={handleStop}
                 />
