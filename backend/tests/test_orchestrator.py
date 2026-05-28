@@ -10,6 +10,13 @@ from specforge.main import app, job_queue, pipeline
 client = TestClient(app)
 
 
+def post_project(tmp_path, name: str, **extra):
+    root = tmp_path / name
+    root.mkdir()
+    payload = {"root_path": str(root), "create_if_missing": False, "name": name, **extra}
+    return client.post("/api/projects", json=payload)
+
+
 def drain_jobs():
     job_queue.join()
 
@@ -20,8 +27,8 @@ def test_health():
     assert resp.json()["status"] == "ok"
 
 
-def test_create_project_and_filter_iterations():
-    project = client.post("/api/projects", json={"name": "project-a", "description": "demo"})
+def test_create_project_and_filter_iterations(tmp_path):
+    project = post_project(tmp_path, "project-a", description="demo")
     assert project.status_code == 200
     project_id = project.json()["id"]
 
@@ -39,8 +46,8 @@ def test_create_project_and_filter_iterations():
     assert filtered.json()[0]["project_id"] == project_id
 
 
-def test_create_epic_and_attach_iteration():
-    project = client.post("/api/projects", json={"name": "epic-project", "description": "demo"})
+def test_create_epic_and_attach_iteration(tmp_path):
+    project = post_project(tmp_path, "epic-project", description="demo")
     assert project.status_code == 200
     project_id = project.json()["id"]
 
@@ -72,8 +79,8 @@ def test_create_epic_and_attach_iteration():
     assert detail.json()["iterations"][0]["epic_id"] == epic_id
 
 
-def test_epic_status_delivered_after_all_iterations_deliver():
-    project = client.post("/api/projects", json={"name": "epic-delivered"})
+def test_epic_status_delivered_after_all_iterations_deliver(tmp_path):
+    project = post_project(tmp_path, "epic-delivered")
     project_id = project.json()["id"]
     epic = client.post("/api/epics", json={"project_id": project_id, "title": "Deliver all"})
     epic_id = epic.json()["id"]
@@ -183,15 +190,13 @@ def test_invalid_approval_returns_409():
     assert invalid.status_code == 409
 
 
-def test_project_config_is_inherited():
-    project = client.post(
-        "/api/projects",
-        json={
-            "name": "configured",
-            "default_mode": "dry-run",
-            "default_test_command": "pytest",
-            "max_coder_tester_retries": 2,
-        },
+def test_project_config_is_inherited(tmp_path):
+    project = post_project(
+        tmp_path,
+        "configured",
+        default_mode="dry-run",
+        default_test_command="pytest",
+        max_coder_tester_retries=2,
     )
     assert project.status_code == 200
     project_id = project.json()["id"]
@@ -340,11 +345,8 @@ def test_artifact_invalid_emits_classified_error():
     assert "JSON artifact" in classified[-1]["payload"]["action_hint"]
 
 
-def test_tester_failure_retries_until_blocked():
-    project = client.post(
-        "/api/projects",
-        json={"name": "retry-project", "default_mode": "dry-run", "max_coder_tester_retries": 1},
-    )
+def test_tester_failure_retries_until_blocked(tmp_path):
+    project = post_project(tmp_path, "retry-project", default_mode="dry-run", max_coder_tester_retries=1)
     project_id = project.json()["id"]
     resp = client.post(
         "/api/iterations",
@@ -413,16 +415,13 @@ def test_ui_driver_pass_writes_results_and_artifacts():
     assert client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").status_code == 200
 
 
-def test_ui_driver_failure_retries_until_blocked():
+def test_ui_driver_failure_retries_until_blocked(tmp_path):
     original_planner = pipeline._planner_artifact
     original_ui_driver = pipeline.ui_driver
     pipeline._planner_artifact = planner_with_ui_spec  # type: ignore[method-assign]
     pipeline.ui_driver = FakeUIDriver("failed")
     try:
-        project = client.post(
-            "/api/projects",
-            json={"name": "ui-fail-project", "default_mode": "dry-run", "max_coder_tester_retries": 1},
-        )
+        project = post_project(tmp_path, "ui-fail-project", default_mode="dry-run", max_coder_tester_retries=1)
         project_id = project.json()["id"]
         resp = client.post(
             "/api/iterations",

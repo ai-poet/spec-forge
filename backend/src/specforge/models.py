@@ -50,7 +50,9 @@ class CreateIterationRequest(BaseModel):
 
 
 class CreateProjectRequest(BaseModel):
-    name: str = Field(min_length=1)
+    root_path: str = Field(min_length=1)
+    create_if_missing: bool = False
+    name: Optional[str] = Field(default=None, min_length=1)
     description: Optional[str] = None
     default_mode: Mode = Mode.dry_run
     default_test_command: Optional[str] = None
@@ -60,6 +62,11 @@ class CreateProjectRequest(BaseModel):
     max_coder_tester_retries: int = Field(default=5, ge=0, le=20)
     max_clarifications: int = Field(default=3, ge=0, le=20)
     max_verify_rejects: int = Field(default=2, ge=0, le=20)
+
+
+class ValidateProjectPathRequest(BaseModel):
+    root_path: str = Field(min_length=1)
+    create_if_missing: bool = False
 
 
 class UpdateProjectRequest(BaseModel):
@@ -98,6 +105,7 @@ class UpdateEpicRequest(BaseModel):
 class ProjectSummary(BaseModel):
     id: str
     name: str
+    root_path: Optional[str] = None
     description: Optional[str] = None
     default_mode: Mode = Mode.dry_run
     default_test_command: Optional[str] = None

@@ -1,53 +1,67 @@
 import { useEffect, useMemo, useState } from 'react'
 import { approveDesign, approveVerify, createIteration, listIterationsForEpic, stopIteration } from '../api'
-import { ActionPanel } from '../components/ActionPanel'
-import { CreateEpicPanel } from '../components/CreateEpicPanel'
-import { CreateIterationPanel } from '../components/CreateIterationPanel'
-import { EpicHeader } from '../components/EpicHeader'
-import { EpicList } from '../components/EpicList'
-import { IterationList } from '../components/IterationList'
-import { PipelineBoard } from '../components/PipelineBoard'
+import { ContextHeader } from '../components/ContextHeader'
+import { PipelineRail } from '../components/PipelineRail'
 import { ProjectConfigPanel } from '../components/ProjectConfigPanel'
 import { ProjectSidebar } from '../components/ProjectSidebar'
-import { WorkbenchPanel } from '../components/WorkbenchPanel'
+import { StageFocusPanel } from '../components/StageFocusPanel'
+import { WorkspaceShell } from '../components/WorkspaceShell'
 import { useEpics } from '../hooks/useEpics'
 import { useIterationLive } from '../hooks/useIterationLive'
 import { useProjects } from '../hooks/useProjects'
+import type { PipelineStepKey } from '../pipelineSteps'
 import type { IterationSummary, Mode, UpdateProjectInput } from '../types'
-
-type MainTab = 'iterations' | 'config'
 
 export function DashboardPage() {
   const projects = useProjects()
   const epics = useEpics(projects.selectedProjectId)
   const [iterations, setIterations] = useState<IterationSummary[]>([])
   const [selectedIterationId, setSelectedIterationId] = useState<string | null>(null)
+  const [reviewStepKey, setReviewStepKey] = useState<PipelineStepKey | null>(null)
   const [busy, setBusy] = useState(false)
-  const [mainTab, setMainTab] = useState<MainTab>('iterations')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [showCreateEpic, setShowCreateEpic] = useState(false)
+  const [showCreateIteration, setShowCreateIteration] = useState(false)
   const live = useIterationLive(selectedIterationId)
 
-  const defaultGoal = useMemo(() => {
-    if (!epics.selectedEpic) return '为当前项目创建第一条可验证实现路径'
+  const goalPlaceholder = useMemo(() => {
+    if (!epics.selectedEpic) return undefined
     return [
       epics.selectedEpic.description,
       epics.selectedEpic.acceptance_criteria ? `验收标准:\n${epics.selectedEpic.acceptance_criteria}` : '',
-    ].filter(Boolean).join('\n\n')
+    ]
+      .filter(Boolean)
+      .join('\n\n')
   }, [epics.selectedEpic])
 
   async function refreshIterations(preferredIterationId?: string) {
     const items = epics.selectedEpicId ? await listIterationsForEpic(epics.selectedEpicId) : []
     setIterations(items)
-    const nextSelection =
-      preferredIterationId && items.some((item) => item.id === preferredIterationId)
-        ? preferredIterationId
-        : items[0]?.id ?? null
-    setSelectedIterationId(nextSelection)
+    setSelectedIterationId((current) => {
+      if (preferredIterationId && items.some((item) => item.id === preferredIterationId)) return preferredIterationId
+      if (current && items.some((item) => item.id === current)) return current
+      return null
+    })
   }
 
   useEffect(() => {
     setSelectedIterationId(null)
+    setReviewStepKey(null)
+    setShowCreateIteration(false)
     refreshIterations().catch(console.error)
   }, [projects.selectedProjectId, epics.selectedEpicId])
+
+  useEffect(() => {
+    setReviewStepKey(null)
+    setShowCreateEpic(false)
+    setShowCreateIteration(false)
+    setSettingsOpen(false)
+  }, [projects.selectedProjectId])
+
+  useEffect(() => {
+    setReviewStepKey(null)
+    setShowCreateIteration(false)
+  }, [epics.selectedEpicId, selectedIterationId])
 
   useEffect(() => {
     const selected = iterations.find((item) => item.id === selectedIterationId)
@@ -71,7 +85,9 @@ export function DashboardPage() {
   async function handleCreateEpic(input: { title: string; description: string; acceptance_criteria: string }) {
     setBusy(true)
     try {
-      await epics.addEpic(input)
+      const epic = await epics.addEpic(input)
+      if (epic) epics.setSelectedEpicId(epic.id)
+      setShowCreateEpic(false)
       await projects.refreshProjects()
     } finally {
       setBusy(false)
@@ -91,6 +107,7 @@ export function DashboardPage() {
       await projects.refreshProjects()
       await epics.refreshEpics(epics.selectedEpicId ?? undefined)
       await refreshIterations(item.id)
+      setShowCreateIteration(false)
     } finally {
       setBusy(false)
     }
@@ -148,58 +165,111 @@ export function DashboardPage() {
     }
   }
 
+  function handleSelectProject(id: string) {
+    projects.setSelectedProjectId(id)
+    setSettingsOpen(false)
+  }
+
+  function handleSelectEpic(id: string | null) {
+    epics.setSelectedEpicId(id)
+    setShowCreateEpic(false)
+  }
+
+  function handleSelectIteration(id: string | null) {
+    setSelectedIterationId(id)
+    setShowCreateIteration(false)
+  }
+
+  const showRail = Boolean(selectedIterationId && !settingsOpen)
+
   return (
-    <div className="app">
+    <div className={`app ${showRail ? '' : 'no-rail'}`}>
       <ProjectSidebar
         projects={projects.projects}
         selectedProjectId={projects.selectedProjectId}
-        onSelectProject={projects.setSelectedProjectId}
+        onSelectProject={handleSelectProject}
         onAddProject={handleAddProject}
-      >
-        <CreateEpicPanel disabled={!projects.selectedProjectId || busy} onCreate={handleCreateEpic} />
-        <EpicList epics={epics.epics} selectedEpicId={epics.selectedEpicId} onSelectEpic={epics.setSelectedEpicId} />
-      </ProjectSidebar>
+        settingsOpen={settingsOpen}
+        onToggleSettings={() => setSettingsOpen((value) => !value)}
+      />
 
-      <main className="main stack">
-        <EpicHeader
-          project={projects.selectedProject}
-          epic={epics.selectedEpic}
-          connectionStatus={live.connectionStatus}
-          lastMessageAt={live.lastMessageAt}
-        />
-
-        <div className="tabbar">
-          <button className={`tab ${mainTab === 'iterations' ? 'active' : ''}`} onClick={() => setMainTab('iterations')}>
-            迭代
-          </button>
-          <button className={`tab ${mainTab === 'config' ? 'active' : ''}`} onClick={() => setMainTab('config')}>
-            配置
-          </button>
-        </div>
-
-        {mainTab === 'config' ? (
-          <ProjectConfigPanel project={projects.selectedProject} busy={busy} onSave={handleSaveProject} />
-        ) : (
-          <div className="workbench-grid">
-            <div className="stack">
-              <CreateIterationPanel disabled={!projects.selectedProjectId || !epics.selectedEpicId || busy} defaultGoal={defaultGoal} onCreate={handleCreateIteration} />
-              <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={setSelectedIterationId} />
+      <main className="main workspace-main stack">
+        {settingsOpen && projects.selectedProject ? (
+          <div className="stack">
+            <div className="section-row">
+              <div>
+                <p className="eyebrow">项目设置</p>
+                <h1 className="workspace-title">{projects.selectedProject.name}</h1>
+              </div>
+              <button className="btn" onClick={() => setSettingsOpen(false)}>
+                返回工作台
+              </button>
             </div>
+            <ProjectConfigPanel project={projects.selectedProject} busy={busy} onSave={handleSaveProject} />
+          </div>
+        ) : (
+          <>
+            {projects.selectedProject ? (
+              <ContextHeader
+                project={projects.selectedProject}
+                epics={epics.epics}
+                selectedEpicId={epics.selectedEpicId}
+                onSelectEpic={handleSelectEpic}
+                iterations={iterations}
+                selectedIterationId={selectedIterationId}
+                onSelectIteration={handleSelectIteration}
+                onCreateEpic={() => {
+                  setShowCreateEpic(true)
+                  setShowCreateIteration(false)
+                }}
+                onCreateIteration={() => {
+                  setShowCreateIteration(true)
+                  setShowCreateEpic(false)
+                }}
+              />
+            ) : null}
 
-            <div className="stack">
-              <ActionPanel
+            <WorkspaceShell
+              project={projects.selectedProject}
+              epics={epics.epics}
+              selectedEpicId={epics.selectedEpicId}
+              onSelectEpic={epics.setSelectedEpicId}
+              iterations={iterations}
+              selectedIterationId={selectedIterationId}
+              onSelectIteration={setSelectedIterationId}
+              busy={busy}
+              showCreateEpic={showCreateEpic}
+              showCreateIteration={showCreateIteration}
+              onCreateEpic={handleCreateEpic}
+              onCreateIteration={handleCreateIteration}
+              goalPlaceholder={goalPlaceholder}
+            >
+              <StageFocusPanel
                 detail={live.detail}
+                docText={live.docText}
+                reviewStepKey={reviewStepKey}
                 busy={busy}
+                onLoadDocument={live.loadDocument}
                 onApproveDesign={handleApproveDesign}
                 onApproveVerify={handleApproveVerify}
                 onStop={handleStop}
               />
-              <WorkbenchPanel detail={live.detail} docText={live.docText} onLoadDocument={live.loadDocument} />
-              <PipelineBoard detail={live.detail} liveError={live.liveError} />
-            </div>
-          </div>
+            </WorkspaceShell>
+          </>
         )}
       </main>
+
+      {showRail ? (
+        <PipelineRail
+          detail={live.detail}
+          epic={epics.selectedEpic}
+          liveError={live.liveError}
+          connectionStatus={live.connectionStatus}
+          lastMessageAt={live.lastMessageAt}
+          reviewStepKey={reviewStepKey}
+          onSelectStep={setReviewStepKey}
+        />
+      ) : null}
     </div>
   )
 }

@@ -12,7 +12,7 @@ export function useProjects() {
     try {
       const items = await listProjects()
       setProjects(items)
-      setSelectedProjectId((current) => current ?? items[0]?.id ?? null)
+      setSelectedProjectId((current) => (current && items.some((item) => item.id === current) ? current : null))
     } finally {
       setLoading(false)
     }

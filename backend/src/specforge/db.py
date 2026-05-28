@@ -148,11 +148,20 @@ class Database:
             for column, definition in project_defaults.items():
                 if column not in project_columns:
                     conn.execute(f"ALTER TABLE projects ADD COLUMN {column} {definition}")
+            if "root_path" not in project_columns:
+                conn.execute("ALTER TABLE projects ADD COLUMN root_path TEXT")
+                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_root_path ON projects(root_path) WHERE root_path IS NOT NULL")
+
+    def get_project_by_root_path(self, root_path: str) -> Optional[sqlite3.Row]:
+        with self.connect() as conn:
+            return conn.execute("SELECT * FROM projects WHERE root_path = ?", (root_path,)).fetchone()
 
     def create_project(
         self,
         *,
-        name: str,
+        root_path: str,
+        create_if_missing: bool = False,
+        name: Optional[str] = None,
         description: Optional[str] = None,
         default_mode: str = "dry-run",
         default_test_command: Optional[str] = None,
@@ -163,25 +172,34 @@ class Database:
         max_clarifications: int = 3,
         max_verify_rejects: int = 2,
     ) -> str:
+        from .project_paths import prepare_project_root
+
+        resolved = prepare_project_root(root_path, create_if_missing)
+        resolved_str = str(resolved)
+        display_name = name or resolved.name
         now = iso(utcnow())
         project_id = f"proj_{uuid4().hex[:8]}"
         with self.connect() as conn:
-            existing = conn.execute("SELECT id FROM projects WHERE name = ?", (name,)).fetchone()
-            if existing is not None:
-                return existing["id"]
+            existing_root = conn.execute("SELECT id FROM projects WHERE root_path = ?", (resolved_str,)).fetchone()
+            if existing_root is not None:
+                raise ValueError(f"project already registered for root_path: {resolved_str}")
+            existing_name = conn.execute("SELECT id FROM projects WHERE name = ?", (display_name,)).fetchone()
+            if existing_name is not None:
+                raise ValueError(f"project name already exists: {display_name}")
             conn.execute(
                 """
                 INSERT INTO projects (
-                    id, name, description, default_mode, default_test_command,
+                    id, name, root_path, description, default_mode, default_test_command,
                     planner_model, coder_model, tester_model,
                     max_coder_tester_retries, max_clarifications, max_verify_rejects,
                     created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project_id,
-                    name,
+                    display_name,
+                    resolved_str,
                     description,
                     default_mode,
                     default_test_command,
@@ -308,7 +326,17 @@ class Database:
     ) -> str:
         iteration_id = f"iter_{uuid4().hex[:8]}"
         now = iso(utcnow())
-        resolved_project_id = project_id or self.create_project(name=project_name)
+        if project_id:
+            resolved_project_id = project_id
+        else:
+            from .config import settings
+
+            legacy_root = str((settings.projects_dir / f"legacy_{project_name}").resolve())
+            resolved_project_id = self.create_project(
+                root_path=legacy_root,
+                create_if_missing=True,
+                name=project_name,
+            )
         project_row = self.get_project_row(resolved_project_id)
         resolved_project_name = project_row["name"] if project_row is not None else project_name
         resolved_mode = mode or (project_row["default_mode"] if project_row is not None else "dry-run")

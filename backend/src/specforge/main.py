@@ -27,8 +27,10 @@ from .models import (
     RetryRequest,
     UpdateEpicRequest,
     UpdateProjectRequest,
+    ValidateProjectPathRequest,
 )
 from .pipeline import LangGraphPipeline
+from .project_paths import ProjectPathError, prepare_project_root, validate_project_root
 
 
 db = Database(settings.db_path)
@@ -90,20 +92,41 @@ def list_projects() -> list[ProjectSummary]:
     return items
 
 
+@app.post("/api/projects/validate-path")
+def validate_path(payload: ValidateProjectPathRequest) -> dict[str, str | bool]:
+    return validate_project_root(payload.root_path, payload.create_if_missing)
+
+
 @app.post("/api/projects", response_model=ProjectSummary)
 def create_project(payload: CreateProjectRequest) -> ProjectSummary:
-    project_id = db.create_project(
-        name=payload.name,
-        description=payload.description,
-        default_mode=payload.default_mode.value,
-        default_test_command=payload.default_test_command,
-        planner_model=payload.planner_model,
-        coder_model=payload.coder_model,
-        tester_model=payload.tester_model,
-        max_coder_tester_retries=payload.max_coder_tester_retries,
-        max_clarifications=payload.max_clarifications,
-        max_verify_rejects=payload.max_verify_rejects,
-    )
+    try:
+        resolved = prepare_project_root(payload.root_path, payload.create_if_missing)
+    except ProjectPathError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    resolved_str = str(resolved)
+    if db.get_project_by_root_path(resolved_str) is not None:
+        raise HTTPException(status_code=409, detail="project already registered for this folder")
+    display_name = payload.name or resolved.name
+    try:
+        project_id = db.create_project(
+            root_path=resolved_str,
+            create_if_missing=False,
+            name=display_name,
+            description=payload.description,
+            default_mode=payload.default_mode.value,
+            default_test_command=payload.default_test_command,
+            planner_model=payload.planner_model,
+            coder_model=payload.coder_model,
+            tester_model=payload.tester_model,
+            max_coder_tester_retries=payload.max_coder_tester_retries,
+            max_clarifications=payload.max_clarifications,
+            max_verify_rejects=payload.max_verify_rejects,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "root_path" in message:
+            raise HTTPException(status_code=409, detail=message) from exc
+        raise HTTPException(status_code=409, detail=message) from exc
     row = db.get_project_row(project_id)
     assert row is not None
     return project_summary(row)
@@ -370,6 +393,7 @@ def project_summary(row, counts: dict[str, int] | None = None) -> ProjectSummary
     return ProjectSummary(
         id=row["id"],
         name=row["name"],
+        root_path=row["root_path"] if "root_path" in row.keys() else None,
         description=row["description"],
         default_mode=row["default_mode"],
         default_test_command=row["default_test_command"],

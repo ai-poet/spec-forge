@@ -65,6 +65,10 @@ class LangGraphPipeline:
         self.graph = self._build_graph().compile(checkpointer=self._checkpointer)
 
     def project_root(self, iteration_id: str) -> Path:
+        row = self._require_iteration(iteration_id)
+        project = self.db.get_project_row(row["project_id"]) if row["project_id"] else None
+        if project is not None and project["root_path"]:
+            return Path(project["root_path"]) / ".specforge" / "iterations" / iteration_id
         return settings.projects_dir / iteration_id
 
     def docs_root(self, iteration_id: str) -> Path:

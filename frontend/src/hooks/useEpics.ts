@@ -21,7 +21,7 @@ export function useEpics(projectId: string | null) {
         setSelectedEpicId((current) => {
           if (preferredEpicId && items.some((item) => item.id === preferredEpicId)) return preferredEpicId
           if (current && items.some((item) => item.id === current)) return current
-          return items[0]?.id ?? null
+          return null
         })
       } finally {
         setLoading(false)
