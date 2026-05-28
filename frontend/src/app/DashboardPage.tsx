@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { approveVerify, createIteration, listIterationsForEpic, stopIteration } from '../shared/lib/api'
+import { approveVerify, createIteration, deleteIteration, listIterationsForEpic, stopIteration } from '../shared/lib/api'
 import { parseEpicDraft } from '../features/epics/lib/parseEpicDraft'
 import { ProjectConfigPanel } from '../features/projects/components/ProjectConfigPanel'
 import { CreateProjectModal } from '../features/projects/components/CreateProjectModal'
@@ -181,6 +181,37 @@ export function DashboardPage() {
     }
   }
 
+  async function handleDeleteEpic(epicId: string) {
+    setBusy(true)
+    try {
+      await epics.removeEpic(epicId)
+      if (epics.selectedEpicId === epicId) {
+        setSelectedIterationId(null)
+        setReviewStepKey(null)
+      }
+      await refreshIterations()
+      await projects.refreshProjects()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleDeleteIteration(iterationId: string) {
+    setBusy(true)
+    try {
+      await deleteIteration(iterationId)
+      if (selectedIterationId === iterationId) {
+        setSelectedIterationId(null)
+        setReviewStepKey(null)
+      }
+      await refreshIterations()
+      await epics.refreshEpics(epics.selectedEpicId ?? undefined)
+      await projects.refreshProjects()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   function handleSelectProject(id: string) {
     projects.setSelectedProjectId(id)
     setSettingsOpen(false)
@@ -222,9 +253,11 @@ export function DashboardPage() {
           epics={epics.epics}
           selectedEpicId={epics.selectedEpicId}
           onSelectEpic={handleSelectEpic}
+          onDeleteEpic={handleDeleteEpic}
           iterations={iterations}
           selectedIterationId={selectedIterationId}
           onSelectIteration={handleSelectIteration}
+          onDeleteIteration={handleDeleteIteration}
           onCreatePipeline={() => setShowCreatePipeline(true)}
         />
       ) : null}

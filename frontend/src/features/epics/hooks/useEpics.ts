@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { createEpic, listEpicsForProject, updateEpic } from '../../../shared/lib/api'
+import { createEpic, deleteEpic, listEpicsForProject, updateEpic } from '../../../shared/lib/api'
 import type { CreateEpicInput, EpicSummary, UpdateEpicInput } from '../../../shared/lib/types'
 
 export function useEpics(projectId: string | null) {
@@ -49,6 +49,15 @@ export function useEpics(projectId: string | null) {
     [refreshEpics],
   )
 
+  const removeEpic = useCallback(
+    async (epicId: string) => {
+      await deleteEpic(epicId)
+      await refreshEpics()
+      setSelectedEpicId((current) => (current === epicId ? null : current))
+    },
+    [refreshEpics],
+  )
+
   useEffect(() => {
     refreshEpics().catch(console.error)
   }, [refreshEpics])
@@ -62,5 +71,6 @@ export function useEpics(projectId: string | null) {
     refreshEpics,
     addEpic,
     saveEpic,
+    removeEpic,
   }
 }

@@ -26,6 +26,27 @@ export const stepStateLabel: Record<string, string> = {
   complete: '完成',
 }
 
+export function nodesForStep(step: PipelineStepKey): string[] {
+  switch (step) {
+    case 'planner':
+      return ['planner', 'planner_clarification']
+    case 'coder':
+      return ['coder', 'coder_retry']
+    case 'integrity_check':
+      return ['integrity_check']
+    case 'tester':
+      return ['tester', 'ui_driver']
+    case 'planner_verify':
+      return ['planner_verify']
+    case 'verify_approval':
+      return ['verify_approval']
+    case 'done':
+      return ['done']
+    default:
+      return []
+  }
+}
+
 export function pipelineStepState(key: string, detail: IterationDetail | null): 'idle' | 'waiting' | 'active' | 'complete' {
   if (!detail) return 'idle'
   const next = new Set(detail.graph_next ?? [])

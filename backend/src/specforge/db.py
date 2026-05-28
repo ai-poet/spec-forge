@@ -253,7 +253,25 @@ class Database:
             if exists is None:
                 return False
             conn.execute("DELETE FROM iterations WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM epics WHERE project_id = ?", (project_id,))
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        return True
+
+    def delete_epic(self, epic_id: str) -> bool:
+        with self.connect() as conn:
+            exists = conn.execute("SELECT id FROM epics WHERE id = ?", (epic_id,)).fetchone()
+            if exists is None:
+                return False
+            conn.execute("DELETE FROM iterations WHERE epic_id = ?", (epic_id,))
+            conn.execute("DELETE FROM epics WHERE id = ?", (epic_id,))
+        return True
+
+    def delete_iteration(self, iteration_id: str) -> bool:
+        with self.connect() as conn:
+            exists = conn.execute("SELECT id FROM iterations WHERE id = ?", (iteration_id,)).fetchone()
+            if exists is None:
+                return False
+            conn.execute("DELETE FROM iterations WHERE id = ?", (iteration_id,))
         return True
 
     def create_epic(

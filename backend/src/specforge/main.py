@@ -244,6 +244,19 @@ def update_epic(epic_id: str, payload: UpdateEpicRequest) -> EpicSummary:
     return epic_summary(updated)
 
 
+@app.delete("/api/epics/{epic_id}")
+def delete_epic(epic_id: str) -> dict[str, bool]:
+    row = db.get_epic_row(epic_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="epic not found")
+    for iteration in db.list_iterations(epic_id=epic_id):
+        if iteration["status"] not in _TERMINAL_ITERATION_STATUSES:
+            pipeline.stop_iteration(iteration["id"], "epic deleted")
+    if not db.delete_epic(epic_id):
+        raise HTTPException(status_code=404, detail="epic not found")
+    return {"ok": True}
+
+
 @app.get("/api/iterations", response_model=list[IterationSummary])
 def list_iterations(project_id: Optional[str] = Query(default=None), epic_id: Optional[str] = Query(default=None)) -> list[IterationSummary]:
     items = []
@@ -313,6 +326,21 @@ def get_iteration(iteration_id: str) -> IterationDetail:
         runs=snapshot["runs"],
         ui_results=snapshot["ui_results"],
     )
+
+
+@app.delete("/api/iterations/{iteration_id}")
+def delete_iteration(iteration_id: str) -> dict[str, bool]:
+    row = db.get_iteration_row(iteration_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="iteration not found")
+    epic_id = row["epic_id"]
+    if row["status"] not in _TERMINAL_ITERATION_STATUSES:
+        pipeline.stop_iteration(iteration_id, "iteration deleted")
+    if not db.delete_iteration(iteration_id):
+        raise HTTPException(status_code=404, detail="iteration not found")
+    if epic_id:
+        db.update_epic_status(epic_id)
+    return {"ok": True}
 
 
 @app.post("/api/iterations/{iteration_id}/approve-design", response_model=IterationSummary)

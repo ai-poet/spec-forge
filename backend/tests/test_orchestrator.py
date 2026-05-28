@@ -22,6 +22,47 @@ def drain_jobs():
     job_queue.join()
 
 
+def test_delete_epic_and_iterations(tmp_path):
+    project = post_project(tmp_path, "delete-epic")
+    project_id = project.json()["id"]
+    epic = client.post("/api/epics", json={"project_id": project_id, "title": "To delete"})
+    epic_id = epic.json()["id"]
+    iteration = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "epic_id": epic_id, "goal": "remove me", "mode": "dry-run"},
+    )
+    iteration_id = iteration.json()["id"]
+    drain_jobs()
+
+    delete_iteration = client.delete(f"/api/iterations/{iteration_id}")
+    assert delete_iteration.status_code == 200
+    assert client.get(f"/api/iterations/{iteration_id}").status_code == 404
+
+    epic_after = client.get(f"/api/epics/{epic_id}")
+    assert epic_after.status_code == 200
+    assert epic_after.json()["iteration_count"] == 0
+
+    delete_epic = client.delete(f"/api/epics/{epic_id}")
+    assert delete_epic.status_code == 200
+    assert client.get(f"/api/epics/{epic_id}").status_code == 404
+
+
+def test_delete_epic_stops_running_iteration(tmp_path):
+    project = post_project(tmp_path, "delete-running")
+    project_id = project.json()["id"]
+    epic = client.post("/api/epics", json={"project_id": project_id, "title": "Running epic"})
+    epic_id = epic.json()["id"]
+    iteration = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "epic_id": epic_id, "goal": "running", "mode": "dry-run"},
+    )
+    iteration_id = iteration.json()["id"]
+
+    delete_epic = client.delete(f"/api/epics/{epic_id}")
+    assert delete_epic.status_code == 200
+    assert client.get(f"/api/iterations/{iteration_id}").status_code == 404
+
+
 def test_health():
     resp = client.get("/api/health")
     assert resp.status_code == 200

@@ -118,6 +118,40 @@ button {
   color: var(--text-muted);
 }
 
+.sidebar-row-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.sidebar-row-wrap .sidebar-row {
+  min-width: 0;
+}
+
+.sidebar-row-delete {
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-row-wrap:hover .sidebar-row-delete,
+.sidebar-row-wrap.active .sidebar-row-delete {
+  opacity: 1;
+}
+
+.sidebar-row-delete:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+}
+
 .sidebar-status {
   flex-shrink: 0;
   display: inline-flex;

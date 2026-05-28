@@ -3,10 +3,9 @@ import type { IterationDetail } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../lib/pipelineSteps'
 import { inferFocusStep, PIPELINE_STEPS } from '../lib/pipelineSteps'
 import { ActionPanel } from '../../iteration/components/ActionPanel'
-import { AgentActivityPanel } from '../../iteration/components/AgentActivityPanel'
 import { DocumentPanel } from '../../iteration/components/DocumentPanel'
 import { IterationSummaryPanel } from '../../iteration/components/IterationSummaryPanel'
-import { RunLogPanel } from '../../iteration/components/RunLogPanel'
+import { StepExecutionPanel } from './StepExecutionPanel'
 import { TimelinePanel } from '../../iteration/components/TimelinePanel'
 import { UIVerificationPanel } from '../../iteration/components/UIVerificationPanel'
 import { WorkbenchPanel } from '../../iteration/components/WorkbenchPanel'
@@ -40,69 +39,13 @@ export function StageFocusPanel({
     if (doc) await onLoadDocument(doc.name)
   }
 
-  function renderStepContent() {
-    if (!detail || !focusStep) return null
-
-    if (reviewStepKey) {
-      return renderReviewContent(focusStep)
-    }
-
-    switch (focusStep) {
-      case 'planner':
-        return (
-          <div className="stack">
-            <AgentActivityPanel detail={detail} />
-            <DocumentPanel detail={detail} docText={docText} onLoadDocument={onLoadDocument} />
-            <TimelinePanel detail={detail} filter="runs" />
-          </div>
-        )
-      case 'coder':
-        return (
-          <div className="stack">
-            <RunLogPanel detail={detail} />
-            <IterationSummaryPanel detail={detail} />
-          </div>
-        )
-      case 'integrity_check':
-      case 'tester':
-      case 'planner_verify':
-        return (
-          <div className="stack">
-            <UIVerificationPanel detail={detail} />
-            <TimelinePanel detail={detail} filter="tests" />
-          </div>
-        )
-      case 'verify_approval':
-        return (
-          <div className="stack">
-            <DocumentPanel detail={detail} docText={docText} onLoadDocument={onLoadDocument} />
-            <IterationSummaryPanel detail={detail} />
-          </div>
-        )
-      case 'done':
-        return (
-          <div className="stack">
-            <IterationSummaryPanel detail={detail} />
-            <DocumentPanel detail={detail} docText={docText} onLoadDocument={onLoadDocument} />
-          </div>
-        )
-      default:
-        return <TimelinePanel detail={detail} filter="all" />
-    }
-  }
-
-  function renderReviewContent(step: PipelineStepKey) {
+  function renderStepExtras(step: PipelineStepKey) {
     if (!detail) return null
     switch (step) {
       case 'planner':
-        return (
-          <div className="stack">
-            <AgentActivityPanel detail={detail} />
-            <DocumentPanel detail={detail} docText={docText} onLoadDocument={onLoadDocument} />
-          </div>
-        )
+        return <DocumentPanel detail={detail} docText={docText} onLoadDocument={onLoadDocument} />
       case 'coder':
-        return <RunLogPanel detail={detail} />
+        return <IterationSummaryPanel detail={detail} />
       case 'integrity_check':
       case 'tester':
       case 'planner_verify':
@@ -121,8 +64,18 @@ export function StageFocusPanel({
           </div>
         )
       default:
-        return <TimelinePanel detail={detail} filter="all" />
+        return null
     }
+  }
+
+  function renderStepContent() {
+    if (!detail || !focusStep) return null
+    return (
+      <div className="stack">
+        <StepExecutionPanel detail={detail} stepKey={focusStep} />
+        {renderStepExtras(focusStep)}
+      </div>
+    )
   }
 
   if (!detail) {
@@ -140,7 +93,7 @@ export function StageFocusPanel({
       {reviewStepKey ? (
         <div className="stage-focus-banner">
           <strong>回顾：{stepMeta?.label}</strong>
-          <span className="muted">只读查看该阶段产物</span>
+          <span className="muted">只读查看该阶段产物与 Agent 执行详情</span>
         </div>
       ) : null}
 

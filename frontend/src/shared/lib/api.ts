@@ -125,6 +125,12 @@ export function updateEpic(id: string, input: UpdateEpicInput): Promise<EpicSumm
   })
 }
 
+export function deleteEpic(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/epics/${id}`, {
+    method: 'DELETE',
+  })
+}
+
 export function createIteration(input: {
   project_name?: string
   project_id?: string
@@ -145,6 +151,12 @@ export function getIteration(id: string): Promise<IterationDetail> {
 
 export function artifactUrl(iterationId: string, path: string): string {
   return `${API_BASE}/api/iterations/${encodeURIComponent(iterationId)}/artifacts/${path.split('/').map(encodeURIComponent).join('/')}`
+}
+
+export function deleteIteration(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/iterations/${id}`, {
+    method: 'DELETE',
+  })
 }
 
 export function approveDesign(id: string, note?: string): Promise<IterationSummary> {
