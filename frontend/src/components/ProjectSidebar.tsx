@@ -12,7 +12,7 @@ interface Props {
 
 export function ProjectSidebar({ projects, selectedProjectId, onSelectProject, onAddProject, children }: Props) {
   const [name, setName] = useState('specforge-demo')
-  const [description, setDescription] = useState('Local agent pipeline')
+  const [description, setDescription] = useState('本地 agent 流水线')
   const [busy, setBusy] = useState(false)
 
   async function handleAdd() {
@@ -40,7 +40,7 @@ export function ProjectSidebar({ projects, selectedProjectId, onSelectProject, o
           <input value={name} onChange={(event) => setName(event.target.value)} placeholder="项目名称" />
           <input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="描述" />
           <button className="btn primary" onClick={handleAdd} disabled={busy || !name.trim()}>
-            Add project
+            添加项目
           </button>
         </div>
       </section>
@@ -55,8 +55,8 @@ export function ProjectSidebar({ projects, selectedProjectId, onSelectProject, o
               onClick={() => onSelectProject(project.id)}
             >
               <strong>{project.name}</strong>
-              <span>{project.iteration_count} runs</span>
-              <small>{project.active_count} active / {project.delivered_count} delivered</small>
+              <span>{project.iteration_count} 条流水线</span>
+              <small>{project.active_count} 进行中 / {project.delivered_count} 已交付</small>
             </button>
           ))}
           {!projects.length ? <div className="empty">暂无项目</div> : null}

@@ -35,6 +35,8 @@ supersedes: docs/development_plan.md@0.3.0
 22. Timeline 增加 Decisions、Failures、Tests、Runs 过滤。
 23. WebSocket hook 增加连接状态、最后消息时间和指数退避重连。
 24. 项目配置迁移到 Config tab，避免挤占 iteration 主流程。
+25. Tester artifact 扩展为验证报告、用户体验观察和交付建议。
+26. 前端主要用户可见文案改为中文，并保留必要的运行模式原值。
 
 ## 当前验收范围
 
@@ -45,6 +47,7 @@ supersedes: docs/development_plan.md@0.3.0
 - 验证审批后 iteration delivered。
 - Epic 进度同步变为 delivered / 100%。
 - Summary、Docs、Tests、Logs 和 Timeline 都能读取当前 iteration 的状态。
+- Tester 通过后生成 `delivery_advice.md`，摘要面板显示用户体验观察和后续建议。
 
 ## 下一步
 

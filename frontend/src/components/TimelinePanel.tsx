@@ -1,4 +1,5 @@
 import type { IterationDetail, TimelineFilter } from '../types'
+import { eventLabel, timelineFilterLabel } from '../labels'
 
 interface Props {
   detail: IterationDetail | null
@@ -23,18 +24,18 @@ export function TimelinePanel({ detail, filter = 'all', onFilterChange }: Props)
         <h2 className="section-title">事件流</h2>
         {onFilterChange ? (
           <select className="compact-select" value={filter} onChange={(event) => onFilterChange(event.target.value as TimelineFilter)}>
-            <option value="all">All</option>
-            <option value="decisions">Decisions</option>
-            <option value="failures">Failures</option>
-            <option value="tests">Tests</option>
-            <option value="runs">Runs</option>
+            <option value="all">{timelineFilterLabel.all}</option>
+            <option value="decisions">{timelineFilterLabel.decisions}</option>
+            <option value="failures">{timelineFilterLabel.failures}</option>
+            <option value="tests">{timelineFilterLabel.tests}</option>
+            <option value="runs">{timelineFilterLabel.runs}</option>
           </select>
         ) : null}
       </div>
       <div className="timeline">
         {events.map((event) => (
           <div key={event.id} className={`item event-item ${event.type.includes('failed') || event.type.includes('blocked') ? 'danger' : ''}`}>
-            <strong>{event.type}</strong>
+            <strong>{eventLabel(event.type)}</strong>
             <div className="muted event-json">{JSON.stringify(event.payload)}</div>
           </div>
         ))}

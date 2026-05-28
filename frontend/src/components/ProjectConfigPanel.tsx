@@ -48,7 +48,7 @@ export function ProjectConfigPanel({ project, busy, onSave }: Props) {
       <div className="section-row">
         <h2 className="section-title">项目配置</h2>
         <button className="btn" onClick={handleSave} disabled={busy || !project}>
-          Save config
+          保存配置
         </button>
       </div>
       <div className="config-grid">
@@ -64,27 +64,27 @@ export function ProjectConfigPanel({ project, busy, onSave }: Props) {
           <input value={defaultTestCommand} onChange={(event) => setDefaultTestCommand(event.target.value)} placeholder="pytest" disabled={!project} />
         </label>
         <label>
-          <span>Planner model</span>
+          <span>Planner 模型</span>
           <input value={plannerModel} onChange={(event) => setPlannerModel(event.target.value)} placeholder="sonnet" disabled={!project} />
         </label>
         <label>
-          <span>Coder model</span>
+          <span>Coder 模型</span>
           <input value={coderModel} onChange={(event) => setCoderModel(event.target.value)} placeholder="sonnet" disabled={!project} />
         </label>
         <label>
-          <span>Tester model</span>
+          <span>Tester 模型</span>
           <input value={testerModel} onChange={(event) => setTesterModel(event.target.value)} placeholder="gpt-5.2" disabled={!project} />
         </label>
         <label>
-          <span>Coder/Tester retries</span>
+          <span>Coder/Tester 重试上限</span>
           <input type="number" min="0" max="20" value={coderRetries} onChange={(event) => setCoderRetries(Number(event.target.value))} disabled={!project} />
         </label>
         <label>
-          <span>Clarifications</span>
+          <span>澄清上限</span>
           <input type="number" min="0" max="20" value={clarifications} onChange={(event) => setClarifications(Number(event.target.value))} disabled={!project} />
         </label>
         <label>
-          <span>Verify rejects</span>
+          <span>规格复核驳回上限</span>
           <input type="number" min="0" max="20" value={verifyRejects} onChange={(event) => setVerifyRejects(Number(event.target.value))} disabled={!project} />
         </label>
       </div>

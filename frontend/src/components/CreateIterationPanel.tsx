@@ -7,7 +7,7 @@ interface Props {
   onCreate: (goal: string, mode: Mode | null) => Promise<void>
 }
 
-export function CreateIterationPanel({ disabled, defaultGoal = 'Build a spec-first pipeline dashboard', onCreate }: Props) {
+export function CreateIterationPanel({ disabled, defaultGoal = '为当前大需求创建第一条可验证实现路径', onCreate }: Props) {
   const [goal, setGoal] = useState(defaultGoal)
   const [mode, setMode] = useState<Mode | 'project-default'>('project-default')
   const [busy, setBusy] = useState(false)
@@ -32,12 +32,12 @@ export function CreateIterationPanel({ disabled, defaultGoal = 'Build a spec-fir
       <div className="form">
         <textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="业务目标或系统改动" />
         <select value={mode} onChange={(event) => setMode(event.target.value as Mode | 'project-default')}>
-          <option value="project-default">project default</option>
-          <option value="dry-run">dry-run</option>
-          <option value="real-cli">real-cli</option>
+          <option value="project-default">使用项目默认模式</option>
+          <option value="dry-run">演示模式 dry-run</option>
+          <option value="real-cli">真实 CLI 模式</option>
         </select>
         <button className="btn primary" onClick={handleCreate} disabled={busy || disabled || !goal.trim()}>
-          Create iteration
+          创建迭代
         </button>
       </div>
     </section>

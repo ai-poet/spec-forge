@@ -1,3 +1,4 @@
+import { graphNodeLabel, iterationStatusLabel, retryLabel } from '../labels'
 import type { IterationDetail } from '../types'
 
 interface Props {
@@ -6,15 +7,22 @@ interface Props {
 }
 
 const steps = [
-  { key: 'planner', label: 'Planner' },
-  { key: 'design_approval', label: 'Design approval' },
-  { key: 'coder', label: 'Coder' },
-  { key: 'integrity_check', label: 'Integrity' },
-  { key: 'tester', label: 'Tester' },
-  { key: 'planner_verify', label: 'Planner verify' },
-  { key: 'verify_approval', label: 'Verify approval' },
-  { key: 'done', label: 'Delivered' },
+  { key: 'planner', label: '规划' },
+  { key: 'design_approval', label: '设计审批' },
+  { key: 'coder', label: '实现' },
+  { key: 'integrity_check', label: '测试完整性' },
+  { key: 'tester', label: '独立验证' },
+  { key: 'planner_verify', label: '规格复核' },
+  { key: 'verify_approval', label: '验证确认' },
+  { key: 'done', label: '交付完成' },
 ]
+
+const stepStateLabel: Record<string, string> = {
+  idle: '未开始',
+  waiting: '等待中',
+  active: '执行中',
+  complete: '完成',
+}
 
 export function PipelineBoard({ detail, liveError }: Props) {
   const next = new Set(detail?.graph_next ?? [])
@@ -37,13 +45,15 @@ export function PipelineBoard({ detail, liveError }: Props) {
         <div>
           <h2 className="section-title">LangGraph 实时流转</h2>
           <div className="muted">
-            {detail ? `status: ${detail.status} · next: ${detail.graph_next.length ? detail.graph_next.join(', ') : 'END'}` : '请选择流水线'}
+            {detail
+              ? `状态: ${iterationStatusLabel[detail.status]} · 下一步: ${detail.graph_next.length ? detail.graph_next.map(graphNodeLabel).join(', ') : '结束'}`
+              : '请选择流水线'}
           </div>
-          {detail?.last_error ? <div className="error-text">last error: {detail.last_error}</div> : null}
+          {detail?.last_error ? <div className="error-text">最近错误: {detail.last_error}</div> : null}
           {detail?.retry_counts && Object.keys(detail.retry_counts).length ? (
             <div className="retry-row">
               {Object.entries(detail.retry_counts).map(([key, value]) => (
-                <span className="pill" key={key}>{key}: {value}</span>
+                <span className="pill" key={key}>{retryLabel(key)}: {value}</span>
               ))}
             </div>
           ) : null}
@@ -57,7 +67,7 @@ export function PipelineBoard({ detail, liveError }: Props) {
           return (
             <div key={step.key} className={`graph-step ${state}`}>
               <strong>{step.label}</strong>
-              <span>{state}</span>
+              <span>{stepStateLabel[state]}</span>
             </div>
           )
         })}

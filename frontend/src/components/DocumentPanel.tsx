@@ -1,4 +1,5 @@
 import type { IterationDetail } from '../types'
+import { documentLabel } from '../labels'
 
 interface Props {
   detail: IterationDetail | null
@@ -13,11 +14,11 @@ export function DocumentPanel({ detail, docText, onLoadDocument }: Props) {
       <div className="actions">
         {detail?.documents.map((doc) => (
           <button key={doc.name} className="btn" onClick={() => onLoadDocument(doc.name)}>
-            {doc.name}
+            {documentLabel(doc.name)}
           </button>
         ))}
       </div>
-      <div className="docs code">{docText || 'No document selected'}</div>
+      <div className="docs code">{docText || '请选择一份文档'}</div>
     </section>
   )
 }

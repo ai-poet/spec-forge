@@ -8,7 +8,7 @@ interface Props {
 export function CreateEpicPanel({ disabled, onCreate }: Props) {
   const [title, setTitle] = useState('新需求')
   const [description, setDescription] = useState('描述这次要完成的业务目标')
-  const [acceptanceCriteria, setAcceptanceCriteria] = useState('- 所有计划内测试通过\n- 验证报告进入 delivered')
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState('- 所有计划内测试通过\n- 验证报告通过并进入已交付状态')
   const [busy, setBusy] = useState(false)
 
   async function handleCreate() {
@@ -36,7 +36,7 @@ export function CreateEpicPanel({ disabled, onCreate }: Props) {
         <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="需求描述" disabled={disabled} />
         <textarea value={acceptanceCriteria} onChange={(event) => setAcceptanceCriteria(event.target.value)} placeholder="验收标准" disabled={disabled} />
         <button className="btn primary" onClick={handleCreate} disabled={busy || disabled || !title.trim()}>
-          Create epic
+          创建大需求
         </button>
       </div>
     </section>

@@ -28,6 +28,8 @@ class TesterArtifact(BaseModel):
     verify_report: str
     passed: bool
     failure_notes: Optional[str] = None
+    ux_notes: list[str] = Field(default_factory=list)
+    delivery_recommendations: list[str] = Field(default_factory=list)
     adversarial_tests: list[ArtifactFile] = Field(default_factory=list)
 
 

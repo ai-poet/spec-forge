@@ -40,6 +40,26 @@ Epic 状态由关联 iteration 汇总：
 - 存在 blocked iteration：`blocked`
 - 全部 delivered：`delivered`
 
+## 与原始四节点拓扑的对应关系
+
+当前实现没有偏离原始 Node 1/2/3/4 权责，但在 LangGraph 里加入了两个工程保护节点：
+
+- `integrity_check`：位于 Coder 和 Tester 之间，对应“测试不可变性”约束。
+- `planner_verify`：位于 Tester 和最终人工确认之间，对应“Node 3 -> Node 1 verify_report.md，Node 1 机械复核”。
+
+边语义对应如下：
+
+| 原始边 | 当前实现 |
+|---|---|
+| User ↔ Node 1 | Epic/Iteration 创建 + 设计审批 interrupt/resume |
+| User ← Node 1 | `design_approval` 和 `verify_approval` 两个固定检查点 |
+| Node 1 → Node 2 | Planner artifact 落盘后，设计审批通过进入 `coder` |
+| Node 2 → Node 1 | `planner_clarification` 保留为受限澄清回路 |
+| Node 2 ↔ Node 3 | `coder -> integrity_check -> tester -> coder` 的失败重试回路 |
+| Node 3 → Node 4 | 尚未接入 Cua；v0.4 保留 UI 验收入口但未实现独立 UI Driver |
+| Node 3 → Node 1 | `tester -> planner_verify`，验证报告由规划侧机械复核 |
+| Node 1 → Node 2 | `planner_verify` 驳回后回到 `coder`，受 retry 上限控制 |
+
 ## 后端架构
 
 - FastAPI 提供 HTTP API 和事件驱动 WebSocket。
@@ -106,6 +126,7 @@ Iteration API：
 - Planner 完成后生成 protected tests checksum baseline。
 - Coder 后、Tester 后都会执行 checksum gate。
 - `tests/adversarial/**` 允许 Tester 新增；unit/integration/ui 测试被改动会进入 `blocked`。
+- Tester 不只输出 pass/fail，也作为独立交付评审者输出 `delivery_advice.md`，包括用户体验观察和后续交付建议。
 
 ## 前端架构
 

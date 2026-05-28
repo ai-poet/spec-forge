@@ -1,4 +1,5 @@
 import type { EpicSummary } from '../types'
+import { epicStatusLabel } from '../labels'
 
 interface Props {
   epics: EpicSummary[]
@@ -18,10 +19,10 @@ export function EpicList({ epics, selectedEpicId, onSelectEpic }: Props) {
           <button key={epic.id} className={`item epic-item ${selectedEpicId === epic.id ? 'active' : ''}`} onClick={() => onSelectEpic(epic.id)}>
             <div className="item-head">
               <strong>{epic.title}</strong>
-              <span className={`status-dot ${epic.status}`}>{epic.status}</span>
+              <span className={`status-dot ${epic.status}`}>{epicStatusLabel[epic.status]}</span>
             </div>
             <div className="muted clamp">{epic.description || epic.acceptance_criteria || '暂无描述'}</div>
-            <small>{epic.delivered_count}/{epic.iteration_count} delivered · {epic.blocked_count} blocked</small>
+            <small>{epic.delivered_count}/{epic.iteration_count} 已交付 · {epic.blocked_count} 已阻断</small>
           </button>
         ))}
         {!epics.length ? <div className="empty">当前项目还没有大需求</div> : null}

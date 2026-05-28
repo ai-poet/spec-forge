@@ -1,3 +1,4 @@
+import { eventLabel, graphNodeLabel, iterationStatusLabel, nodeLabel, retryLabel } from '../labels'
 import type { IterationDetail } from '../types'
 
 interface Props {
@@ -15,47 +16,71 @@ export function IterationSummaryPanel({ detail }: Props) {
   }) ?? []
   const integrityEvents = eventMatches(detail, 'integrity')
   const verifyReport = detail?.documents.find((doc) => doc.name === 'verify_report')
+  const deliveryAdvice = detail?.documents.find((doc) => doc.name === 'delivery_advice')
+  const adviceEvent = detail?.events.find((event) => event.type === 'tester.delivery_advice')
+  const uxNotes = Array.isArray(adviceEvent?.payload.ux_notes) ? adviceEvent.payload.ux_notes.map(String) : []
+  const recommendations = Array.isArray(adviceEvent?.payload.delivery_recommendations)
+    ? adviceEvent.payload.delivery_recommendations.map(String)
+    : []
+  const currentNode = detail?.current_node ? nodeLabel[detail.current_node] : detail?.graph_next.map(graphNodeLabel).join(', ') || '结束'
 
   return (
     <section className="panel stack">
-      <h2 className="section-title">Iteration 摘要</h2>
-      {!detail ? <div className="empty">请选择 iteration</div> : null}
+      <h2 className="section-title">迭代摘要</h2>
+      {!detail ? <div className="empty">请选择迭代</div> : null}
       {detail ? (
         <>
           <div className="summary-grid">
-            <span>状态: {detail.status}</span>
+            <span>状态: {iterationStatusLabel[detail.status]}</span>
             <span>模式: {detail.mode}</span>
-            <span>节点: {detail.current_node ?? (detail.graph_next.join(', ') || 'END')}</span>
-            <span>测试命令: {detail.test_command ?? 'project default'}</span>
+            <span>节点: {currentNode}</span>
+            <span>测试命令: {detail.test_command ?? '使用项目默认值'}</span>
           </div>
           {Object.keys(detail.retry_counts).length ? (
             <div className="retry-row">
               {Object.entries(detail.retry_counts).map(([key, value]) => (
-                <span className="pill" key={key}>{key}: {value}</span>
+                <span className="pill" key={key}>{retryLabel(key)}: {value}</span>
               ))}
             </div>
           ) : null}
           {detail.last_error ? <div className="error-banner">{detail.last_error}</div> : null}
           <div className="summary-columns">
             <div>
-              <strong>Changed paths</strong>
+              <strong>变更路径</strong>
               <ul>
                 {changedPaths.map((path) => <li key={path}>{path}</li>)}
                 {!changedPaths.length ? <li className="muted">暂无代码路径事件</li> : null}
               </ul>
             </div>
             <div>
-              <strong>Integrity / tests</strong>
+              <strong>测试完整性</strong>
               <ul>
-                {integrityEvents.map((event) => <li key={event.id}>{event.type}</li>)}
+                {integrityEvents.map((event) => <li key={event.id}>{eventLabel(event.type)}</li>)}
                 {!integrityEvents.length ? <li className="muted">暂无完整性事件</li> : null}
               </ul>
             </div>
             <div>
-              <strong>Verify</strong>
-              <p className="muted">{verifyReport ? 'verify_report 已生成' : 'verify_report 尚未生成'}</p>
+              <strong>验证与交付</strong>
+              <p className="muted">{verifyReport ? '验证报告已生成' : '验证报告尚未生成'}</p>
+              <p className="muted">{deliveryAdvice ? '交付建议已生成' : '交付建议尚未生成'}</p>
             </div>
           </div>
+          {uxNotes.length || recommendations.length ? (
+            <div className="summary-columns">
+              <div>
+                <strong>用户体验观察</strong>
+                <ul>
+                  {uxNotes.map((note) => <li key={note}>{note}</li>)}
+                </ul>
+              </div>
+              <div>
+                <strong>后续交付建议</strong>
+                <ul>
+                  {recommendations.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              </div>
+            </div>
+          ) : null}
         </>
       ) : null}
     </section>

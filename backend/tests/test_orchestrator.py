@@ -136,6 +136,22 @@ def test_design_to_delivery_flow():
     assert detail.json()["status"] == "delivered"
 
 
+def test_tester_writes_delivery_advice():
+    resp = client.post(
+        "/api/iterations",
+        json={"project_name": "advice", "goal": "ship with delivery advice", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+
+    client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+
+    assert any(doc["name"] == "delivery_advice" for doc in detail["documents"])
+    assert any(event["type"] == "tester.delivery_advice" for event in detail["events"])
+
+
 def test_invalid_approval_returns_409():
     resp = client.post(
         "/api/iterations",

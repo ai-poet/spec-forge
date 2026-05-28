@@ -1,4 +1,5 @@
 import type { IterationSummary } from '../types'
+import { iterationStatusLabel } from '../labels'
 
 interface Props {
   iterations: IterationSummary[]
@@ -21,7 +22,7 @@ export function IterationList({ iterations, selectedIterationId, onSelectIterati
             onClick={() => onSelectIteration(item.id)}
           >
             <div className="item-head">
-              <strong>{item.status}</strong>
+              <strong>{iterationStatusLabel[item.status]}</strong>
               <span className="muted">{item.mode}</span>
             </div>
             {item.last_error ? <div className="error-text clamp">{item.last_error}</div> : null}

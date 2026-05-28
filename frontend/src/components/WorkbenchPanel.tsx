@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { IterationDetail, TimelineFilter } from '../types'
+import { documentLabel } from '../labels'
 import { DocumentPanel } from './DocumentPanel'
 import { IterationSummaryPanel } from './IterationSummaryPanel'
 import { RunLogPanel } from './RunLogPanel'
@@ -17,13 +18,19 @@ export function WorkbenchPanel({ detail, docText, onLoadDocument }: Props) {
   const [tab, setTab] = useState<WorkbenchTab>('summary')
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>('all')
   const testDocs = useMemo(() => detail?.documents.filter((doc) => doc.name.includes('tests/')) ?? [], [detail])
+  const tabLabels: Record<WorkbenchTab, string> = {
+    summary: '摘要',
+    docs: '文档',
+    tests: '测试',
+    logs: '日志',
+  }
 
   return (
     <section className="stack">
       <div className="tabbar">
         {(['summary', 'docs', 'tests', 'logs'] as WorkbenchTab[]).map((item) => (
           <button key={item} className={`tab ${tab === item ? 'active' : ''}`} onClick={() => setTab(item)}>
-            {item === 'summary' ? 'Summary' : item === 'docs' ? 'Docs' : item === 'tests' ? 'Tests' : 'Logs'}
+            {tabLabels[item]}
           </button>
         ))}
       </div>
@@ -37,11 +44,11 @@ export function WorkbenchPanel({ detail, docText, onLoadDocument }: Props) {
       {tab === 'docs' ? <DocumentPanel detail={detail} docText={docText} onLoadDocument={onLoadDocument} /> : null}
       {tab === 'tests' ? (
         <section className="panel stack">
-          <h2 className="section-title">Tests / Integrity</h2>
+          <h2 className="section-title">测试与完整性</h2>
           <div className="actions">
             {testDocs.map((doc) => (
               <button key={doc.name} className="btn" onClick={() => onLoadDocument(doc.name)}>
-                {doc.name}
+                {documentLabel(doc.name)}
               </button>
             ))}
           </div>

@@ -27,10 +27,10 @@ export function DashboardPage() {
   const live = useIterationLive(selectedIterationId)
 
   const defaultGoal = useMemo(() => {
-    if (!epics.selectedEpic) return 'Build the first verified slice for this project'
+    if (!epics.selectedEpic) return '为当前项目创建第一条可验证实现路径'
     return [
       epics.selectedEpic.description,
-      epics.selectedEpic.acceptance_criteria ? `Acceptance criteria:\n${epics.selectedEpic.acceptance_criteria}` : '',
+      epics.selectedEpic.acceptance_criteria ? `验收标准:\n${epics.selectedEpic.acceptance_criteria}` : '',
     ].filter(Boolean).join('\n\n')
   }, [epics.selectedEpic])
 
@@ -128,7 +128,7 @@ export function DashboardPage() {
     if (!selectedIterationId) return
     setBusy(true)
     try {
-      await stopIteration(selectedIterationId, 'user stop')
+      await stopIteration(selectedIterationId, '用户停止')
       await live.loadDetail()
       await refreshIterations(selectedIterationId)
       await epics.refreshEpics(epics.selectedEpicId ?? undefined)
@@ -170,10 +170,10 @@ export function DashboardPage() {
 
         <div className="tabbar">
           <button className={`tab ${mainTab === 'iterations' ? 'active' : ''}`} onClick={() => setMainTab('iterations')}>
-            Iterations
+            迭代
           </button>
           <button className={`tab ${mainTab === 'config' ? 'active' : ''}`} onClick={() => setMainTab('config')}>
-            Config
+            配置
           </button>
         </div>
 

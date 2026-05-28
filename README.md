@@ -28,7 +28,8 @@ Project -> Epic -> Iteration -> Planner/Coder/Tester run
 - 运行模式：`dry-run` 稳定演示，`real-cli` 接入结构化 artifact 协议。
 - 人类检查点：设计审批和验证审批通过 LangGraph interrupt/resume 推进。
 - 治理：Planner/Tester artifact 由后端校验后写入；Coder 后执行 protected tests checksum gate。
-- 开发者工作台：Action Required、Summary、Docs、Tests、Logs、事件过滤、项目配置面板。
+- 开发者工作台：需要处理、摘要、文档、测试、日志、事件过滤、项目配置面板。
+- 独立交付评审：Tester 除了验证测试，也会生成用户体验观察和后续交付建议。
 
 ## 为什么不是普通 coding agent
 
@@ -83,8 +84,19 @@ http://127.0.0.1:5178
 4. 等待 Planner 生成设计、修改计划、测试计划和测试文件。
 5. 在 Action Required 面板审批设计。
 6. 等待 Coder/Tester 自动执行；失败时系统会按 retry 上限回环。
-7. 在 Summary、Docs、Tests、Logs 中查看结果。
+7. 在摘要、文档、测试、日志中查看结果。
 8. 验证通过后审批交付，Epic 进度会自动更新。
+
+## 当前工作流与原始边语义
+
+当前实现仍保持四节点权责：
+
+- Node 1：规划、测试计划、设计审批、验证报告机械复核。
+- Node 2：只负责实现。
+- Node 3：独立验证、失败反馈、交付建议。
+- Node 4：UI Driver 尚未接入，保留为后续扩展。
+
+实现上额外加入了 `integrity_check` 和 `planner_verify` 两个保护节点。前者保护 Planner 写出的测试不被 Coder 改掉，后者实现 Node 3 到 Node 1 的 verify report 复核边。
 
 ## 运行模式
 

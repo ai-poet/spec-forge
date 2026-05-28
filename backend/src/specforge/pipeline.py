@@ -479,9 +479,10 @@ class LangGraphPipeline:
         iteration_id = state["iteration_id"]
         if self._is_real_cli(state.get("mode")):
             prompt = (
-                "You are Tester for SpecForge. Run verification. Return only final JSON matching "
+                "You are Tester and independent delivery reviewer for SpecForge. Run verification, inspect user-facing behavior where possible, "
+                "and include practical post-delivery recommendations. Return only final JSON matching "
                 "{verify_report:string, passed:boolean, failure_notes?:string, "
-                "adversarial_tests:[{path:string, content:string}]}. "
+                "ux_notes:[string], delivery_recommendations:[string], adversarial_tests:[{path:string, content:string}]}. "
                 "Only propose adversarial tests under tests/adversarial."
             )
             command = ["codex", "exec", "--sandbox", "workspace-write", "--skip-git-repo-check", prompt]
@@ -529,10 +530,14 @@ class LangGraphPipeline:
                 verify_report="""---\ndoc: verify_report\niteration: 1\nstatus: draft\nowner: node3\n---\n\n# Iteration 1 - Verify Report\n\n## Summary\n- Tests in plan: 3\n- Tests executed: 3\n- Pass: 0\n- Fail: 3\n""",
                 passed=False,
                 failure_notes="forced tester failure",
+                ux_notes=["验证未通过，暂不建议从用户体验角度验收。"],
+                delivery_recommendations=["先修复失败测试，再重新进行交付评审。"],
             )
         return TesterArtifact(
-            verify_report="""---\ndoc: verify_report\niteration: 1\nstatus: draft\nowner: node3\n---\n\n# Iteration 1 - Verify Report\n\n## Summary\n- Tests in plan: 3\n- Tests executed: 3\n- Pass: 3\n- Fail: 0\n\n## LangGraph\nThe tester node completed and paused for verify approval.\n""",
+            verify_report="""---\ndoc: verify_report\niteration: 1\nstatus: draft\nowner: node3\n---\n\n# Iteration 1 - Verify Report\n\n## Summary\n- Tests in plan: 3\n- Tests executed: 3\n- Pass: 3\n- Fail: 0\n\n## LangGraph\nThe tester node completed and paused for verify approval.\n\n## 用户体验观察\n- dry-run 流程可以从设计审批推进到验证审批，核心状态对用户可见。\n\n## 交付建议\n- 本轮可以交付；后续建议补充真实 CLI 和浏览器级验收。\n""",
             passed=True,
+            ux_notes=["核心流程状态清晰，可被人工审批节点接住。"],
+            delivery_recommendations=["本轮可以交付；下一步建议补充真实 CLI smoke test。"],
         )
 
     def _write_planner_artifact(self, iteration_id: str, docs: IterationDocs, artifact: PlannerArtifact) -> None:
@@ -553,12 +558,39 @@ class LangGraphPipeline:
     def _write_tester_artifact(self, iteration_id: str, docs: IterationDocs, artifact: TesterArtifact) -> None:
         verify = docs.write_text("verify_report.md", artifact.verify_report)
         self._record_document(iteration_id, "verify_report", verify)
+        advice = self._delivery_advice_markdown(artifact)
+        if advice:
+            advice_path = docs.write_text("delivery_advice.md", advice)
+            self._record_document(iteration_id, "delivery_advice", advice_path)
+            self._add_event(
+                iteration_id,
+                event_type="tester.delivery_advice",
+                payload={"ux_notes": artifact.ux_notes, "delivery_recommendations": artifact.delivery_recommendations},
+            )
         for file in artifact.adversarial_tests:
             relative = safe_relative_path(file.path)
             if relative.parts[:2] != ("tests", "adversarial"):
                 raise ValueError(f"tester adversarial path not allowed: {file.path}")
             path = docs.write_text(relative.as_posix(), file.content)
             self._record_document(iteration_id, relative.as_posix(), path)
+
+    def _delivery_advice_markdown(self, artifact: TesterArtifact) -> str:
+        if not artifact.ux_notes and not artifact.delivery_recommendations:
+            return ""
+        ux = "\n".join(f"- {item}" for item in artifact.ux_notes) or "- 暂无"
+        recommendations = "\n".join(f"- {item}" for item in artifact.delivery_recommendations) or "- 暂无"
+        return (
+            "---\n"
+            "doc: delivery_advice\n"
+            "status: draft\n"
+            "owner: node3\n"
+            "---\n\n"
+            "# 交付建议\n\n"
+            "## 用户体验观察\n"
+            f"{ux}\n\n"
+            "## 后续建议\n"
+            f"{recommendations}\n"
+        )
 
     def _integrity_problems(self, iteration_id: str) -> list[str]:
         row = self._require_iteration(iteration_id)
