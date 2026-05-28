@@ -83,6 +83,11 @@ class BrowseDirectoryResponse(BaseModel):
     quick_roots: list[BrowseQuickRoot] = Field(default_factory=list)
 
 
+class PickFolderResponse(BaseModel):
+    cancelled: bool
+    path: str = ""
+
+
 class UpdateProjectRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1)
     description: Optional[str] = None

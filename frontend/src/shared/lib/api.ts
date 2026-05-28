@@ -11,6 +11,7 @@ import type {
   UpdateProjectInput,
   ValidateProjectPathResult,
   BrowseDirectoryResult,
+  PickFolderResult,
 } from './types'
 
 const API_BASE = 'http://127.0.0.1:8787'
@@ -72,6 +73,10 @@ export function validateProjectPath(input: { root_path: string; create_if_missin
 export function browseProjectDirectory(path?: string | null): Promise<BrowseDirectoryResult> {
   const query = path ? `?path=${encodeURIComponent(path)}` : ''
   return request(`/api/projects/browse${query}`)
+}
+
+export function pickProjectFolder(): Promise<PickFolderResult> {
+  return request('/api/projects/pick-folder', { method: 'POST' })
 }
 
 export function createProject(input: CreateProjectInput): Promise<ProjectSummary> {

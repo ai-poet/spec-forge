@@ -29,8 +29,10 @@ from .models import (
     UpdateProjectRequest,
     ValidateProjectPathRequest,
     BrowseDirectoryResponse,
+    PickFolderResponse,
 )
 from .pipeline import LangGraphPipeline
+from .native_dialog import pick_folder, resolve_picked_folder
 from .project_paths import ProjectPathError, browse_directory, prepare_project_root, validate_project_root
 
 
@@ -105,6 +107,18 @@ def browse_projects(path: Optional[str] = Query(default=None)) -> BrowseDirector
     except ProjectPathError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return BrowseDirectoryResponse.model_validate(payload)
+
+
+@app.post("/api/projects/pick-folder", response_model=PickFolderResponse)
+def pick_project_folder() -> PickFolderResponse:
+    selected = pick_folder(prompt="选择项目文件夹")
+    if not selected:
+        return PickFolderResponse(cancelled=True, path="")
+    try:
+        resolved = resolve_picked_folder(selected)
+    except OSError as exc:
+        raise HTTPException(status_code=422, detail=f"invalid folder: {exc}") from exc
+    return PickFolderResponse(cancelled=False, path=resolved)
 
 
 @app.post("/api/projects", response_model=ProjectSummary)

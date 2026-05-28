@@ -143,8 +143,8 @@ export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
       ) : (
         <p className="muted">
           {mode === 'open'
-            ? '在上方选择已有项目目录，双击文件夹可进入子目录。'
-            : '先选择父目录，再输入要创建的项目文件夹名称。'}
+            ? '点击「选择文件夹」打开系统窗口，或在下方列表中浏览。'
+            : '先选择父目录（推荐用系统选择窗口），再输入要创建的项目文件夹名称。'}
         </p>
       )}
 

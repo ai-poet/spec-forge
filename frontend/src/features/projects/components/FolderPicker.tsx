@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { browseProjectDirectory } from '../../../shared/lib/api'
+import { browseProjectDirectory, pickProjectFolder } from '../../../shared/lib/api'
 import type { BrowseDirectoryResult } from '../../../shared/lib/types'
 import { formatProjectPath } from '../lib/formatPath'
 
@@ -41,8 +41,29 @@ export function FolderPicker({ selectedPath, onSelectPath }: Props) {
     if (browse) onSelectPath(browse.path)
   }
 
+  async function handleNativePick() {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await pickProjectFolder()
+      if (result.cancelled || !result.path) return
+      await loadDirectory(result.path)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '无法打开文件夹选择窗口')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="folder-picker">
+      <div className="folder-picker-native-row">
+        <button type="button" className="btn btn-accent btn-sm" onClick={handleNativePick} disabled={loading}>
+          选择文件夹…
+        </button>
+        <span className="muted folder-picker-native-hint">打开系统文件夹选择窗口</span>
+      </div>
+
       <div className="folder-picker-toolbar">
         <button
           type="button"

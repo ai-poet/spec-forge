@@ -911,6 +911,17 @@ button {
   gap: 10px;
 }
 
+.folder-picker-native-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.folder-picker-native-hint {
+  font-size: 12px;
+}
+
 .folder-picker-toolbar {
   display: flex;
   gap: 8px;

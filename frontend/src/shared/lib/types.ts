@@ -208,6 +208,11 @@ export interface BrowseDirectoryResult {
   quick_roots: BrowseQuickRoot[]
 }
 
+export interface PickFolderResult {
+  cancelled: boolean
+  path: string
+}
+
 export interface CreateEpicInput {
   project_id: string
   title: string
