@@ -154,6 +154,17 @@ def update_project(project_id: str, payload: UpdateProjectRequest) -> ProjectSum
     if row is None:
         raise HTTPException(status_code=404, detail="project not found")
     data = payload.model_dump(exclude_unset=True)
+    create_if_missing = bool(data.pop("create_if_missing", False))
+    if "root_path" in data and data["root_path"] is not None:
+        try:
+            resolved = prepare_project_root(data["root_path"], create_if_missing)
+        except ProjectPathError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        resolved_str = str(resolved)
+        existing = db.get_project_by_root_path(resolved_str)
+        if existing is not None and existing["id"] != project_id:
+            raise HTTPException(status_code=409, detail="project already registered for this folder")
+        data["root_path"] = resolved_str
     if "default_mode" in data and data["default_mode"] is not None:
         data["default_mode"] = data["default_mode"].value
     db.update_project(project_id, **data)

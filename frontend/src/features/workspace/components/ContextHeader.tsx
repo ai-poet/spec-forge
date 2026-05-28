@@ -10,6 +10,7 @@ interface Props {
   selectedIterationId: string | null
   onSelectIteration: (id: string | null) => void
   onCreatePipeline: () => void
+  onOpenSettings: () => void
 }
 
 export function ContextHeader({
@@ -21,6 +22,7 @@ export function ContextHeader({
   selectedIterationId,
   onSelectIteration,
   onCreatePipeline,
+  onOpenSettings,
 }: Props) {
   const selectedIteration = iterations.find((item) => item.id === selectedIterationId) ?? null
 
@@ -59,6 +61,9 @@ export function ContextHeader({
       <div className="context-header-actions">
         <button type="button" className="btn btn-ghost btn-sm pipeline-entry-btn" onClick={onCreatePipeline} disabled={!project}>
           新建流水线
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onOpenSettings} disabled={!project} title="目录绑定、配置与移除">
+          项目设置
         </button>
         {selectedIteration ? (
           <span className={`status-pill ${selectedIteration.status === 'delivered' ? 'delivered' : selectedIteration.status.includes('blocked') ? 'blocked' : 'active'}`}>

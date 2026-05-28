@@ -216,6 +216,7 @@ class Database:
         allowed = {
             "name",
             "description",
+            "root_path",
             "default_mode",
             "default_test_command",
             "max_coder_tester_retries",

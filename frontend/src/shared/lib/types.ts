@@ -164,6 +164,8 @@ export type TimelineFilter = 'all' | 'decisions' | 'failures' | 'tests' | 'runs'
 export interface UpdateProjectInput {
   name?: string
   description?: string | null
+  root_path?: string
+  create_if_missing?: boolean
   default_mode?: Mode
   default_test_command?: string | null
   max_coder_tester_retries?: number

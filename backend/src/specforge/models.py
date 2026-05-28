@@ -86,6 +86,8 @@ class BrowseDirectoryResponse(BaseModel):
 class UpdateProjectRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1)
     description: Optional[str] = None
+    root_path: Optional[str] = Field(default=None, min_length=1)
+    create_if_missing: Optional[bool] = False
     default_mode: Optional[Mode] = None
     default_test_command: Optional[str] = None
     max_coder_tester_retries: Optional[int] = Field(default=None, ge=0, le=20)

@@ -74,6 +74,21 @@ def test_duplicate_root_path_returns_409(tmp_path):
     assert second.status_code == 409
 
 
+def test_update_project_root_path(tmp_path):
+    old_root = tmp_path / "old-app"
+    new_root = tmp_path / "new-app"
+    old_root.mkdir()
+    project = client.post("/api/projects", json={"root_path": str(old_root), "create_if_missing": False})
+    project_id = project.json()["id"]
+    resp = client.patch(
+        f"/api/projects/{project_id}",
+        json={"root_path": str(new_root), "create_if_missing": True},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["root_path"] == str(new_root.resolve())
+    assert new_root.is_dir()
+
+
 def test_delete_project(tmp_path):
     project = post_project(tmp_path, "delete-me")
     project_id = project.json()["id"]

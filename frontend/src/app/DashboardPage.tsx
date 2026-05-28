@@ -172,6 +172,16 @@ export function DashboardPage() {
     }
   }
 
+  async function handleBindFolder(projectId: string, rootPath: string, createIfMissing: boolean) {
+    setBusy(true)
+    try {
+      await projects.saveProject(projectId, { root_path: rootPath, create_if_missing: createIfMissing })
+      await projects.refreshProjects()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function handleDeleteProject(projectId: string) {
     setBusy(true)
     try {
@@ -236,6 +246,7 @@ export function DashboardPage() {
                 project={projects.selectedProject}
                 busy={busy}
                 onSave={handleSaveProject}
+                onBindFolder={handleBindFolder}
                 onDelete={handleDeleteProject}
               />
             </div>
@@ -252,6 +263,7 @@ export function DashboardPage() {
                 selectedIterationId={selectedIterationId}
                 onSelectIteration={handleSelectIteration}
                 onCreatePipeline={() => setShowCreatePipeline(true)}
+                onOpenSettings={() => setSettingsOpen(true)}
               />
             ) : null}
 

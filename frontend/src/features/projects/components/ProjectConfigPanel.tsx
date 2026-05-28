@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import type { Mode, ProjectSummary, UpdateProjectInput } from '../../../shared/lib/types'
+import { ProjectFolderPanel } from './ProjectFolderPanel'
 
 interface Props {
   project: ProjectSummary | null
   busy: boolean
   onSave: (projectId: string, input: UpdateProjectInput) => Promise<void>
+  onBindFolder: (projectId: string, rootPath: string, createIfMissing: boolean) => Promise<void>
   onDelete: (projectId: string) => Promise<void>
 }
 
-export function ProjectConfigPanel({ project, busy, onSave, onDelete }: Props) {
+export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDelete }: Props) {
   const [defaultMode, setDefaultMode] = useState<Mode>('dry-run')
   const [defaultTestCommand, setDefaultTestCommand] = useState('')
   const [coderRetries, setCoderRetries] = useState(5)
@@ -46,6 +48,8 @@ export function ProjectConfigPanel({ project, busy, onSave, onDelete }: Props) {
 
   return (
     <>
+    <ProjectFolderPanel project={project} busy={busy} onBind={onBindFolder} />
+
     <section className="surface stack">
       <div className="section-row">
         <div>
@@ -84,13 +88,15 @@ export function ProjectConfigPanel({ project, busy, onSave, onDelete }: Props) {
     </section>
 
     <section className="surface stack danger-zone">
-      <div>
-        <h2 className="section-title">移除项目</h2>
-        <p className="muted">从 SpecForge 项目列表中移除，不会删除本地文件夹或 `.specforge` 产物。</p>
+      <div className="section-row">
+        <div>
+          <h2 className="section-title">移除项目</h2>
+          <p className="muted">从 SpecForge 项目列表中移除，不会删除本地文件夹或 `.specforge` 产物。</p>
+        </div>
+        <button type="button" className="btn danger btn-sm" onClick={handleDelete} disabled={busy || !project}>
+          从 SpecForge 移除
+        </button>
       </div>
-      <button type="button" className="btn danger" onClick={handleDelete} disabled={busy || !project}>
-        从 SpecForge 移除
-      </button>
     </section>
     </>
   )

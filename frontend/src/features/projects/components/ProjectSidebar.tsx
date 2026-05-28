@@ -66,7 +66,7 @@ export function ProjectSidebar({
           onClick={onToggleSettings}
           disabled={!selectedProjectId}
         >
-          项目设置
+          目录 · 设置 · 移除
         </button>
       </div>
     </aside>
