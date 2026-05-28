@@ -28,6 +28,8 @@ export function PipelineBoard({ detail, liveError }: Props) {
   const next = new Set(detail?.graph_next ?? [])
   const currentNode = detail?.current_node
   const status = detail?.status
+  const uiEvents = detail?.events.filter((event) => event.type.startsWith('ui_driver.')) ?? []
+  const lastUiEvent = uiEvents[uiEvents.length - 1]
 
   function stepState(key: string) {
     if (!detail) return 'idle'
@@ -72,6 +74,18 @@ export function PipelineBoard({ detail, liveError }: Props) {
           )
         })}
       </div>
+      {uiEvents.length ? (
+        <div className={`tool-call-strip ${lastUiEvent?.type.includes('failed') ? 'failed' : lastUiEvent?.type.includes('warning') ? 'warning' : ''}`}>
+          <strong>Tester 工具调用: UI Driver</strong>
+          <span>
+            {lastUiEvent?.type === 'ui_driver.started' ? '正在执行 UI trajectory'
+              : lastUiEvent?.type === 'ui_driver.completed' ? `已完成 ${String(lastUiEvent.payload.count ?? '')} 条 UI 验证`
+              : lastUiEvent?.type === 'ui_driver.warning' ? 'Cua 不可用或权限不足，已降级为 warning'
+              : lastUiEvent?.type === 'ui_driver.failed' ? 'UI 验证失败，进入实现/验证重试'
+              : '已记录 UI Driver 事件'}
+          </span>
+        </div>
+      ) : null}
     </section>
   )
 }

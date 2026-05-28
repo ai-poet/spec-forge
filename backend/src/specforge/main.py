@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 import asyncio
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from .cli_runner import DryRunRunner, RealCLIRunner
 from .config import settings
@@ -238,6 +240,7 @@ def get_iteration(iteration_id: str) -> IterationDetail:
         documents=snapshot["documents"],
         events=snapshot["events"],
         runs=snapshot["runs"],
+        ui_results=snapshot["ui_results"],
     )
 
 
@@ -286,6 +289,31 @@ def get_document(iteration_id: str, name: str) -> dict[str, str]:
     raise HTTPException(status_code=404, detail="document not found")
 
 
+@app.get("/api/iterations/{iteration_id}/artifacts/{artifact_path:path}")
+def get_artifact(iteration_id: str, artifact_path: str):
+    if db.get_iteration_row(iteration_id) is None:
+        raise HTTPException(status_code=404, detail="iteration not found")
+    try:
+        relative = Path(artifact_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError
+        docs_root = pipeline.docs_root(iteration_id).resolve()
+        path = (docs_root / relative).resolve()
+        path.relative_to(docs_root)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="artifact path is outside iteration docs")
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="artifact not found")
+    if path.is_dir():
+        files = [
+            item.relative_to(docs_root).as_posix()
+            for item in sorted(path.rglob("*"))
+            if item.is_file()
+        ]
+        return {"path": relative.as_posix(), "files": files}
+    return FileResponse(path)
+
+
 @app.get("/api/iterations/{iteration_id}/runs/{run_id}/logs")
 def get_run_logs(iteration_id: str, run_id: str) -> dict[str, str]:
     for run in db.list_runs(iteration_id):
@@ -307,6 +335,8 @@ async def ws_iteration(websocket: WebSocket, iteration_id: str) -> None:
         while True:
             envelope = await asyncio.to_thread(queue.get)
             await websocket.send_json({"type": envelope.type, "event": envelope.event, "snapshot": envelope.snapshot})
+    except asyncio.CancelledError:
+        return
     except WebSocketDisconnect:
         return
     finally:

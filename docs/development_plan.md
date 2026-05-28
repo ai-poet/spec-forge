@@ -1,10 +1,10 @@
 ---
 doc: iteration_log
-version: 0.4.0
+version: 0.6.0
 status: draft
 created: 2026-05-28
 owner: user
-supersedes: docs/development_plan.md@0.3.0
+supersedes: docs/development_plan.md@0.4.0
 ---
 
 # SpecForge 开发计划
@@ -37,6 +37,10 @@ supersedes: docs/development_plan.md@0.3.0
 24. 项目配置迁移到 Config tab，避免挤占 iteration 主流程。
 25. Tester artifact 扩展为验证报告、用户体验观察和交付建议。
 26. 前端主要用户可见文案改为中文，并保留必要的运行模式原值。
+27. 接入 Cua UI Driver：Tester 扫描 `docs/tests/ui/*.json`，通过 `cua-driver` CLI 执行 Web / Native UI trajectory。
+28. Cua 不可用或权限不足时降级为 `ui_driver.warning`，不阻断交付；UI assertion 失败时进入现有 Coder/Tester retry。
+29. 新增 `ui_results.json`、`ui_report.md`、UI artifact 只读 API 和前端 UI 验证面板。
+30. 调整测试完整性：`tests/ui/recordings/**` 不纳入 protected checksum baseline。
 
 ## 当前验收范围
 
@@ -48,12 +52,13 @@ supersedes: docs/development_plan.md@0.3.0
 - Epic 进度同步变为 delivered / 100%。
 - Summary、Docs、Tests、Logs 和 Timeline 都能读取当前 iteration 的状态。
 - Tester 通过后生成 `delivery_advice.md`，摘要面板显示用户体验观察和后续建议。
+- Planner 定义 UI trajectory 时，Tester 能调用 Cua Driver 或生成 warning，并把 UI 结果展示在 Tests tab。
 
 ## 下一步
 
 1. 自动把 Epic 拆成多个 iteration，并允许用户编辑拆分计划后批量启动。
 2. 给 real-cli 增加 fixture 级真实 smoke test。
 3. 引入容器或只读挂载，替代仅 checksum gate 的本地保护。
-4. 接入 Cua MCP 或 Playwright 作为 UI 验证节点。
+4. 为 UI Driver 增加 MCP transport，并补充更强的视觉断言能力。
 5. 增加 wall-clock circuit breaker。
 6. 将迭代归档和 ADR 文档纳入前端控制台。

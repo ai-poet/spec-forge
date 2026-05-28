@@ -6,6 +6,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from .contracts import UITestResult
+
 
 class Mode(str, Enum):
     dry_run = "dry-run"
@@ -181,6 +183,7 @@ class IterationDetail(IterationSummary):
     documents: list[DocumentRecord] = Field(default_factory=list)
     events: list[EventRecord] = Field(default_factory=list)
     runs: list[NodeRunRecord] = Field(default_factory=list)
+    ui_results: list[UITestResult] = Field(default_factory=list)
 
 
 class ApproveRequest(BaseModel):

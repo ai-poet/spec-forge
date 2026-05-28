@@ -1,6 +1,8 @@
+import pytest
 from fastapi.testclient import TestClient
 
-from specforge.contracts import PlannerArtifact, parse_json_artifact
+from specforge.contracts import ArtifactFile, PlannerArtifact, UIDriverRunResult, UITestResult, UITestSpec, parse_json_artifact
+from specforge.docs_io import compare_test_integrity, test_integrity_manifest as build_test_integrity_manifest
 from specforge.main import app, job_queue, pipeline
 
 
@@ -196,6 +198,56 @@ def test_parse_claude_wrapped_artifact():
     assert artifact.tests[0].path == "tests/unit/test_a.py"
 
 
+def test_ui_spec_schema_validates():
+    spec = UITestSpec.model_validate(
+        {
+            "id": "web_smoke",
+            "title": "SpecForge smoke",
+            "kind": "web",
+            "target": {"url": "http://127.0.0.1:5178"},
+            "steps": [{"action": "assert_text", "text": "SpecForge"}],
+        }
+    )
+    assert spec.target.chrome_bundle_id == "com.google.Chrome"
+    assert spec.steps[0].action == "assert_text"
+
+
+def test_ui_spec_schema_rejects_unknown_action():
+    with pytest.raises(Exception):
+        UITestSpec.model_validate(
+            {
+                "id": "bad",
+                "kind": "web",
+                "target": {"url": "http://127.0.0.1:5178"},
+                "steps": [{"action": "drag_text", "text": "SpecForge"}],
+            }
+        )
+
+
+def test_ui_spec_id_must_be_safe_slug():
+    with pytest.raises(Exception):
+        UITestSpec.model_validate(
+            {
+                "id": "../bad",
+                "kind": "web",
+                "target": {"url": "http://127.0.0.1:5178"},
+                "steps": [{"action": "assert_text", "text": "SpecForge"}],
+            }
+        )
+
+
+def test_ui_recordings_are_not_protected_by_checksum(tmp_path):
+    root = tmp_path / "docs"
+    protected = root / "tests" / "ui" / "web_smoke.json"
+    recording = root / "tests" / "ui" / "recordings" / "web_smoke" / "frame.json"
+    protected.parent.mkdir(parents=True)
+    recording.parent.mkdir(parents=True)
+    protected.write_text('{"id":"web_smoke"}', encoding="utf-8")
+    baseline = build_test_integrity_manifest(root)
+    recording.write_text('{"ok":true}', encoding="utf-8")
+    assert compare_test_integrity(root, baseline) == []
+
+
 def test_checksum_gate_blocks_modified_protected_tests():
     resp = client.post(
         "/api/iterations",
@@ -236,3 +288,151 @@ def test_tester_failure_retries_until_blocked():
     assert payload["status"] == "blocked"
     assert payload["retry_counts"]["coder_tester"] == 2
     assert "forced tester failure" in payload["last_error"]
+
+
+def test_ui_driver_unavailable_warns_and_continues():
+    original_planner = pipeline._planner_artifact
+    original_ui_driver = pipeline.ui_driver
+    pipeline._planner_artifact = planner_with_ui_spec  # type: ignore[method-assign]
+    pipeline.ui_driver = FakeUIDriver("warning")
+    try:
+        resp = client.post(
+            "/api/iterations",
+            json={"project_name": "ui-warning", "goal": "run UI warning", "mode": "dry-run"},
+        )
+        iteration_id = resp.json()["id"]
+        drain_jobs()
+        client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
+        drain_jobs()
+        detail = client.get(f"/api/iterations/{iteration_id}").json()
+    finally:
+        pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
+        pipeline.ui_driver = original_ui_driver
+
+    assert detail["status"] == "awaiting_verify_approval"
+    assert any(event["type"] == "ui_driver.warning" for event in detail["events"])
+    assert detail["ui_results"][0]["status"] == "warning"
+
+
+def test_ui_driver_pass_writes_results_and_artifacts():
+    original_planner = pipeline._planner_artifact
+    original_ui_driver = pipeline.ui_driver
+    pipeline._planner_artifact = planner_with_ui_spec  # type: ignore[method-assign]
+    pipeline.ui_driver = FakeUIDriver("passed")
+    try:
+        resp = client.post(
+            "/api/iterations",
+            json={"project_name": "ui-pass", "goal": "run UI pass", "mode": "dry-run"},
+        )
+        iteration_id = resp.json()["id"]
+        drain_jobs()
+        client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
+        drain_jobs()
+        detail = client.get(f"/api/iterations/{iteration_id}").json()
+    finally:
+        pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
+        pipeline.ui_driver = original_ui_driver
+
+    assert detail["status"] == "awaiting_verify_approval"
+    assert detail["ui_results"][0]["status"] == "passed"
+    assert any(doc["name"] == "ui_report" for doc in detail["documents"])
+    assert any(doc["name"] == "ui_results" for doc in detail["documents"])
+    assert client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").status_code == 200
+
+
+def test_ui_driver_failure_retries_until_blocked():
+    original_planner = pipeline._planner_artifact
+    original_ui_driver = pipeline.ui_driver
+    pipeline._planner_artifact = planner_with_ui_spec  # type: ignore[method-assign]
+    pipeline.ui_driver = FakeUIDriver("failed")
+    try:
+        project = client.post(
+            "/api/projects",
+            json={"name": "ui-fail-project", "default_mode": "dry-run", "max_coder_tester_retries": 1},
+        )
+        project_id = project.json()["id"]
+        resp = client.post(
+            "/api/iterations",
+            json={"project_id": project_id, "goal": "run UI fail"},
+        )
+        iteration_id = resp.json()["id"]
+        drain_jobs()
+        client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
+        drain_jobs()
+        detail = client.get(f"/api/iterations/{iteration_id}").json()
+    finally:
+        pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
+        pipeline.ui_driver = original_ui_driver
+
+    assert detail["status"] == "blocked"
+    assert detail["retry_counts"]["coder_tester"] == 2
+    assert any(event["type"] == "ui_driver.failed" for event in detail["events"])
+
+
+def planner_with_ui_spec(state, run_result):
+    goal = state["goal"]
+    ui_spec = (
+        '{"id":"web_smoke","title":"SpecForge smoke","kind":"web",'
+        '"target":{"url":"http://127.0.0.1:5178"},'
+        '"steps":[{"action":"assert_text","text":"SpecForge"}]}'
+    )
+    return PlannerArtifact(
+        system_design=f"# Design\n\n{goal}",
+        modification_plan="# Plan\n\n- Ship UI smoke.",
+        testing_plan="# Tests\n\n- UI smoke.",
+        tests=[
+            ArtifactFile(path="tests/unit/test_transitions.py", content="def test_ok():\n    assert True\n"),
+            ArtifactFile(path="tests/ui/web_smoke.json", content=ui_spec),
+        ],
+    )
+
+
+class FakeUIDriver:
+    def __init__(self, status: str) -> None:
+        self.status = status
+        self.last_specs: list[UITestSpec] = []
+
+    def run_specs(self, specs: list[UITestSpec], docs_root):
+        self.last_specs = specs
+        if self.status == "warning":
+            return UIDriverRunResult(
+                available=False,
+                warning="CuaDriver missing permissions",
+                results=[
+                    UITestResult(
+                        id=specs[0].id,
+                        title=specs[0].title,
+                        kind=specs[0].kind,
+                        status="warning",
+                        target=specs[0].target.url or "",
+                        error="CuaDriver missing permissions",
+                    )
+                ],
+            )
+        if self.status == "failed":
+            return UIDriverRunResult(
+                available=True,
+                results=[
+                    UITestResult(
+                        id=specs[0].id,
+                        title=specs[0].title,
+                        kind=specs[0].kind,
+                        status="failed",
+                        target=specs[0].target.url or "",
+                        error="SpecForge text not found",
+                    )
+                ],
+            )
+        return UIDriverRunResult(
+            available=True,
+            results=[
+                UITestResult(
+                    id=specs[0].id,
+                    title=specs[0].title,
+                    kind=specs[0].kind,
+                    status="passed",
+                    target=specs[0].target.url or "",
+                    observations=["找到文本: SpecForge"],
+                )
+            ],
+        )

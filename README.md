@@ -30,6 +30,7 @@ Project -> Epic -> Iteration -> Planner/Coder/Tester run
 - 治理：Planner/Tester artifact 由后端校验后写入；Coder 后执行 protected tests checksum gate。
 - 开发者工作台：需要处理、摘要、文档、测试、日志、事件过滤、项目配置面板。
 - 独立交付评审：Tester 除了验证测试，也会生成用户体验观察和后续交付建议。
+- UI Driver：Tester 内部可调用 CuaDriver 执行 Planner 定义的 UI trajectory，并生成 UI 验证报告。
 
 ## 为什么不是普通 coding agent
 
@@ -94,9 +95,25 @@ http://127.0.0.1:5178
 - Node 1：规划、测试计划、设计审批、验证报告机械复核。
 - Node 2：只负责实现。
 - Node 3：独立验证、失败反馈、交付建议。
-- Node 4：UI Driver 尚未接入，保留为后续扩展。
+- Node 4：作为 Tester 内部工具面接入 CuaDriver，不作为独立 LangGraph 节点。
 
 实现上额外加入了 `integrity_check` 和 `planner_verify` 两个保护节点。前者保护 Planner 写出的测试不被 Coder 改掉，后者实现 Node 3 到 Node 1 的 verify report 复核边。
+
+UI 测试由 Planner 写入 `docs/tests/ui/*.json`，Tester 扫描后通过 CuaDriver 执行。Cua 不可用或权限不足时降级为 warning，不阻断交付；如果 Cua 可用但 UI assertion 失败，则按现有 Coder/Tester retry 回环处理。
+
+UI spec 示例：
+
+```json
+{
+  "id": "web_smoke",
+  "title": "SpecForge 首页冒烟",
+  "kind": "web",
+  "target": { "url": "http://127.0.0.1:5178" },
+  "steps": [
+    { "action": "assert_text", "text": "SpecForge" }
+  ]
+}
+```
 
 ## 运行模式
 
@@ -158,5 +175,5 @@ frontend/src/
 - 单用户本地原型，无登录和多租户。
 - v0.4 只支持手动创建 Epic；自动拆分大需求留到后续版本。
 - `real-cli` 已有结构化输出协议，但还没有强文件系统隔离。
-- UI Driver / Cua MCP 尚未接入。
+- Cua 当前使用 `cua-driver` CLI；MCP transport 留作后续扩展。
 - 生产部署、成本控制、量化成功标准留到后续版本。

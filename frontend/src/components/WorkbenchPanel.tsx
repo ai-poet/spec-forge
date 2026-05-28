@@ -5,6 +5,7 @@ import { DocumentPanel } from './DocumentPanel'
 import { IterationSummaryPanel } from './IterationSummaryPanel'
 import { RunLogPanel } from './RunLogPanel'
 import { TimelinePanel } from './TimelinePanel'
+import { UIVerificationPanel } from './UIVerificationPanel'
 
 interface Props {
   detail: IterationDetail | null
@@ -52,6 +53,7 @@ export function WorkbenchPanel({ detail, docText, onLoadDocument }: Props) {
               </button>
             ))}
           </div>
+          <UIVerificationPanel detail={detail} />
           <TimelinePanel detail={detail} filter="tests" />
         </section>
       ) : null}

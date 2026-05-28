@@ -76,6 +76,10 @@ export function eventLabel(value: string) {
     'tester.completed': '验证完成',
     'tester.delivery_advice': '交付建议已生成',
     'tester.failed_retry': '验证失败，准备重试',
+    'ui_driver.started': 'UI Driver 已开始',
+    'ui_driver.completed': 'UI Driver 已完成',
+    'ui_driver.warning': 'UI Driver 降级执行',
+    'ui_driver.failed': 'UI Driver 验证失败',
     'planner_verify.accepted': '规格复核通过',
     'planner_verify.rejected': '规格复核驳回',
     'verify.approved': '验证结果已确认',
@@ -101,6 +105,18 @@ export function documentLabel(value: string) {
     testing_plan: '测试计划',
     verify_report: '验证报告',
     delivery_advice: '交付建议',
+    ui_report: 'UI 验证报告',
+    ui_results: 'UI 验证结果',
+  }
+  return labels[value] ?? value
+}
+
+export function uiStatusLabel(value: string) {
+  const labels: Record<string, string> = {
+    passed: '通过',
+    failed: '失败',
+    skipped: '跳过',
+    warning: '降级',
   }
   return labels[value] ?? value
 }

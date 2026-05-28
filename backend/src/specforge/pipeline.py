@@ -11,11 +11,21 @@ from typing_extensions import TypedDict
 
 from .cli_runner import BaseRunner, CLIResult, DryRunRunner, RealCLIRunner
 from .config import settings
-from .contracts import ArtifactFile, CoderArtifact, PlannerArtifact, TesterArtifact, parse_json_artifact
+from .contracts import (
+    ArtifactFile,
+    CoderArtifact,
+    PlannerArtifact,
+    TesterArtifact,
+    UIDriverRunResult,
+    UITestResult,
+    UITestSpec,
+    parse_json_artifact,
+)
 from .db import Database, iso, utcnow
 from .docs_io import IterationDocs, checksum, compare_test_integrity, safe_relative_path, test_integrity_manifest
 from .events import EventBroker, EventEnvelope
 from .models import IterationStatus, Mode, NodeName
+from .ui_driver import UIDriverRunner
 
 
 class PipelineState(TypedDict, total=False):
@@ -47,6 +57,7 @@ class LangGraphPipeline:
         self.broker = broker or EventBroker()
         self.dry_runner = DryRunRunner()
         self.real_runner = RealCLIRunner()
+        self.ui_driver = UIDriverRunner()
         settings.langgraph_db_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpointer_context = SqliteSaver.from_conn_string(str(settings.langgraph_db_path))
         self._checkpointer = self._checkpointer_context.__enter__()
@@ -162,6 +173,7 @@ class LangGraphPipeline:
                 }
                 for run in self.db.list_runs(iteration_id)
             ],
+            "ui_results": [result.model_dump() for result in self._ui_results(iteration_id)],
         }
 
     def _build_graph(self) -> StateGraph:
@@ -308,7 +320,28 @@ class LangGraphPipeline:
             if problems:
                 return self._block(iteration_id, "test_integrity.failed", run_id, "; ".join(problems))
             docs = IterationDocs(self.docs_root(iteration_id))
+            ui_result = self._run_ui_specs(iteration_id, docs)
+            if ui_result.results:
+                artifact.ui_results.extend(ui_result.results)
+                artifact.ux_notes.extend(self._ui_observations(ui_result))
+            if ui_result.warning:
+                artifact.ui_warnings.append(ui_result.warning)
+                artifact.delivery_recommendations.append(f"UI Driver 未完整执行: {ui_result.warning}")
+                self._add_event(iteration_id, event_type="ui_driver.warning", payload={"warning": ui_result.warning})
+            elif ui_result.results:
+                self._add_event(iteration_id, event_type="ui_driver.completed", payload={"count": len(ui_result.results)})
+            if any(result.status == "failed" for result in ui_result.results):
+                artifact.passed = False
+                artifact.failure_notes = artifact.failure_notes or "UI verification failed"
+                self._add_event(
+                    iteration_id,
+                    event_type="ui_driver.failed",
+                    payload={"failed": [result.model_dump() for result in ui_result.results if result.status == "failed"]},
+                )
             self._write_tester_artifact(iteration_id, docs, artifact)
+            problems = self._integrity_problems(iteration_id)
+            if problems:
+                return self._block(iteration_id, "test_integrity.failed", run_id, "; ".join(problems))
             if not artifact.passed:
                 return self._tester_retry_or_block(state, run_id, artifact.failure_notes or "tester reported failing tests")
             self._update_iteration(iteration_id, status=IterationStatus.awaiting_verify_approval.value, current_node=None, last_error=None)
@@ -448,7 +481,9 @@ class LangGraphPipeline:
                 "You are Planner for SpecForge. Return only JSON matching this shape: "
                 "{system_design:string, modification_plan:string, testing_plan:string, "
                 "tests:[{path:string, content:string}]}. "
-                "Use test paths under tests/unit, tests/integration, or tests/ui. "
+                "Use code test paths under tests/unit or tests/integration. "
+                "For UI tests, write JSON specs under tests/ui/*.json with shape "
+                "{id,title,kind:web|native,target:{url|bundle_id|app_name},steps:[{action,text,value,key,keys,direction,amount}]}. "
                 f"Goal: {state['goal']}"
             )
             command = ["claude", "-p", "--output-format", "json", "--permission-mode", "plan", prompt]
@@ -482,7 +517,8 @@ class LangGraphPipeline:
                 "You are Tester and independent delivery reviewer for SpecForge. Run verification, inspect user-facing behavior where possible, "
                 "and include practical post-delivery recommendations. Return only final JSON matching "
                 "{verify_report:string, passed:boolean, failure_notes?:string, "
-                "ux_notes:[string], delivery_recommendations:[string], adversarial_tests:[{path:string, content:string}]}. "
+                "ux_notes:[string], delivery_recommendations:[string], "
+                "ui_results?:[], ui_warnings?:[], adversarial_tests:[{path:string, content:string}]}. "
                 "Only propose adversarial tests under tests/adversarial."
             )
             command = ["codex", "exec", "--sandbox", "workspace-write", "--skip-git-repo-check", prompt]
@@ -516,6 +552,34 @@ class LangGraphPipeline:
                 )
             ],
         )
+
+    def _run_ui_specs(self, iteration_id: str, docs: IterationDocs) -> UIDriverRunResult:
+        specs = self._load_ui_specs(docs)
+        if not specs:
+            return UIDriverRunResult(available=True, results=[])
+        self._add_event(iteration_id, event_type="ui_driver.started", payload={"count": len(specs)})
+        return self.ui_driver.run_specs(specs, docs.root)
+
+    def _load_ui_specs(self, docs: IterationDocs) -> list[UITestSpec]:
+        ui_root = docs.root / "tests" / "ui"
+        if not ui_root.exists():
+            return []
+        specs: list[UITestSpec] = []
+        for path in sorted(ui_root.glob("*.json")):
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            specs.append(UITestSpec.model_validate(payload))
+        return specs
+
+    def _ui_observations(self, ui_result: UIDriverRunResult) -> list[str]:
+        observations: list[str] = []
+        for result in ui_result.results:
+            if result.status == "passed":
+                observations.append(f"UI 验证通过: {result.title or result.id}")
+            elif result.status == "failed":
+                observations.append(f"UI 验证失败: {result.title or result.id}: {result.error}")
+            elif result.status == "warning":
+                observations.append(f"UI 验证降级: {result.title or result.id}: {result.error}")
+        return observations
 
     def _coder_artifact(self, state: PipelineState, run_result: CLIResult) -> CoderArtifact:
         if self._is_real_cli(state.get("mode")):
@@ -558,6 +622,21 @@ class LangGraphPipeline:
     def _write_tester_artifact(self, iteration_id: str, docs: IterationDocs, artifact: TesterArtifact) -> None:
         verify = docs.write_text("verify_report.md", artifact.verify_report)
         self._record_document(iteration_id, "verify_report", verify)
+        if artifact.ui_results or artifact.ui_warnings:
+            ui_json = docs.write_text(
+                "ui_results.json",
+                json.dumps(
+                    {
+                        "warnings": artifact.ui_warnings,
+                        "results": [result.model_dump() for result in artifact.ui_results],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+            self._record_document(iteration_id, "ui_results", ui_json)
+            ui_report = docs.write_text("ui_report.md", self._ui_report_markdown(artifact))
+            self._record_document(iteration_id, "ui_report", ui_report)
         advice = self._delivery_advice_markdown(artifact)
         if advice:
             advice_path = docs.write_text("delivery_advice.md", advice)
@@ -573,6 +652,36 @@ class LangGraphPipeline:
                 raise ValueError(f"tester adversarial path not allowed: {file.path}")
             path = docs.write_text(relative.as_posix(), file.content)
             self._record_document(iteration_id, relative.as_posix(), path)
+
+    def _ui_report_markdown(self, artifact: TesterArtifact) -> str:
+        total = len(artifact.ui_results)
+        passed = sum(1 for result in artifact.ui_results if result.status == "passed")
+        failed = sum(1 for result in artifact.ui_results if result.status == "failed")
+        warnings = sum(1 for result in artifact.ui_results if result.status == "warning") + len(artifact.ui_warnings)
+        rows = []
+        for result in artifact.ui_results:
+            error = result.error or ""
+            rows.append(f"| {result.id} | {result.kind} | {result.target} | {result.status} | {error} |")
+        warning_lines = "\n".join(f"- {warning}" for warning in artifact.ui_warnings) or "- 无"
+        return (
+            "---\n"
+            "doc: ui_report\n"
+            "status: draft\n"
+            "owner: node3\n"
+            "---\n\n"
+            "# UI Driver 验证报告\n\n"
+            "## 摘要\n"
+            f"- UI 测试数量: {total}\n"
+            f"- 通过: {passed}\n"
+            f"- 失败: {failed}\n"
+            f"- Warning: {warnings}\n\n"
+            "## 结果\n"
+            "| ID | 类型 | 目标 | 状态 | 错误 |\n"
+            "|---|---|---|---|---|\n"
+            f"{chr(10).join(rows) if rows else '| - | - | - | - | - |'}\n\n"
+            "## 降级信息\n"
+            f"{warning_lines}\n"
+        )
 
     def _delivery_advice_markdown(self, artifact: TesterArtifact) -> str:
         if not artifact.ux_notes and not artifact.delivery_recommendations:
@@ -619,3 +728,14 @@ class LangGraphPipeline:
             return json.loads(value)
         except json.JSONDecodeError:
             return default
+
+    def _ui_results(self, iteration_id: str) -> list[UITestResult]:
+        path = self.docs_root(iteration_id) / "ui_results.json"
+        if not path.exists():
+            return []
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            raw_results = payload.get("results", []) if isinstance(payload, dict) else []
+            return [UITestResult.model_validate(item) for item in raw_results]
+        except Exception:
+            return []

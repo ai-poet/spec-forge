@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -24,13 +24,66 @@ class CoderArtifact(BaseModel):
     clarification_request: Optional[str] = None
 
 
+class UITestTarget(BaseModel):
+    url: Optional[str] = None
+    bundle_id: Optional[str] = None
+    app_name: Optional[str] = None
+    chrome_bundle_id: str = "com.google.Chrome"
+
+
+class UITestStep(BaseModel):
+    action: Literal["assert_text", "click_text", "type_text", "press_key", "hotkey", "scroll", "screenshot"]
+    text: Optional[str] = None
+    value: Optional[str] = None
+    key: Optional[str] = None
+    keys: list[str] = Field(default_factory=list)
+    direction: Literal["up", "down", "left", "right"] = "down"
+    amount: int = Field(default=1, ge=1, le=20)
+
+
+class UITestSpec(BaseModel):
+    id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")
+    title: str = ""
+    kind: Literal["web", "native"]
+    target: UITestTarget
+    steps: list[UITestStep] = Field(default_factory=list)
+
+
+class UIArtifactLink(BaseModel):
+    label: str
+    path: str
+
+
+class UITestResult(BaseModel):
+    id: str
+    title: str = ""
+    kind: Literal["web", "native"]
+    status: Literal["passed", "failed", "skipped", "warning"]
+    target: str = ""
+    error: Optional[str] = None
+    observations: list[str] = Field(default_factory=list)
+    artifacts: list[UIArtifactLink] = Field(default_factory=list)
+
+
+class UIDriverRunResult(BaseModel):
+    available: bool
+    warning: Optional[str] = None
+    results: list[UITestResult] = Field(default_factory=list)
+
+
 class TesterArtifact(BaseModel):
     verify_report: str
     passed: bool
     failure_notes: Optional[str] = None
     ux_notes: list[str] = Field(default_factory=list)
     delivery_recommendations: list[str] = Field(default_factory=list)
+    ui_results: list[UITestResult] = Field(default_factory=list)
+    ui_warnings: list[str] = Field(default_factory=list)
     adversarial_tests: list[ArtifactFile] = Field(default_factory=list)
+
+    @property
+    def ui_failed(self) -> bool:
+        return any(result.status == "failed" for result in self.ui_results)
 
 
 def parse_json_artifact(raw: str, model: type[BaseModel]) -> BaseModel:

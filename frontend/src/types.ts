@@ -98,12 +98,32 @@ export interface NodeRunRecord {
   finished_at: string | null
 }
 
+export interface UIArtifactLink {
+  label: string
+  path: string
+}
+
+export type UITestStatus = 'passed' | 'failed' | 'skipped' | 'warning'
+export type UIDriverStatus = UITestStatus
+
+export interface UITestResult {
+  id: string
+  title: string
+  kind: 'web' | 'native'
+  status: UITestStatus
+  target: string
+  error: string | null
+  observations: string[]
+  artifacts: UIArtifactLink[]
+}
+
 export interface IterationDetail extends IterationSummary {
   test_command: string | null
   graph_next: string[]
   documents: DocumentRecord[]
   events: EventRecord[]
   runs: NodeRunRecord[]
+  ui_results: UITestResult[]
 }
 
 export interface LiveMessage {

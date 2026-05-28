@@ -1,10 +1,10 @@
 ---
 doc: system_design
-version: 0.4.0
+version: 0.6.0
 status: draft
 created: 2026-05-28
 owner: user
-supersedes: docs/system_design.md@0.3.0
+supersedes: docs/system_design.md@0.4.0
 ---
 
 # SpecForge 系统设计
@@ -56,7 +56,7 @@ Epic 状态由关联 iteration 汇总：
 | Node 1 → Node 2 | Planner artifact 落盘后，设计审批通过进入 `coder` |
 | Node 2 → Node 1 | `planner_clarification` 保留为受限澄清回路 |
 | Node 2 ↔ Node 3 | `coder -> integrity_check -> tester -> coder` 的失败重试回路 |
-| Node 3 → Node 4 | 尚未接入 Cua；v0.4 保留 UI 验收入口但未实现独立 UI Driver |
+| Node 3 → Node 4 | Tester 扫描 `docs/tests/ui/*.json` 并调用 CuaDriver；Node 4 是工具面，不是 LangGraph 节点 |
 | Node 3 → Node 1 | `tester -> planner_verify`，验证报告由规划侧机械复核 |
 | Node 1 → Node 2 | `planner_verify` 驳回后回到 `coder`，受 retry 上限控制 |
 
@@ -88,6 +88,50 @@ START
 
 Tester 失败会回到 Coder，受 `max_coder_tester_retries` 限制。Coder 可以请求 clarification，超出 `max_clarifications` 后进入 `blocked_user`。Planner 验证 verify report 失败可回到 Coder，受 `max_verify_rejects` 限制。
 
+## UI Driver / Node 4
+
+v0.6 将 Node 4 落地为 Tester 内部调用的 Cua UI Driver 工具层，而不是独立 LangGraph 节点。
+
+- 接入方式：默认 `cua-driver` CLI，后续可扩展 MCP transport。
+- 调用原则：遵守 `launch_app -> get_window_state -> action -> get_window_state`，不使用会抢前台的 app 驱动命令。
+- 覆盖目标：Web 应用和 macOS 原生应用。
+- 降级策略：Cua daemon 不可用或权限不足时写入 `ui_driver.warning`，不阻断交付。
+- 失败策略：Cua 可用但 UI assertion 失败时，Tester artifact 标记失败，进入 Coder/Tester retry。
+
+Planner 可写入 `docs/tests/ui/*.json`，每个文件是一个 UI trajectory：
+
+```json
+{
+  "id": "web_smoke",
+  "title": "SpecForge 首页冒烟",
+  "kind": "web",
+  "target": {
+    "url": "http://127.0.0.1:5178"
+  },
+  "steps": [
+    { "action": "assert_text", "text": "SpecForge" },
+    { "action": "screenshot" }
+  ]
+}
+```
+
+支持动作：
+
+- `assert_text`
+- `click_text`
+- `type_text`
+- `press_key`
+- `hotkey`
+- `scroll`
+- `screenshot`
+
+Tester 产物：
+
+- `ui_results.json`
+- `ui_report.md`
+- `tests/ui/recordings/<ui_test_id>/`
+- 合并进 `delivery_advice.md` 的 UI 观察
+
 ## API
 
 Project API：
@@ -113,6 +157,7 @@ Iteration API：
 - `POST /api/iterations/{id}/approve-verify`
 - `POST /api/iterations/{id}/stop`
 - `GET /api/iterations/{id}/documents/{name}`
+- `GET /api/iterations/{id}/artifacts/{path}`
 - `GET /api/iterations/{id}/runs/{run_id}/logs`
 
 实时 API：
@@ -126,6 +171,7 @@ Iteration API：
 - Planner 完成后生成 protected tests checksum baseline。
 - Coder 后、Tester 后都会执行 checksum gate。
 - `tests/adversarial/**` 允许 Tester 新增；unit/integration/ui 测试被改动会进入 `blocked`。
+- `tests/ui/recordings/**` 允许 Tester/UI Driver 写入，不纳入 protected checksum baseline。
 - Tester 不只输出 pass/fail，也作为独立交付评审者输出 `delivery_advice.md`，包括用户体验观察和后续交付建议。
 
 ## 前端架构
@@ -139,6 +185,8 @@ Iteration API：
 - Action Required 面板把技术状态翻译成开发者动作：审批设计、确认验证结果、处理阻断、系统处理中或已交付。
 - Summary / Docs / Tests / Logs tabs 提供先摘要、后原文的查看方式。
 - PipelineBoard 保留 LangGraph 技术态，作为辅助诊断视图。
+- Tests tab 展示 UI 验证数量、通过/失败/降级状态和截图/轨迹 artifact 链接。
+- PipelineBoard 在 Tester 下方显示 “UI Driver 工具调用” 辅助状态，但不把 Node 4 伪装成 LangGraph 节点。
 - Timeline 支持 All、Decisions、Failures、Tests、Runs 过滤。
 - WebSocket hook 展示 connecting、connected、reconnecting、disconnected 和最后消息时间。
 - 项目配置移入 `Iterations | Config` 的 Config 页，不挤占主流程。

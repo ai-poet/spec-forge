@@ -17,6 +17,7 @@ export function IterationSummaryPanel({ detail }: Props) {
   const integrityEvents = eventMatches(detail, 'integrity')
   const verifyReport = detail?.documents.find((doc) => doc.name === 'verify_report')
   const deliveryAdvice = detail?.documents.find((doc) => doc.name === 'delivery_advice')
+  const uiResults = detail?.ui_results ?? []
   const adviceEvent = detail?.events.find((event) => event.type === 'tester.delivery_advice')
   const uxNotes = Array.isArray(adviceEvent?.payload.ux_notes) ? adviceEvent.payload.ux_notes.map(String) : []
   const recommendations = Array.isArray(adviceEvent?.payload.delivery_recommendations)
@@ -63,6 +64,7 @@ export function IterationSummaryPanel({ detail }: Props) {
               <strong>验证与交付</strong>
               <p className="muted">{verifyReport ? '验证报告已生成' : '验证报告尚未生成'}</p>
               <p className="muted">{deliveryAdvice ? '交付建议已生成' : '交付建议尚未生成'}</p>
+              <p className="muted">UI 验证: {uiResults.length ? `${uiResults.filter((item) => item.status === 'passed').length}/${uiResults.length} 通过` : '未执行'}</p>
             </div>
           </div>
           {uxNotes.length || recommendations.length ? (

@@ -97,6 +97,10 @@ export function getIteration(id: string): Promise<IterationDetail> {
   return request(`/api/iterations/${id}`)
 }
 
+export function artifactUrl(iterationId: string, path: string): string {
+  return `${API_BASE}/api/iterations/${encodeURIComponent(iterationId)}/artifacts/${path.split('/').map(encodeURIComponent).join('/')}`
+}
+
 export function approveDesign(id: string, note?: string): Promise<IterationSummary> {
   return request(`/api/iterations/${id}/approve-design`, {
     method: 'POST',

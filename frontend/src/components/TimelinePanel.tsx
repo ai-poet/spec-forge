@@ -11,7 +11,7 @@ function matchesFilter(type: string, filter: TimelineFilter) {
   if (filter === 'all') return true
   if (filter === 'decisions') return type.includes('approved') || type.includes('queued')
   if (filter === 'failures') return type.includes('failed') || type.includes('blocked') || type.includes('max_retries')
-  if (filter === 'tests') return type.includes('test') || type.includes('integrity') || type.includes('tester')
+  if (filter === 'tests') return type.includes('test') || type.includes('integrity') || type.includes('tester') || type.includes('ui_driver')
   if (filter === 'runs') return type.includes('planner') || type.includes('coder') || type.includes('tester')
   return true
 }
@@ -34,7 +34,7 @@ export function TimelinePanel({ detail, filter = 'all', onFilterChange }: Props)
       </div>
       <div className="timeline">
         {events.map((event) => (
-          <div key={event.id} className={`item event-item ${event.type.includes('failed') || event.type.includes('blocked') ? 'danger' : ''}`}>
+          <div key={event.id} className={`item event-item ${event.type.includes('failed') || event.type.includes('blocked') ? 'danger' : event.type.includes('warning') ? 'warning' : ''}`}>
             <strong>{eventLabel(event.type)}</strong>
             <div className="muted event-json">{JSON.stringify(event.payload)}</div>
           </div>
