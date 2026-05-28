@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { approveDesign, approveVerify, createIteration, listIterationsForEpic, stopIteration } from '../shared/lib/api'
+import { parseEpicDraft } from '../features/epics/lib/parseEpicDraft'
 import { ProjectConfigPanel } from '../features/projects/components/ProjectConfigPanel'
 import { CreateProjectModal } from '../features/projects/components/CreateProjectModal'
 import { ProjectSidebar } from '../features/projects/components/ProjectSidebar'
@@ -13,6 +14,10 @@ import { ContextHeader } from '../features/workspace/components/ContextHeader'
 import { WorkspaceShell } from '../features/workspace/components/WorkspaceShell'
 import type { CreateProjectInput, IterationSummary, Mode, UpdateProjectInput } from '../shared/lib/types'
 
+function buildIterationGoal(title: string, description: string, acceptanceCriteria: string) {
+  return [description, acceptanceCriteria ? `验收标准:\n${acceptanceCriteria}` : ''].filter(Boolean).join('\n\n') || title
+}
+
 export function DashboardPage() {
   const projects = useProjects()
   const epics = useEpics(projects.selectedProjectId)
@@ -21,19 +26,17 @@ export function DashboardPage() {
   const [reviewStepKey, setReviewStepKey] = useState<PipelineStepKey | null>(null)
   const [busy, setBusy] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [showCreateEpic, setShowCreateEpic] = useState(false)
-  const [showCreateIteration, setShowCreateIteration] = useState(false)
+  const [showCreatePipeline, setShowCreatePipeline] = useState(false)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const live = useIterationLive(selectedIterationId)
 
   const goalPlaceholder = useMemo(() => {
     if (!epics.selectedEpic) return undefined
-    return [
+    return buildIterationGoal(
+      epics.selectedEpic.title,
       epics.selectedEpic.description,
-      epics.selectedEpic.acceptance_criteria ? `验收标准:\n${epics.selectedEpic.acceptance_criteria}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n\n')
+      epics.selectedEpic.acceptance_criteria,
+    )
   }, [epics.selectedEpic])
 
   async function refreshIterations(preferredIterationId?: string) {
@@ -49,20 +52,19 @@ export function DashboardPage() {
   useEffect(() => {
     setSelectedIterationId(null)
     setReviewStepKey(null)
-    setShowCreateIteration(false)
+    setShowCreatePipeline(false)
     refreshIterations().catch(console.error)
   }, [projects.selectedProjectId, epics.selectedEpicId])
 
   useEffect(() => {
     setReviewStepKey(null)
-    setShowCreateEpic(false)
-    setShowCreateIteration(false)
+    setShowCreatePipeline(false)
     setSettingsOpen(false)
   }, [projects.selectedProjectId])
 
   useEffect(() => {
     setReviewStepKey(null)
-    setShowCreateIteration(false)
+    setShowCreatePipeline(false)
   }, [epics.selectedEpicId, selectedIterationId])
 
   useEffect(() => {
@@ -84,32 +86,35 @@ export function DashboardPage() {
     await projects.addProject(input)
   }
 
-  async function handleCreateEpic(input: { title: string; description: string; acceptance_criteria: string }) {
+  async function handleCreatePipeline(input: { text: string; runMode: Mode | null; mode: 'new' | 'append' }) {
+    if (!projects.selectedProjectId) return
     setBusy(true)
     try {
-      const epic = await epics.addEpic(input)
-      if (epic) epics.setSelectedEpicId(epic.id)
-      setShowCreateEpic(false)
-      await projects.refreshProjects()
-    } finally {
-      setBusy(false)
-    }
-  }
+      let epicId = epics.selectedEpicId
+      let goal = input.text.trim()
 
-  async function handleCreateIteration(goal: string, mode: Mode | null) {
-    if (!projects.selectedProjectId || !epics.selectedEpicId) return
-    setBusy(true)
-    try {
+      if (input.mode === 'new') {
+        const parsed = parseEpicDraft(input.text)
+        if (!parsed) return
+        const epic = await epics.addEpic(parsed)
+        if (!epic) return
+        epicId = epic.id
+        epics.setSelectedEpicId(epic.id)
+        goal = buildIterationGoal(parsed.title, parsed.description, parsed.acceptance_criteria)
+      }
+
+      if (!epicId) return
+
       const item = await createIteration({
         project_id: projects.selectedProjectId,
-        epic_id: epics.selectedEpicId,
+        epic_id: epicId,
         goal,
-        mode,
+        mode: input.runMode,
       })
       await projects.refreshProjects()
-      await epics.refreshEpics(epics.selectedEpicId ?? undefined)
+      await epics.refreshEpics(epicId)
       await refreshIterations(item.id)
-      setShowCreateIteration(false)
+      setShowCreatePipeline(false)
     } finally {
       setBusy(false)
     }
@@ -186,12 +191,12 @@ export function DashboardPage() {
 
   function handleSelectEpic(id: string | null) {
     epics.setSelectedEpicId(id)
-    setShowCreateEpic(false)
+    setShowCreatePipeline(false)
   }
 
   function handleSelectIteration(id: string | null) {
     setSelectedIterationId(id)
-    setShowCreateIteration(false)
+    setShowCreatePipeline(false)
   }
 
   const showRail = Boolean(selectedIterationId && !settingsOpen)
@@ -246,14 +251,7 @@ export function DashboardPage() {
                 iterations={iterations}
                 selectedIterationId={selectedIterationId}
                 onSelectIteration={handleSelectIteration}
-                onCreateEpic={() => {
-                  setShowCreateEpic(true)
-                  setShowCreateIteration(false)
-                }}
-                onCreateIteration={() => {
-                  setShowCreateIteration(true)
-                  setShowCreateEpic(false)
-                }}
+                onCreatePipeline={() => setShowCreatePipeline(true)}
               />
             ) : null}
 
@@ -267,10 +265,9 @@ export function DashboardPage() {
                 selectedIterationId={selectedIterationId}
                 onSelectIteration={setSelectedIterationId}
                 busy={busy}
-                showCreateEpic={showCreateEpic}
-                showCreateIteration={showCreateIteration}
-                onCreateEpic={handleCreateEpic}
-                onCreateIteration={handleCreateIteration}
+                showCreatePipeline={showCreatePipeline}
+                onStartPipeline={() => setShowCreatePipeline(true)}
+                onCreatePipeline={handleCreatePipeline}
                 goalPlaceholder={goalPlaceholder}
               >
                 <StageFocusPanel

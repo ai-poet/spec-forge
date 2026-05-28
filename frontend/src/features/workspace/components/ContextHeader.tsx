@@ -9,8 +9,7 @@ interface Props {
   iterations: IterationSummary[]
   selectedIterationId: string | null
   onSelectIteration: (id: string | null) => void
-  onCreateEpic: () => void
-  onCreateIteration: () => void
+  onCreatePipeline: () => void
 }
 
 export function ContextHeader({
@@ -21,8 +20,7 @@ export function ContextHeader({
   iterations,
   selectedIterationId,
   onSelectIteration,
-  onCreateEpic,
-  onCreateIteration,
+  onCreatePipeline,
 }: Props) {
   const selectedIteration = iterations.find((item) => item.id === selectedIterationId) ?? null
 
@@ -59,10 +57,7 @@ export function ContextHeader({
         </select>
       </div>
       <div className="context-header-actions">
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onCreateEpic} disabled={!project}>
-          新建大需求
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onCreateIteration} disabled={!selectedEpicId}>
+        <button type="button" className="btn btn-ghost btn-sm pipeline-entry-btn" onClick={onCreatePipeline} disabled={!project}>
           新建流水线
         </button>
         {selectedIteration ? (

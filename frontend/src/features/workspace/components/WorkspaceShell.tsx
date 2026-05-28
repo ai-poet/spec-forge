@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
-import { CreateEpicPanel } from '../../epics/components/CreateEpicPanel'
-import { CreateIterationPanel } from '../../iteration/components/CreateIterationPanel'
+import { CreatePipelinePanel } from '../../pipeline/components/CreatePipelinePanel'
 import { EmptyWorkspace } from './EmptyWorkspace'
 import { EpicList } from '../../epics/components/EpicList'
 import { IterationList } from '../../iteration/components/IterationList'
@@ -15,10 +14,9 @@ interface Props {
   selectedIterationId: string | null
   onSelectIteration: (id: string) => void
   busy: boolean
-  showCreateEpic: boolean
-  showCreateIteration: boolean
-  onCreateEpic: (input: { title: string; description: string; acceptance_criteria: string }) => Promise<void>
-  onCreateIteration: (goal: string, mode: Mode | null) => Promise<void>
+  showCreatePipeline: boolean
+  onStartPipeline: () => void
+  onCreatePipeline: (input: { text: string; runMode: Mode | null; mode: 'new' | 'append' }) => Promise<void>
   goalPlaceholder?: string
   children: ReactNode
 }
@@ -40,13 +38,15 @@ export function WorkspaceShell({
   selectedIterationId,
   onSelectIteration,
   busy,
-  showCreateEpic,
-  showCreateIteration,
-  onCreateEpic,
-  onCreateIteration,
+  showCreatePipeline,
+  onStartPipeline,
+  onCreatePipeline,
   goalPlaceholder,
   children,
 }: Props) {
+  const selectedEpic = epics.find((epic) => epic.id === selectedEpicId) ?? null
+  const pipelineMode = selectedEpicId ? 'append' : 'new'
+
   if (!project) {
     return (
       <StageContent>
@@ -55,29 +55,21 @@ export function WorkspaceShell({
     )
   }
 
-  if (showCreateEpic) {
+  if (showCreatePipeline) {
     return (
       <StageContent>
-        <CreateEpicPanel disabled={busy} onCreate={onCreateEpic} />
-        <EpicList epics={epics} selectedEpicId={selectedEpicId} onSelectEpic={onSelectEpic} compact />
-      </StageContent>
-    )
-  }
-
-  if (!selectedEpicId) {
-    return (
-      <StageContent>
-        <EmptyWorkspace variant="no-epic" projectName={project.name} />
-        <EpicList epics={epics} selectedEpicId={selectedEpicId} onSelectEpic={onSelectEpic} compact />
-      </StageContent>
-    )
-  }
-
-  if (showCreateIteration) {
-    return (
-      <StageContent>
-        <CreateIterationPanel disabled={busy} goalPlaceholder={goalPlaceholder} onCreate={onCreateIteration} />
-        <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={onSelectIteration} compact />
+        <CreatePipelinePanel
+          mode={pipelineMode}
+          epicTitle={selectedEpic?.title}
+          goalPlaceholder={goalPlaceholder}
+          disabled={busy}
+          onCreate={(input) => onCreatePipeline({ ...input, mode: pipelineMode })}
+        />
+        {pipelineMode === 'new' ? (
+          <EpicList epics={epics} selectedEpicId={selectedEpicId} onSelectEpic={onSelectEpic} compact />
+        ) : (
+          <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={onSelectIteration} compact />
+        )}
       </StageContent>
     )
   }
@@ -85,8 +77,17 @@ export function WorkspaceShell({
   if (!selectedIterationId) {
     return (
       <StageContent>
-        <EmptyWorkspace variant="no-iteration" projectName={project.name} epicTitle={epics.find((e) => e.id === selectedEpicId)?.title} />
-        <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={onSelectIteration} compact />
+        <EmptyWorkspace
+          variant="ready"
+          projectName={project.name}
+          epicTitle={selectedEpic?.title}
+          onStartPipeline={onStartPipeline}
+        />
+        {!selectedEpicId ? (
+          <EpicList epics={epics} selectedEpicId={selectedEpicId} onSelectEpic={onSelectEpic} compact />
+        ) : (
+          <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={onSelectIteration} compact />
+        )}
       </StageContent>
     )
   }
