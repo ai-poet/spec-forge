@@ -1,5 +1,6 @@
-import type { CreateProjectInput, ProjectSummary } from '../../../shared/lib/types'
+import type { ProjectSummary } from '../../../shared/lib/types'
 import { formatProjectPath } from '../lib/formatPath'
+import { deriveProjectStatus } from '../lib/projectStatus'
 
 interface Props {
   projects: ProjectSummary[]
@@ -32,17 +33,27 @@ export function ProjectSidebar({
         <section className="sidebar-projects">
           <h2 className="sidebar-section-title">项目</h2>
           <div className="sidebar-project-list">
-            {projects.map((project) => (
+            {projects.map((project) => {
+              const status = deriveProjectStatus(project)
+              return (
               <button
                 key={project.id}
                 type="button"
                 className={`sidebar-row ${selectedProjectId === project.id ? 'active' : ''}`}
                 onClick={() => onSelectProject(project.id)}
               >
-                <strong>{project.name}</strong>
+                <div className="sidebar-row-head">
+                  <strong>{project.name}</strong>
+                  <span className={`sidebar-status ${status.kind}`}>
+                    {status.kind === 'running' ? <span className="sidebar-status-dot" aria-hidden="true" /> : null}
+                    {status.label}
+                  </span>
+                </div>
                 <span className="project-path">{formatProjectPath(project.root_path)}</span>
+                {status.detail ? <span className="sidebar-row-meta">{status.detail}</span> : null}
               </button>
-            ))}
+              )
+            })}
             {!projects.length ? <div className="empty sidebar-empty">暂无项目</div> : null}
           </div>
         </section>
