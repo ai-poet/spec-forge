@@ -328,6 +328,7 @@ def get_iteration(iteration_id: str) -> IterationDetail:
         events=snapshot["events"],
         runs=snapshot["runs"],
         ui_results=snapshot["ui_results"],
+        live_cli=snapshot.get("live_cli"),
     )
 
 

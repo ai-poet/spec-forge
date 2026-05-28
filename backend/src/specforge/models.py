@@ -203,6 +203,12 @@ class EventRecord(BaseModel):
     created_at: datetime
 
 
+class LiveCliOutput(BaseModel):
+    node: str
+    stdout: str = ""
+    stderr: str = ""
+
+
 class IterationDetail(IterationSummary):
     test_command: Optional[str] = None
     graph_next: list[str] = Field(default_factory=list)
@@ -210,6 +216,7 @@ class IterationDetail(IterationSummary):
     events: list[EventRecord] = Field(default_factory=list)
     runs: list[NodeRunRecord] = Field(default_factory=list)
     ui_results: list[UITestResult] = Field(default_factory=list)
+    live_cli: Optional[LiveCliOutput] = None
 
 
 class ApproveRequest(BaseModel):

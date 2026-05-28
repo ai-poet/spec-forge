@@ -1742,6 +1742,19 @@ button.artifact-chip:disabled {
   background: #21161a;
 }
 
+.run-card.live {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: #0d1524;
+}
+
+.live-cli-stream {
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 8px;
+}
+
 .ok-text {
   color: #8bdc8d;
 }

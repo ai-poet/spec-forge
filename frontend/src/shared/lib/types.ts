@@ -143,6 +143,12 @@ export interface UITestResult {
   artifacts: UIArtifactLink[]
 }
 
+export interface LiveCliOutput {
+  node: string
+  stdout: string
+  stderr: string
+}
+
 export interface IterationDetail extends IterationSummary {
   test_command: string | null
   graph_next: string[]
@@ -150,6 +156,7 @@ export interface IterationDetail extends IterationSummary {
   events: EventRecord[]
   runs: NodeRunRecord[]
   ui_results: UITestResult[]
+  live_cli?: LiveCliOutput | null
 }
 
 export interface LiveMessage {

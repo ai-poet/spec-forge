@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
+from threading import Lock
 from typing import Any, Literal, Optional
 
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -66,6 +68,9 @@ class LangGraphPipeline:
         self._checkpointer_context = SqliteSaver.from_conn_string(str(settings.langgraph_db_path))
         self._checkpointer = self._checkpointer_context.__enter__()
         self.graph = self._build_graph().compile(checkpointer=self._checkpointer)
+        self._live_cli_lock = Lock()
+        self._live_cli: dict[str, dict[str, str]] = {}
+        self._live_cli_last_publish: dict[str, float] = {}
 
     def project_root(self, iteration_id: str) -> Path:
         row = self._require_iteration(iteration_id)
@@ -184,7 +189,41 @@ class LangGraphPipeline:
                 for run in self.db.list_runs(iteration_id)
             ],
             "ui_results": [result.model_dump() for result in self._ui_results(iteration_id)],
+            "live_cli": self._live_cli_snapshot(iteration_id),
         }
+
+    def _live_cli_snapshot(self, iteration_id: str) -> Optional[dict[str, str]]:
+        with self._live_cli_lock:
+            live = self._live_cli.get(iteration_id)
+            if not live:
+                return None
+            return {"node": live["node"], "stdout": live["stdout"], "stderr": live["stderr"]}
+
+    def _reset_live_cli(self, iteration_id: str, node: str) -> None:
+        with self._live_cli_lock:
+            self._live_cli[iteration_id] = {"node": node, "stdout": "", "stderr": ""}
+            self._live_cli_last_publish.pop(iteration_id, None)
+
+    def _append_live_cli(self, iteration_id: str, stream: str, chunk: str) -> None:
+        with self._live_cli_lock:
+            live = self._live_cli.get(iteration_id)
+            if live is None:
+                return
+            live[stream] += chunk
+
+    def _clear_live_cli(self, iteration_id: str) -> None:
+        with self._live_cli_lock:
+            self._live_cli.pop(iteration_id, None)
+            self._live_cli_last_publish.pop(iteration_id, None)
+
+    def _maybe_publish_live_cli(self, iteration_id: str) -> None:
+        now = time.monotonic()
+        with self._live_cli_lock:
+            last = self._live_cli_last_publish.get(iteration_id, 0.0)
+            if now - last < 0.15:
+                return
+            self._live_cli_last_publish[iteration_id] = now
+        self._publish_snapshot(iteration_id)
 
     def _build_graph(self) -> StateGraph:
         builder = StateGraph(PipelineState)
@@ -484,6 +523,7 @@ class LangGraphPipeline:
             exit_code=run_result.returncode,
             finished_at=iso(utcnow()),
         )
+        self._clear_live_cli(iteration_id)
         self._publish_snapshot(iteration_id)
         return run_id
 
@@ -534,10 +574,16 @@ class LangGraphPipeline:
         runner = self.real_runner if self._is_real_cli(state.get("mode")) else self.dry_runner
         iteration_id = state["iteration_id"]
         current_node = state.get("current_node") or "agent"
+        self._reset_live_cli(iteration_id, current_node)
+        self._publish_snapshot(iteration_id)
         seen_output = {"stdout": False, "stderr": False}
         seen_cli_events: set[str] = set()
 
         def on_output(stream: str, chunk: str) -> None:
+            if not chunk:
+                return
+            self._append_live_cli(iteration_id, stream, chunk)
+            self._maybe_publish_live_cli(iteration_id)
             if not chunk.strip():
                 return
             if stream == "stdout" and self._is_real_cli(state.get("mode")):
@@ -565,11 +611,14 @@ class LangGraphPipeline:
                 "node.progress",
                 str(current_node),
                 "已收到模型输出" if stream == "stdout" else "已收到错误输出",
-                "Agent CLI 正在输出内容，原始日志已保存到运行记录。" if stream == "stdout" else "Agent CLI 输出了错误流，必要时请展开原始日志排查。",
+                "Agent CLI 正在输出内容，可在下方实时日志查看。" if stream == "stdout" else "Agent CLI 输出了错误流，请查看实时日志。",
                 severity="info" if stream == "stdout" else "warning",
             )
 
-        return runner.run(command, cwd=self.project_root(iteration_id), on_output=on_output)
+        try:
+            return runner.run(command, cwd=self.project_root(iteration_id), on_output=on_output)
+        finally:
+            self._publish_snapshot(iteration_id)
 
     def _native_cli_events(self, chunk: str) -> list[dict[str, str]]:
         events: list[dict[str, str]] = []
@@ -670,7 +719,7 @@ class LangGraphPipeline:
                 "--input-format",
                 "text",
                 "--permission-mode",
-                "plan",
+                "bypassPermissions",
                 "--verbose",
                 "--include-partial-messages",
                 "--json-schema",
@@ -698,7 +747,7 @@ class LangGraphPipeline:
                 "--input-format",
                 "text",
                 "--permission-mode",
-                "acceptEdits",
+                "bypassPermissions",
                 "--verbose",
                 "--include-partial-messages",
                 "--json-schema",
@@ -723,10 +772,9 @@ class LangGraphPipeline:
                 "codex",
                 "exec",
                 "--json",
+                "--dangerously-bypass-approvals-and-sandbox",
                 "--output-schema",
                 str(self._artifact_schema_file(iteration_id, "tester_artifact", TesterArtifact)),
-                "--sandbox",
-                "workspace-write",
                 "--skip-git-repo-check",
                 prompt,
             ]
