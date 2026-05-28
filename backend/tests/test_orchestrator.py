@@ -63,6 +63,25 @@ def test_delete_epic_stops_running_iteration(tmp_path):
     assert client.get(f"/api/iterations/{iteration_id}").status_code == 404
 
 
+def test_epic_allows_only_one_pipeline(tmp_path):
+    project = post_project(tmp_path, "one-pipeline")
+    project_id = project.json()["id"]
+    epic = client.post("/api/epics", json={"project_id": project_id, "title": "Single pipeline epic"})
+    epic_id = epic.json()["id"]
+
+    first = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "epic_id": epic_id, "goal": "first run", "mode": "dry-run"},
+    )
+    assert first.status_code == 200
+
+    second = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "epic_id": epic_id, "goal": "second run", "mode": "dry-run"},
+    )
+    assert second.status_code == 409
+
+
 def test_health():
     resp = client.get("/api/health")
     assert resp.status_code == 200

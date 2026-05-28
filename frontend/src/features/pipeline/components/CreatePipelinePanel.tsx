@@ -8,18 +8,15 @@ const NEW_PLACEHOLDER = `第一行作为标题
 - ...`
 
 interface Props {
-  mode: 'new' | 'append'
-  epicTitle?: string
-  goalPlaceholder?: string
   disabled: boolean
   onCreate: (input: { text: string }) => Promise<void>
 }
 
-export function CreatePipelinePanel({ mode, epicTitle, goalPlaceholder, disabled, onCreate }: Props) {
+export function CreatePipelinePanel({ disabled, onCreate }: Props) {
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const canSubmit = mode === 'new' ? Boolean(parseEpicDraft(draft)) : Boolean(draft.trim())
+  const canSubmit = Boolean(parseEpicDraft(draft))
 
   async function handleCreate() {
     if (!canSubmit) return
@@ -35,22 +32,16 @@ export function CreatePipelinePanel({ mode, epicTitle, goalPlaceholder, disabled
   return (
     <section className="workspace-stage-card compose-card stack">
       <div>
-        <h2 className="section-title">{mode === 'new' ? '新建流水线' : '再跑一条流水线'}</h2>
-        {mode === 'new' ? (
-          <p className="muted compose-card-subtitle">
-            描述你的需求，系统将自动创建大需求并启动 real-cli 流水线（Planner / Coder / Tester）。
-          </p>
-        ) : (
-          <p className="compose-epic-context">
-            大需求：<strong>{epicTitle}</strong>
-          </p>
-        )}
+        <h2 className="section-title">新建流水线</h2>
+        <p className="muted compose-card-subtitle">
+          描述你的大需求，系统将创建一条流水线并通过 real-cli 执行（Planner / Coder / Tester）。
+        </p>
       </div>
       <textarea
         className="compose-textarea"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
-        placeholder={mode === 'new' ? NEW_PLACEHOLDER : goalPlaceholder || '描述本次迭代的业务目标或系统改动'}
+        placeholder={NEW_PLACEHOLDER}
         disabled={disabled || busy}
       />
       <div className="compose-footer">

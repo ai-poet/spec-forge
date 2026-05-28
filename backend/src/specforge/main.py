@@ -279,6 +279,9 @@ def create_iteration(payload: CreateIterationRequest) -> IterationSummary:
             raise HTTPException(status_code=404, detail="epic not found")
         if payload.project_id and epic["project_id"] != payload.project_id:
             raise HTTPException(status_code=422, detail="epic does not belong to project")
+        existing = db.list_iterations(epic_id=payload.epic_id)
+        if existing:
+            raise HTTPException(status_code=409, detail="epic already has a pipeline")
     if not project_name:
         raise HTTPException(status_code=422, detail="project_name or project_id is required")
     iteration_id = db.create_iteration(

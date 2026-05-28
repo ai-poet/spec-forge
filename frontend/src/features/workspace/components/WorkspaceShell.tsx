@@ -11,8 +11,7 @@ interface Props {
   busy: boolean
   showCreatePipeline: boolean
   onStartPipeline: () => void
-  onCreatePipeline: (input: { text: string; mode: 'new' | 'append' }) => Promise<void>
-  goalPlaceholder?: string
+  onCreatePipeline: (input: { text: string }) => Promise<void>
   children: ReactNode
 }
 
@@ -33,11 +32,9 @@ export function WorkspaceShell({
   showCreatePipeline,
   onStartPipeline,
   onCreatePipeline,
-  goalPlaceholder,
   children,
 }: Props) {
   const selectedEpic = epics.find((epic) => epic.id === selectedEpicId) ?? null
-  const pipelineMode = selectedEpicId ? 'append' : 'new'
 
   if (!project) {
     return (
@@ -50,13 +47,7 @@ export function WorkspaceShell({
   if (showCreatePipeline) {
     return (
       <StageContent>
-        <CreatePipelinePanel
-          mode={pipelineMode}
-          epicTitle={selectedEpic?.title}
-          goalPlaceholder={goalPlaceholder}
-          disabled={busy}
-          onCreate={(input) => onCreatePipeline({ ...input, mode: pipelineMode })}
-        />
+        <CreatePipelinePanel disabled={busy} onCreate={onCreatePipeline} />
       </StageContent>
     )
   }

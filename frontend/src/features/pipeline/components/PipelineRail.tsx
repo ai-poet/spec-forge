@@ -27,7 +27,6 @@ export function PipelineRail({
   reviewStepKey,
   onSelectStep,
 }: Props) {
-  const progress = epic?.iteration_count ? Math.round((epic.delivered_count / epic.iteration_count) * 100) : 0
   const uiEvents = detail?.events.filter((event) => event.type.startsWith('ui_driver.')) ?? []
   const lastUiEvent = uiEvents[uiEvents.length - 1]
   const connected = connectionStatus === 'connected'
@@ -39,7 +38,7 @@ export function PipelineRail({
         <div className="rail-meta">
           <span className={`connection-dot ${connected ? 'online' : ''}`} />
           <span className="muted">{connectionLabel[connectionStatus]}</span>
-          <span className="muted">· Epic {progress}%</span>
+          {epic ? <span className="muted">· {epic.title}</span> : null}
         </div>
         {detail ? (
           <p className="muted rail-status">

@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
-import { approveVerify, createIteration, deleteIteration, listIterationsForEpic, stopIteration } from '../shared/lib/api'
+import { useEffect, useState } from 'react'
+import { approveVerify, createIteration, listIterationsForProject, stopIteration } from '../shared/lib/api'
 import { parseEpicDraft } from '../features/epics/lib/parseEpicDraft'
 import { ProjectConfigPanel } from '../features/projects/components/ProjectConfigPanel'
 import { CreateProjectModal } from '../features/projects/components/CreateProjectModal'
 import { ProjectSidebar } from '../features/projects/components/ProjectSidebar'
 import { useEpics } from '../features/epics/hooks/useEpics'
 import { EpicPipelineSidebar } from '../features/pipeline/components/EpicPipelineSidebar'
+import { iterationForEpic } from '../features/pipeline/lib/epicPipeline'
 import { PipelineRail } from '../features/pipeline/components/PipelineRail'
 import { StageFocusPanel } from '../features/pipeline/components/StageFocusPanel'
 import type { PipelineStepKey } from '../features/pipeline/lib/pipelineSteps'
@@ -31,31 +32,35 @@ export function DashboardPage() {
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const live = useIterationLive(selectedIterationId)
 
-  const goalPlaceholder = useMemo(() => {
-    if (!epics.selectedEpic) return undefined
-    return buildIterationGoal(
-      epics.selectedEpic.title,
-      epics.selectedEpic.description,
-      epics.selectedEpic.acceptance_criteria,
-    )
-  }, [epics.selectedEpic])
-
-  async function refreshIterations(preferredIterationId?: string) {
-    const items = epics.selectedEpicId ? await listIterationsForEpic(epics.selectedEpicId) : []
+  async function refreshIterations(preferredEpicId?: string, preferredIterationId?: string) {
+    if (!projects.selectedProjectId) {
+      setIterations([])
+      setSelectedIterationId(null)
+      return
+    }
+    const items = await listIterationsForProject(projects.selectedProjectId)
     setIterations(items)
-    setSelectedIterationId((current) => {
-      if (preferredIterationId && items.some((item) => item.id === preferredIterationId)) return preferredIterationId
-      if (current && items.some((item) => item.id === current)) return current
-      return null
-    })
+
+    const epicId = preferredEpicId ?? epics.selectedEpicId
+    if (preferredIterationId && items.some((item) => item.id === preferredIterationId)) {
+      setSelectedIterationId(preferredIterationId)
+      const iteration = items.find((item) => item.id === preferredIterationId)
+      if (iteration?.epic_id) epics.setSelectedEpicId(iteration.epic_id)
+      return
+    }
+    if (epicId) {
+      const iteration = iterationForEpic(items, epicId)
+      setSelectedIterationId(iteration?.id ?? null)
+    }
   }
 
   useEffect(() => {
+    epics.setSelectedEpicId(null)
     setSelectedIterationId(null)
     setReviewStepKey(null)
     setShowCreatePipeline(false)
     refreshIterations().catch(console.error)
-  }, [projects.selectedProjectId, epics.selectedEpicId])
+  }, [projects.selectedProjectId])
 
   useEffect(() => {
     setReviewStepKey(null)
@@ -64,9 +69,15 @@ export function DashboardPage() {
   }, [projects.selectedProjectId])
 
   useEffect(() => {
+    if (!epics.selectedEpicId) {
+      setSelectedIterationId(null)
+      return
+    }
+    const iteration = iterationForEpic(iterations, epics.selectedEpicId)
+    setSelectedIterationId(iteration?.id ?? null)
     setReviewStepKey(null)
     setShowCreatePipeline(false)
-  }, [epics.selectedEpicId, selectedIterationId])
+  }, [epics.selectedEpicId, iterations])
 
   useEffect(() => {
     const selected = iterations.find((item) => item.id === selectedIterationId)
@@ -78,7 +89,7 @@ export function DashboardPage() {
 
   useEffect(() => {
     if (!live.detail || live.detail.id !== selectedIterationId) return
-    refreshIterations(selectedIterationId ?? undefined).catch(console.error)
+    refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId ?? undefined).catch(console.error)
     epics.refreshEpics(epics.selectedEpicId ?? undefined).catch(console.error)
     projects.refreshProjects().catch(console.error)
   }, [live.detail?.status])
@@ -87,34 +98,25 @@ export function DashboardPage() {
     await projects.addProject(input)
   }
 
-  async function handleCreatePipeline(input: { text: string; mode: 'new' | 'append' }) {
+  async function handleCreatePipeline(input: { text: string }) {
     if (!projects.selectedProjectId) return
     setBusy(true)
     try {
-      let epicId = epics.selectedEpicId
-      let goal = input.text.trim()
-
-      if (input.mode === 'new') {
-        const parsed = parseEpicDraft(input.text)
-        if (!parsed) return
-        const epic = await epics.addEpic(parsed)
-        if (!epic) return
-        epicId = epic.id
-        epics.setSelectedEpicId(epic.id)
-        goal = buildIterationGoal(parsed.title, parsed.description, parsed.acceptance_criteria)
-      }
-
-      if (!epicId) return
-
+      const parsed = parseEpicDraft(input.text)
+      if (!parsed) return
+      const epic = await epics.addEpic(parsed)
+      if (!epic) return
+      const goal = buildIterationGoal(parsed.title, parsed.description, parsed.acceptance_criteria)
       const item = await createIteration({
         project_id: projects.selectedProjectId,
-        epic_id: epicId,
+        epic_id: epic.id,
         goal,
         mode: 'real-cli',
       })
+      epics.setSelectedEpicId(epic.id)
       await projects.refreshProjects()
-      await epics.refreshEpics(epicId)
-      await refreshIterations(item.id)
+      await epics.refreshEpics(epic.id)
+      await refreshIterations(epic.id, item.id)
       setShowCreatePipeline(false)
     } finally {
       setBusy(false)
@@ -127,7 +129,7 @@ export function DashboardPage() {
     try {
       await approveVerify(selectedIterationId)
       await live.loadDetail()
-      await refreshIterations(selectedIterationId)
+      await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId)
       await epics.refreshEpics(epics.selectedEpicId ?? undefined)
       await projects.refreshProjects()
     } finally {
@@ -141,7 +143,7 @@ export function DashboardPage() {
     try {
       await stopIteration(selectedIterationId, '用户停止')
       await live.loadDetail()
-      await refreshIterations(selectedIterationId)
+      await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId)
       await epics.refreshEpics(epics.selectedEpicId ?? undefined)
       await projects.refreshProjects()
     } finally {
@@ -153,7 +155,7 @@ export function DashboardPage() {
     setBusy(true)
     try {
       await projects.saveProject(projectId, input)
-      await refreshIterations(selectedIterationId ?? undefined)
+      await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId ?? undefined)
     } finally {
       setBusy(false)
     }
@@ -181,7 +183,7 @@ export function DashboardPage() {
     }
   }
 
-  async function handleDeleteEpic(epicId: string) {
+  async function handleDeletePipeline(epicId: string) {
     setBusy(true)
     try {
       await epics.removeEpic(epicId)
@@ -196,34 +198,13 @@ export function DashboardPage() {
     }
   }
 
-  async function handleDeleteIteration(iterationId: string) {
-    setBusy(true)
-    try {
-      await deleteIteration(iterationId)
-      if (selectedIterationId === iterationId) {
-        setSelectedIterationId(null)
-        setReviewStepKey(null)
-      }
-      await refreshIterations()
-      await epics.refreshEpics(epics.selectedEpicId ?? undefined)
-      await projects.refreshProjects()
-    } finally {
-      setBusy(false)
-    }
-  }
-
   function handleSelectProject(id: string) {
     projects.setSelectedProjectId(id)
     setSettingsOpen(false)
   }
 
-  function handleSelectEpic(id: string | null) {
-    epics.setSelectedEpicId(id)
-    setShowCreatePipeline(false)
-  }
-
-  function handleSelectIteration(id: string | null) {
-    setSelectedIterationId(id)
+  function handleSelectPipeline(epicId: string) {
+    epics.setSelectedEpicId(epicId)
     setShowCreatePipeline(false)
   }
 
@@ -252,12 +233,9 @@ export function DashboardPage() {
         <EpicPipelineSidebar
           epics={epics.epics}
           selectedEpicId={epics.selectedEpicId}
-          onSelectEpic={handleSelectEpic}
-          onDeleteEpic={handleDeleteEpic}
           iterations={iterations}
-          selectedIterationId={selectedIterationId}
-          onSelectIteration={handleSelectIteration}
-          onDeleteIteration={handleDeleteIteration}
+          onSelectPipeline={handleSelectPipeline}
+          onDeletePipeline={handleDeletePipeline}
           onCreatePipeline={() => setShowCreatePipeline(true)}
         />
       ) : null}
@@ -290,6 +268,7 @@ export function DashboardPage() {
             {projects.selectedProject ? (
               <ContextHeader
                 project={projects.selectedProject}
+                selectedEpic={epics.selectedEpic}
                 selectedIteration={selectedIteration}
                 onCreatePipeline={() => setShowCreatePipeline(true)}
                 onOpenSettings={() => setSettingsOpen(true)}
@@ -306,7 +285,6 @@ export function DashboardPage() {
                 showCreatePipeline={showCreatePipeline}
                 onStartPipeline={() => setShowCreatePipeline(true)}
                 onCreatePipeline={handleCreatePipeline}
-                goalPlaceholder={goalPlaceholder}
               >
                 <StageFocusPanel
                   detail={live.detail}

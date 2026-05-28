@@ -1,18 +1,25 @@
-import type { IterationSummary, ProjectSummary } from '../../../shared/lib/types'
+import type { EpicSummary, IterationSummary, ProjectSummary } from '../../../shared/lib/types'
 import { iterationStatusLabel } from '../../../shared/lib/labels'
 
 interface Props {
   project: ProjectSummary | null
+  selectedEpic: EpicSummary | null
   selectedIteration: IterationSummary | null
   onCreatePipeline: () => void
   onOpenSettings: () => void
 }
 
-export function ContextHeader({ project, selectedIteration, onCreatePipeline, onOpenSettings }: Props) {
+export function ContextHeader({ project, selectedEpic, selectedIteration, onCreatePipeline, onOpenSettings }: Props) {
   return (
     <header className="context-header">
       <div className="context-header-row">
         <span className="context-project-name">{project?.name ?? '项目'}</span>
+        {selectedEpic ? (
+          <>
+            <span className="context-sep">·</span>
+            <span className="context-project-name">{selectedEpic.title}</span>
+          </>
+        ) : null}
         {selectedIteration ? (
           <>
             <span className="context-sep">·</span>
