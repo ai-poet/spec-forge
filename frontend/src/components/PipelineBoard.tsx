@@ -13,7 +13,9 @@ const steps = [
   { key: 'planner', label: 'Planner' },
   { key: 'design_approval', label: 'Design approval' },
   { key: 'coder', label: 'Coder' },
+  { key: 'integrity_check', label: 'Integrity' },
   { key: 'tester', label: 'Tester' },
+  { key: 'planner_verify', label: 'Planner verify' },
   { key: 'verify_approval', label: 'Verify approval' },
   { key: 'done', label: 'Delivered' },
 ]
@@ -41,6 +43,14 @@ export function PipelineBoard({ detail, liveError, busy, onApproveDesign, onAppr
           <div className="muted">
             {detail ? `status: ${detail.status} · next: ${detail.graph_next.length ? detail.graph_next.join(', ') : 'END'}` : '请选择流水线'}
           </div>
+          {detail?.last_error ? <div className="error-text">last error: {detail.last_error}</div> : null}
+          {detail?.retry_counts && Object.keys(detail.retry_counts).length ? (
+            <div className="retry-row">
+              {Object.entries(detail.retry_counts).map(([key, value]) => (
+                <span className="pill" key={key}>{key}: {value}</span>
+              ))}
+            </div>
+          ) : null}
           {liveError ? <div className="error-text">{liveError}</div> : null}
         </div>
         <div className="actions">

@@ -24,6 +24,7 @@ export function IterationList({ iterations, selectedIterationId, onSelectIterati
               <strong>{item.status}</strong>
               <span className="muted">{item.mode}</span>
             </div>
+            {item.last_error ? <div className="error-text clamp">{item.last_error}</div> : null}
             <div className="muted clamp">{item.goal}</div>
           </button>
         ))}

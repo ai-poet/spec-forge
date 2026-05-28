@@ -1,9 +1,14 @@
 from fastapi.testclient import TestClient
 
-from specforge.main import app
+from specforge.contracts import PlannerArtifact, parse_json_artifact
+from specforge.main import app, job_queue, pipeline
 
 
 client = TestClient(app)
+
+
+def drain_jobs():
+    job_queue.join()
 
 
 def test_health():
@@ -23,6 +28,7 @@ def test_create_project_and_filter_iterations():
     )
     assert resp.status_code == 200
     assert resp.json()["project_id"] == project_id
+    drain_jobs()
 
     filtered = client.get(f"/api/iterations?project_id={project_id}")
     assert filtered.status_code == 200
@@ -37,7 +43,10 @@ def test_create_iteration_runs_dry_flow():
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["status"] == "awaiting_design_approval"
+    assert data["status"] == "queued"
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{data['id']}")
+    assert detail.json()["status"] == "awaiting_design_approval"
 
 
 def test_iteration_detail_includes_documents():
@@ -46,6 +55,7 @@ def test_iteration_detail_includes_documents():
         json={"project_name": "demo2", "goal": "make a thing", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
+    drain_jobs()
     detail = client.get(f"/api/iterations/{iteration_id}")
     assert detail.status_code == 200
     payload = detail.json()
@@ -59,14 +69,19 @@ def test_design_to_delivery_flow():
         json={"project_name": "demo3", "goal": "ship end to end", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
+    drain_jobs()
 
     after_design = client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
     assert after_design.status_code == 200
-    assert after_design.json()["status"] == "awaiting_verify_approval"
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}")
+    assert detail.json()["status"] == "awaiting_verify_approval"
 
     after_verify = client.post(f"/api/iterations/{iteration_id}/approve-verify", json={"note": "ok"})
     assert after_verify.status_code == 200
-    assert after_verify.json()["status"] == "delivered"
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}")
+    assert detail.json()["status"] == "delivered"
 
 
 def test_invalid_approval_returns_409():
@@ -75,6 +90,81 @@ def test_invalid_approval_returns_409():
         json={"project_name": "demo4", "goal": "reject early verify", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
+    drain_jobs()
 
     invalid = client.post(f"/api/iterations/{iteration_id}/approve-verify", json={"note": "too early"})
     assert invalid.status_code == 409
+
+
+def test_project_config_is_inherited():
+    project = client.post(
+        "/api/projects",
+        json={
+            "name": "configured",
+            "default_mode": "dry-run",
+            "default_test_command": "pytest",
+            "max_coder_tester_retries": 2,
+        },
+    )
+    assert project.status_code == 200
+    project_id = project.json()["id"]
+
+    update = client.patch(f"/api/projects/{project_id}", json={"tester_model": "gpt-test"})
+    assert update.status_code == 200
+    assert update.json()["tester_model"] == "gpt-test"
+
+    resp = client.post("/api/iterations", json={"project_id": project_id, "goal": "inherit defaults"})
+    assert resp.status_code == 200
+    assert resp.json()["mode"] == "dry-run"
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{resp.json()['id']}")
+    assert detail.json()["test_command"] == "pytest"
+
+
+def test_parse_claude_wrapped_artifact():
+    raw = '{"type":"result","result":"{\\"system_design\\":\\"a\\",\\"modification_plan\\":\\"b\\",\\"testing_plan\\":\\"c\\",\\"tests\\":[{\\"path\\":\\"tests/unit/test_a.py\\",\\"content\\":\\"x\\"}]}"}'
+    artifact = parse_json_artifact(raw, PlannerArtifact)
+    assert artifact.system_design == "a"
+    assert artifact.tests[0].path == "tests/unit/test_a.py"
+
+
+def test_checksum_gate_blocks_modified_protected_tests():
+    resp = client.post(
+        "/api/iterations",
+        json={"project_name": "integrity", "goal": "protect tests", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+
+    test_file = pipeline.docs_root(iteration_id) / "tests" / "unit" / "test_transitions.py"
+    test_file.write_text("def test_bad():\n    assert True\n", encoding="utf-8")
+
+    after_design = client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
+    assert after_design.status_code == 200
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}")
+    assert detail.json()["status"] == "blocked"
+    assert "modified protected test" in detail.json()["last_error"]
+
+
+def test_tester_failure_retries_until_blocked():
+    project = client.post(
+        "/api/projects",
+        json={"name": "retry-project", "default_mode": "dry-run", "max_coder_tester_retries": 1},
+    )
+    project_id = project.json()["id"]
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "goal": "force tester failure"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+
+    after_design = client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "ok"})
+    assert after_design.status_code == 200
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}")
+    payload = detail.json()
+    assert payload["status"] == "blocked"
+    assert payload["retry_counts"]["coder_tester"] == 2
+    assert "forced tester failure" in payload["last_error"]

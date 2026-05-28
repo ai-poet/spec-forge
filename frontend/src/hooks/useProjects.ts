@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { createProject, listProjects } from '../api'
-import type { ProjectSummary } from '../types'
+import { createProject, listProjects, updateProject } from '../api'
+import type { ProjectSummary, UpdateProjectInput } from '../types'
 
 export function useProjects() {
   const [projects, setProjects] = useState<ProjectSummary[]>([])
@@ -28,6 +28,16 @@ export function useProjects() {
     [refreshProjects],
   )
 
+  const saveProject = useCallback(
+    async (projectId: string, input: UpdateProjectInput) => {
+      const project = await updateProject(projectId, input)
+      await refreshProjects()
+      setSelectedProjectId(project.id)
+      return project
+    },
+    [refreshProjects],
+  )
+
   useEffect(() => {
     refreshProjects().catch(console.error)
   }, [refreshProjects])
@@ -40,5 +50,6 @@ export function useProjects() {
     setSelectedProjectId,
     refreshProjects,
     addProject,
+    saveProject,
   }
 }

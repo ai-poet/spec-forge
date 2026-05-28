@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getIteration } from '../api'
-import type { IterationDetail } from '../types'
+import type { IterationDetail, LiveMessage } from '../types'
 
 const API_BASE = 'http://127.0.0.1:8787'
 
@@ -52,7 +52,9 @@ export function useIterationLive(iterationId: string | null) {
     const socket = new WebSocket(`ws://127.0.0.1:8787/ws/iterations/${iterationId}`)
     socket.onmessage = async (event) => {
       try {
-        const snapshot = JSON.parse(event.data) as IterationDetail
+        const message = JSON.parse(event.data) as LiveMessage
+        const snapshot = message.snapshot
+        if (!snapshot) return
         setDetail(snapshot)
         setLiveError(null)
         const doc = snapshot.documents.find((item) => item.name === docNameRef.current) ?? snapshot.documents[0]

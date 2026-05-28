@@ -163,7 +163,9 @@ button {
 
 .form input,
 .form textarea,
-.form select {
+.form select,
+.config-grid input,
+.config-grid select {
   width: 100%;
   background: #0d1320;
   color: #edf2f8;
@@ -203,7 +205,7 @@ button {
 
 .graph-strip {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -308,6 +310,29 @@ button {
   overflow-wrap: anywhere;
 }
 
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.config-grid label {
+  display: grid;
+  gap: 5px;
+}
+
+.config-grid span {
+  color: #9facbf;
+  font-size: 12px;
+}
+
+.retry-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .ok-text {
   color: #8bdc8d;
 }
@@ -330,5 +355,9 @@ button {
 
   .graph-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .config-grid {
+    grid-template-columns: 1fr;
   }
 }

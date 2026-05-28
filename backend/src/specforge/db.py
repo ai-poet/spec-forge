@@ -49,6 +49,9 @@ class Database:
                     status TEXT NOT NULL,
                     current_node TEXT,
                     test_command TEXT,
+                    retry_counts TEXT NOT NULL DEFAULT '{}',
+                    test_integrity_baseline TEXT NOT NULL DEFAULT '{}',
+                    last_error TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -57,6 +60,14 @@ class Database:
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL UNIQUE,
                     description TEXT,
+                    default_mode TEXT NOT NULL DEFAULT 'dry-run',
+                    default_test_command TEXT,
+                    planner_model TEXT,
+                    coder_model TEXT,
+                    tester_model TEXT,
+                    max_coder_tester_retries INTEGER NOT NULL DEFAULT 5,
+                    max_clarifications INTEGER NOT NULL DEFAULT 3,
+                    max_verify_rejects INTEGER NOT NULL DEFAULT 2,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -93,14 +104,51 @@ class Database:
                 );
                 """
             )
-            columns = {
+            iteration_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(iterations)").fetchall()
             }
-            if "project_id" not in columns:
+            if "project_id" not in iteration_columns:
                 conn.execute("ALTER TABLE iterations ADD COLUMN project_id TEXT")
+            if "retry_counts" not in iteration_columns:
+                conn.execute("ALTER TABLE iterations ADD COLUMN retry_counts TEXT NOT NULL DEFAULT '{}'")
+            if "test_integrity_baseline" not in iteration_columns:
+                conn.execute("ALTER TABLE iterations ADD COLUMN test_integrity_baseline TEXT NOT NULL DEFAULT '{}'")
+            if "last_error" not in iteration_columns:
+                conn.execute("ALTER TABLE iterations ADD COLUMN last_error TEXT")
 
-    def create_project(self, *, name: str, description: Optional[str] = None) -> str:
+            project_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(projects)").fetchall()
+            }
+            project_defaults = {
+                "default_mode": "TEXT NOT NULL DEFAULT 'dry-run'",
+                "default_test_command": "TEXT",
+                "planner_model": "TEXT",
+                "coder_model": "TEXT",
+                "tester_model": "TEXT",
+                "max_coder_tester_retries": "INTEGER NOT NULL DEFAULT 5",
+                "max_clarifications": "INTEGER NOT NULL DEFAULT 3",
+                "max_verify_rejects": "INTEGER NOT NULL DEFAULT 2",
+            }
+            for column, definition in project_defaults.items():
+                if column not in project_columns:
+                    conn.execute(f"ALTER TABLE projects ADD COLUMN {column} {definition}")
+
+    def create_project(
+        self,
+        *,
+        name: str,
+        description: Optional[str] = None,
+        default_mode: str = "dry-run",
+        default_test_command: Optional[str] = None,
+        planner_model: Optional[str] = None,
+        coder_model: Optional[str] = None,
+        tester_model: Optional[str] = None,
+        max_coder_tester_retries: int = 5,
+        max_clarifications: int = 3,
+        max_verify_rejects: int = 2,
+    ) -> str:
         now = iso(utcnow())
         project_id = f"proj_{uuid4().hex[:8]}"
         with self.connect() as conn:
@@ -109,12 +157,59 @@ class Database:
                 return existing["id"]
             conn.execute(
                 """
-                INSERT INTO projects (id, name, description, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO projects (
+                    id, name, description, default_mode, default_test_command,
+                    planner_model, coder_model, tester_model,
+                    max_coder_tester_retries, max_clarifications, max_verify_rejects,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (project_id, name, description, now, now),
+                (
+                    project_id,
+                    name,
+                    description,
+                    default_mode,
+                    default_test_command,
+                    planner_model,
+                    coder_model,
+                    tester_model,
+                    max_coder_tester_retries,
+                    max_clarifications,
+                    max_verify_rejects,
+                    now,
+                    now,
+                ),
             )
         return project_id
+
+    def update_project(self, project_id: str, **fields: Any) -> None:
+        allowed = {
+            "name",
+            "description",
+            "default_mode",
+            "default_test_command",
+            "planner_model",
+            "coder_model",
+            "tester_model",
+            "max_coder_tester_retries",
+            "max_clarifications",
+            "max_verify_rejects",
+        }
+        updates = []
+        values: list[Any] = []
+        for key, value in fields.items():
+            if key not in allowed or value is _UNSET:
+                continue
+            updates.append(f"{key} = ?")
+            values.append(value)
+        if not updates:
+            return
+        updates.append("updated_at = ?")
+        values.append(iso(utcnow()))
+        values.append(project_id)
+        with self.connect() as conn:
+            conn.execute(f"UPDATE projects SET {', '.join(updates)} WHERE id = ?", values)
 
     def list_projects(self) -> list[sqlite3.Row]:
         with self.connect() as conn:
@@ -130,7 +225,7 @@ class Database:
         *,
         project_name: str,
         goal: str,
-        mode: str,
+        mode: Optional[str],
         test_command: Optional[str],
         project_id: Optional[str] = None,
     ) -> str:
@@ -139,13 +234,35 @@ class Database:
         resolved_project_id = project_id or self.create_project(name=project_name)
         project_row = self.get_project_row(resolved_project_id)
         resolved_project_name = project_row["name"] if project_row is not None else project_name
+        resolved_mode = mode or (project_row["default_mode"] if project_row is not None else "dry-run")
+        resolved_test_command = test_command
+        if resolved_test_command is None and project_row is not None:
+            resolved_test_command = project_row["default_test_command"]
         with self.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO iterations (id, project_id, project_name, goal, mode, status, current_node, test_command, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO iterations (
+                    id, project_id, project_name, goal, mode, status, current_node,
+                    test_command, retry_counts, test_integrity_baseline, last_error,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (iteration_id, resolved_project_id, resolved_project_name, goal, mode, "created", None, test_command, now, now),
+                (
+                    iteration_id,
+                    resolved_project_id,
+                    resolved_project_name,
+                    goal,
+                    resolved_mode,
+                    "created",
+                    None,
+                    resolved_test_command,
+                    "{}",
+                    "{}",
+                    None,
+                    now,
+                    now,
+                ),
             )
             conn.execute(
                 "UPDATE projects SET updated_at = ? WHERE id = ?",
@@ -160,6 +277,9 @@ class Database:
         status: Optional[str] = None,
         current_node: Any = _UNSET,
         test_command: Optional[str] = None,
+        retry_counts: Optional[dict[str, int]] = None,
+        test_integrity_baseline: Optional[dict[str, Any]] = None,
+        last_error: Any = _UNSET,
     ) -> None:
         fields = []
         values: list[Any] = []
@@ -172,6 +292,15 @@ class Database:
         if test_command is not None:
             fields.append("test_command = ?")
             values.append(test_command)
+        if retry_counts is not None:
+            fields.append("retry_counts = ?")
+            values.append(json.dumps(retry_counts))
+        if test_integrity_baseline is not None:
+            fields.append("test_integrity_baseline = ?")
+            values.append(json.dumps(test_integrity_baseline))
+        if last_error is not _UNSET:
+            fields.append("last_error = ?")
+            values.append(last_error)
         fields.append("updated_at = ?")
         values.append(iso(utcnow()))
         values.append(iteration_id)

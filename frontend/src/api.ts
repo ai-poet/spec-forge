@@ -1,4 +1,4 @@
-import type { IterationDetail, IterationSummary, ProjectSummary } from './types'
+import type { IterationDetail, IterationSummary, Mode, ProjectSummary, UpdateProjectInput } from './types'
 
 const API_BASE = 'http://127.0.0.1:8787'
 
@@ -32,11 +32,22 @@ export function createProject(input: { name: string; description?: string | null
   })
 }
 
+export function getProject(id: string): Promise<ProjectSummary> {
+  return request(`/api/projects/${id}`)
+}
+
+export function updateProject(id: string, input: UpdateProjectInput): Promise<ProjectSummary> {
+  return request(`/api/projects/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
 export function createIteration(input: {
   project_name?: string
   project_id?: string
   goal: string
-  mode: 'dry-run' | 'real-cli'
+  mode?: Mode | null
   test_command?: string | null
 }): Promise<IterationSummary> {
   return request('/api/iterations', {

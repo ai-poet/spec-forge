@@ -4,12 +4,13 @@ import { CreateIterationPanel } from '../components/CreateIterationPanel'
 import { DocumentPanel } from '../components/DocumentPanel'
 import { IterationList } from '../components/IterationList'
 import { PipelineBoard } from '../components/PipelineBoard'
+import { ProjectConfigPanel } from '../components/ProjectConfigPanel'
 import { ProjectSidebar } from '../components/ProjectSidebar'
 import { RunLogPanel } from '../components/RunLogPanel'
 import { TimelinePanel } from '../components/TimelinePanel'
 import { useIterationLive } from '../hooks/useIterationLive'
 import { useProjects } from '../hooks/useProjects'
-import type { IterationSummary } from '../types'
+import type { IterationSummary, Mode, UpdateProjectInput } from '../types'
 
 export function DashboardPage() {
   const projects = useProjects()
@@ -42,7 +43,7 @@ export function DashboardPage() {
     await projects.addProject(name, description)
   }
 
-  async function handleCreateIteration(goal: string, mode: 'dry-run' | 'real-cli') {
+  async function handleCreateIteration(goal: string, mode: Mode | null) {
     if (!projects.selectedProjectId) return
     setBusy(true)
     try {
@@ -98,6 +99,16 @@ export function DashboardPage() {
     }
   }
 
+  async function handleSaveProject(projectId: string, input: UpdateProjectInput) {
+    setBusy(true)
+    try {
+      await projects.saveProject(projectId, input)
+      await refreshIterations(projectId, selectedIterationId ?? undefined)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="app">
       <ProjectSidebar
@@ -123,6 +134,7 @@ export function DashboardPage() {
         <div className="work-grid">
           <div className="stack">
             <CreateIterationPanel disabled={!projects.selectedProjectId || busy} onCreate={handleCreateIteration} />
+            <ProjectConfigPanel project={projects.selectedProject} busy={busy} onSave={handleSaveProject} />
             <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={setSelectedIterationId} />
           </div>
 

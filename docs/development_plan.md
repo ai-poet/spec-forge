@@ -1,6 +1,6 @@
 ---
 doc: iteration_log
-version: 0.2.0
+version: 0.3.0
 status: draft
 created: 2026-05-26
 owner: user
@@ -20,11 +20,17 @@ supersedes: docs/development_plan.md@0.1.0
 7. 增加项目级管理：左侧项目栏、项目创建、项目内 iteration 列表。
 8. 前端重构为 `pages/`、`components/`、`hooks/` 分层。
 9. 在前端展示 LangGraph 实时状态：当前业务状态、下一 graph 节点、节点进度条和事件流。
+10. 将 LangGraph 执行移入本地后台 worker 队列，创建 iteration 不再阻塞 HTTP。
+11. 接入 Planner/Tester JSON artifact schema，由后端校验并写入文档和测试。
+12. 将 protected tests checksum gate 接入主流程。
+13. 增加 Coder/Tester retry、Coder clarification、Planner verify reject 计数。
+14. WebSocket 改为连接首包 snapshot + 后续事件驱动更新。
+15. 增加项目级默认 mode、测试命令、模型名和 retry 上限配置。
 
 ## 下一步
 
-1. 强化 `real-cli` 模式的 prompt 和文件边界。
-2. 将测试文件 checksum 完整性校验接入 LangGraph 节点，而不是只保留工具函数。
+1. 给 real-cli 增加 fixture 级真实 smoke test。
+2. 引入容器或只读挂载，替代仅 checksum gate 的本地保护。
 3. 接入 Cua MCP 或 Playwright 作为 UI 验证节点。
-4. 增加 retry counter 和 wall-clock circuit breaker。
+4. 增加 wall-clock circuit breaker。
 5. 将迭代归档和 ADR 文档纳入前端控制台。

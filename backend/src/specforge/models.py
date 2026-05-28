@@ -14,13 +14,16 @@ class Mode(str, Enum):
 
 class IterationStatus(str, Enum):
     created = "created"
+    queued = "queued"
     planning = "planning"
     awaiting_design_approval = "awaiting_design_approval"
     coding = "coding"
+    retrying = "retrying"
     testing = "testing"
     awaiting_verify_approval = "awaiting_verify_approval"
     delivered = "delivered"
     blocked = "blocked"
+    blocked_user = "blocked_user"
     failed = "failed"
     stopped = "stopped"
 
@@ -28,26 +31,59 @@ class IterationStatus(str, Enum):
 class NodeName(str, Enum):
     planner = "planner"
     coder = "coder"
+    coder_retry = "coder_retry"
+    integrity_check = "integrity_check"
     tester = "tester"
+    planner_clarification = "planner_clarification"
+    planner_verify = "planner_verify"
 
 
 class CreateIterationRequest(BaseModel):
     project_name: str = Field(default="", min_length=0)
     project_id: Optional[str] = None
     goal: str = Field(min_length=1)
-    mode: Mode = Mode.dry_run
+    mode: Optional[Mode] = None
     test_command: Optional[str] = None
 
 
 class CreateProjectRequest(BaseModel):
     name: str = Field(min_length=1)
     description: Optional[str] = None
+    default_mode: Mode = Mode.dry_run
+    default_test_command: Optional[str] = None
+    planner_model: Optional[str] = None
+    coder_model: Optional[str] = None
+    tester_model: Optional[str] = None
+    max_coder_tester_retries: int = Field(default=5, ge=0, le=20)
+    max_clarifications: int = Field(default=3, ge=0, le=20)
+    max_verify_rejects: int = Field(default=2, ge=0, le=20)
+
+
+class UpdateProjectRequest(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1)
+    description: Optional[str] = None
+    default_mode: Optional[Mode] = None
+    default_test_command: Optional[str] = None
+    planner_model: Optional[str] = None
+    coder_model: Optional[str] = None
+    tester_model: Optional[str] = None
+    max_coder_tester_retries: Optional[int] = Field(default=None, ge=0, le=20)
+    max_clarifications: Optional[int] = Field(default=None, ge=0, le=20)
+    max_verify_rejects: Optional[int] = Field(default=None, ge=0, le=20)
 
 
 class ProjectSummary(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
+    default_mode: Mode = Mode.dry_run
+    default_test_command: Optional[str] = None
+    planner_model: Optional[str] = None
+    coder_model: Optional[str] = None
+    tester_model: Optional[str] = None
+    max_coder_tester_retries: int = 5
+    max_clarifications: int = 3
+    max_verify_rejects: int = 2
     created_at: datetime
     updated_at: datetime
     iteration_count: int = 0
@@ -63,6 +99,8 @@ class IterationSummary(BaseModel):
     mode: Mode
     status: IterationStatus
     current_node: Optional[NodeName] = None
+    retry_counts: dict[str, int] = Field(default_factory=dict)
+    last_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
