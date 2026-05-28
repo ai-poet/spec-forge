@@ -72,6 +72,7 @@ class LangGraphPipeline:
         self._live_cli: dict[str, dict[str, str]] = {}
         self._live_cli_last_publish: dict[str, float] = {}
         self._live_cli_chunk_last_publish: dict[str, float] = {}
+        self._aborted_iterations: set[str] = set()
 
     def project_root(self, iteration_id: str) -> Path:
         row = self._require_iteration(iteration_id)
@@ -124,7 +125,15 @@ class LangGraphPipeline:
         state = self.graph.get_state(self._config(iteration_id))
         return expected_checkpoint in set(state.next)
 
+    def cancel_cli(self, iteration_id: str) -> None:
+        self._aborted_iterations.add(iteration_id)
+        self.real_runner.cancel(iteration_id)
+        self._clear_live_cli(iteration_id)
+
     def stop_iteration(self, iteration_id: str, reason: str = "stopped by user") -> None:
+        self.cancel_cli(iteration_id)
+        if self.db.get_iteration_row(iteration_id) is None:
+            return
         self._update_iteration(iteration_id, status=IterationStatus.stopped.value, current_node=None, last_error=reason)
         self._add_event(iteration_id, event_type="iteration.stopped", payload={"reason": reason})
 
@@ -293,6 +302,8 @@ class LangGraphPipeline:
         )
         self._add_event(iteration_id, event_type="iteration.started", payload={"status": "planning"})
         run_result = self._execute(state, self._planner_command(state), node=NodeName.planner.value)
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.planner.value, run_result)
         if run_result.returncode:
             self._node_event(iteration_id, "node.failed", NodeName.planner.value, "规划失败", "Planner CLI 执行失败。", severity="error", run_id=run_id, action_hint="查看运行日志，确认 claude CLI 可用并能返回 JSON artifact。")
@@ -330,6 +341,8 @@ class LangGraphPipeline:
 
     def _coder_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
         retry_counts = dict(state.get("retry_counts") or {})
         is_retry = retry_counts.get("coder_tester", 0) > 0
         self._update_iteration(
@@ -349,6 +362,8 @@ class LangGraphPipeline:
             "Coder 正在根据规划产出的规格修改代码。" if not is_retry else "Coder 正在根据上一轮失败信息修复实现。",
         )
         run_result = self._execute(state, self._coder_command(state), node=NodeName.coder.value)
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.coder.value, run_result)
         if run_result.returncode:
             self._node_event(iteration_id, "node.failed", NodeName.coder.value, "实现失败", "Coder CLI 执行失败。", severity="error", run_id=run_id, action_hint="查看运行日志，确认 claude CLI 和工作区权限。")
@@ -401,6 +416,8 @@ class LangGraphPipeline:
 
     def _integrity_check_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
         self._update_iteration(iteration_id, status=IterationStatus.testing.value, current_node=NodeName.integrity_check.value)
         self._node_event(iteration_id, "node.started", NodeName.integrity_check.value, "测试完整性检查已启动", "正在确认 Planner 写入的受保护测试没有被实现节点修改。")
         problems = self._integrity_problems(iteration_id)
@@ -413,11 +430,15 @@ class LangGraphPipeline:
 
     def _tester_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
         self._update_iteration(iteration_id, status=IterationStatus.testing.value, current_node=NodeName.tester.value, last_error=None)
         self._reset_live_cli(iteration_id, NodeName.tester.value)
         self._publish_snapshot(iteration_id)
         self._node_event(iteration_id, "node.started", NodeName.tester.value, "验证节点已启动", "Tester 正在独立运行验证并准备交付建议。")
         run_result = self._execute(state, self._tester_command(state), node=NodeName.tester.value)
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.tester.value, run_result)
         if run_result.returncode:
             self._node_event(iteration_id, "node.failed", NodeName.tester.value, "验证命令失败", "Tester CLI 执行失败，系统将尝试回到实现节点修复。", severity="error", run_id=run_id, action_hint="查看 Tester 原始日志和失败信息。")
@@ -503,30 +524,30 @@ class LangGraphPipeline:
         return {"status": IterationStatus.delivered.value, "current_node": None}
 
     def _route_after_planner(self, state: PipelineState) -> Literal["blocked", "coder"]:
-        return "blocked" if state.get("status") == IterationStatus.blocked.value else "coder"
+        return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value} else "coder"
 
     def _route_after_coder(self, state: PipelineState) -> Literal["blocked", "clarification", "integrity"]:
-        if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value}:
+        if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.stopped.value}:
             return "blocked"
         if state.get("status") == "clarification_requested":
             return "clarification"
         return "integrity"
 
     def _route_after_clarification(self, state: PipelineState) -> Literal["blocked", "coder"]:
-        return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value} else "coder"
+        return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.stopped.value} else "coder"
 
     def _route_after_integrity(self, state: PipelineState) -> Literal["blocked", "tester"]:
-        return "blocked" if state.get("status") == IterationStatus.blocked.value else "tester"
+        return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value} else "tester"
 
     def _route_after_tester(self, state: PipelineState) -> Literal["blocked", "retry", "verify"]:
-        if state.get("status") == IterationStatus.blocked.value:
+        if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
         if state.get("status") == "tester_failed_retry":
             return "retry"
         return "verify"
 
     def _route_after_planner_verify(self, state: PipelineState) -> Literal["blocked", "retry", "approval"]:
-        if state.get("status") == IterationStatus.blocked.value:
+        if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
         if state.get("status") == "verify_rejected":
             return "retry"
@@ -540,6 +561,14 @@ class LangGraphPipeline:
         if row is None:
             raise KeyError(iteration_id)
         return row
+
+    def _is_iteration_gone(self, iteration_id: str) -> bool:
+        if iteration_id in self._aborted_iterations:
+            return True
+        return self.db.get_iteration_row(iteration_id) is None
+
+    def _abort_state(self) -> PipelineState:
+        return {"status": IterationStatus.stopped.value, "current_node": None}
 
     def _record_run(self, iteration_id: str, node: str, run_result: CLIResult) -> str:
         run_id = self.db.add_run(
@@ -649,9 +678,15 @@ class LangGraphPipeline:
             )
 
         try:
-            return runner.run(command, cwd=self.project_root(iteration_id), on_output=on_output)
+            return runner.run(
+                command,
+                cwd=self.project_root(iteration_id),
+                on_output=on_output,
+                iteration_id=iteration_id,
+            )
         finally:
-            self._publish_snapshot(iteration_id)
+            if not self._is_iteration_gone(iteration_id):
+                self._publish_snapshot(iteration_id)
 
     def _native_cli_events(self, chunk: str) -> list[dict[str, str]]:
         events: list[dict[str, str]] = []

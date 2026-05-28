@@ -196,6 +196,7 @@ def delete_project(project_id: str) -> dict[str, bool]:
     if row is None:
         raise HTTPException(status_code=404, detail="project not found")
     for iteration in db.list_iterations(project_id=project_id):
+        pipeline.cancel_cli(iteration["id"])
         if iteration["status"] not in _TERMINAL_ITERATION_STATUSES:
             pipeline.stop_iteration(iteration["id"], "project deleted")
     if not db.delete_project(project_id):
@@ -250,6 +251,7 @@ def delete_epic(epic_id: str) -> dict[str, bool]:
     if row is None:
         raise HTTPException(status_code=404, detail="epic not found")
     for iteration in db.list_iterations(epic_id=epic_id):
+        pipeline.cancel_cli(iteration["id"])
         if iteration["status"] not in _TERMINAL_ITERATION_STATUSES:
             pipeline.stop_iteration(iteration["id"], "epic deleted")
     if not db.delete_epic(epic_id):
@@ -338,6 +340,7 @@ def delete_iteration(iteration_id: str) -> dict[str, bool]:
     if row is None:
         raise HTTPException(status_code=404, detail="iteration not found")
     epic_id = row["epic_id"]
+    pipeline.cancel_cli(iteration_id)
     if row["status"] not in _TERMINAL_ITERATION_STATUSES:
         pipeline.stop_iteration(iteration_id, "iteration deleted")
     if not db.delete_iteration(iteration_id):

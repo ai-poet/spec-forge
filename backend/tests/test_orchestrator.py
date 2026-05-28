@@ -1,5 +1,8 @@
+import sys
+import time
 import pytest
 from pathlib import Path
+from threading import Thread
 from fastapi.testclient import TestClient
 
 from specforge import contracts as contract_models
@@ -439,6 +442,62 @@ def test_append_live_cli_publishes_cli_output_event():
         assert envelope.event["payload"]["chunk"] == "hello"
     finally:
         pipeline.broker.unsubscribe(iteration_id, queue)
+
+
+def test_stop_iteration_cancels_active_cli():
+    runner = pipeline.real_runner
+    iteration_id = "stop-cli"
+    results: list = []
+
+    def run_process() -> None:
+        results.append(
+            runner.run(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                iteration_id=iteration_id,
+            )
+        )
+
+    thread = Thread(target=run_process, daemon=True)
+    thread.start()
+    time.sleep(0.3)
+    pipeline.stop_iteration(iteration_id, "stopped for test")
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert results
+    assert results[0].returncode != 0
+
+
+def test_delete_iteration_cancels_active_cli(tmp_path):
+    project = post_project(tmp_path, "delete-cli")
+    project_id = project.json()["id"]
+    epic = client.post("/api/epics", json={"project_id": project_id, "title": "CLI cancel epic"})
+    epic_id = epic.json()["id"]
+    iteration = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "epic_id": epic_id, "goal": "running cli", "mode": "dry-run"},
+    )
+    iteration_id = iteration.json()["id"]
+    runner = pipeline.real_runner
+    results: list = []
+
+    def run_process() -> None:
+        results.append(
+            runner.run(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                iteration_id=iteration_id,
+            )
+        )
+
+    thread = Thread(target=run_process, daemon=True)
+    thread.start()
+    time.sleep(0.3)
+    delete = client.delete(f"/api/iterations/{iteration_id}")
+    assert delete.status_code == 200
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert results
+    assert results[0].returncode != 0
+    assert client.get(f"/api/iterations/{iteration_id}").status_code == 404
 
 
 def test_ui_spec_schema_validates():
