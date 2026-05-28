@@ -54,7 +54,7 @@ class CreateProjectRequest(BaseModel):
     create_if_missing: bool = False
     name: Optional[str] = Field(default=None, min_length=1)
     description: Optional[str] = None
-    default_mode: Mode = Mode.dry_run
+    default_mode: Mode = Mode.real_cli
     default_test_command: Optional[str] = None
     max_coder_tester_retries: int = Field(default=5, ge=0, le=20)
     max_clarifications: int = Field(default=3, ge=0, le=20)
@@ -125,7 +125,7 @@ class ProjectSummary(BaseModel):
     name: str
     root_path: Optional[str] = None
     description: Optional[str] = None
-    default_mode: Mode = Mode.dry_run
+    default_mode: Mode = Mode.real_cli
     default_test_command: Optional[str] = None
     planner_model: Optional[str] = None
     coder_model: Optional[str] = None

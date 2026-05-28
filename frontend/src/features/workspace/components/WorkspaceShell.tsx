@@ -1,22 +1,17 @@
 import type { ReactNode } from 'react'
 import { CreatePipelinePanel } from '../../pipeline/components/CreatePipelinePanel'
 import { EmptyWorkspace } from './EmptyWorkspace'
-import { EpicList } from '../../epics/components/EpicList'
-import { IterationList } from '../../iteration/components/IterationList'
-import type { EpicSummary, IterationSummary, Mode, ProjectSummary } from '../../../shared/lib/types'
+import type { EpicSummary, ProjectSummary } from '../../../shared/lib/types'
 
 interface Props {
   project: ProjectSummary | null
-  epics: EpicSummary[]
   selectedEpicId: string | null
-  onSelectEpic: (id: string) => void
-  iterations: IterationSummary[]
+  epics: EpicSummary[]
   selectedIterationId: string | null
-  onSelectIteration: (id: string) => void
   busy: boolean
   showCreatePipeline: boolean
   onStartPipeline: () => void
-  onCreatePipeline: (input: { text: string; runMode: Mode | null; mode: 'new' | 'append' }) => Promise<void>
+  onCreatePipeline: (input: { text: string; mode: 'new' | 'append' }) => Promise<void>
   goalPlaceholder?: string
   children: ReactNode
 }
@@ -31,12 +26,9 @@ function StageContent({ children }: { children: ReactNode }) {
 
 export function WorkspaceShell({
   project,
-  epics,
   selectedEpicId,
-  onSelectEpic,
-  iterations,
+  epics,
   selectedIterationId,
-  onSelectIteration,
   busy,
   showCreatePipeline,
   onStartPipeline,
@@ -65,11 +57,6 @@ export function WorkspaceShell({
           disabled={busy}
           onCreate={(input) => onCreatePipeline({ ...input, mode: pipelineMode })}
         />
-        {pipelineMode === 'new' ? (
-          <EpicList epics={epics} selectedEpicId={selectedEpicId} onSelectEpic={onSelectEpic} compact />
-        ) : (
-          <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={onSelectIteration} compact />
-        )}
       </StageContent>
     )
   }
@@ -83,11 +70,6 @@ export function WorkspaceShell({
           epicTitle={selectedEpic?.title}
           onStartPipeline={onStartPipeline}
         />
-        {!selectedEpicId ? (
-          <EpicList epics={epics} selectedEpicId={selectedEpicId} onSelectEpic={onSelectEpic} compact />
-        ) : (
-          <IterationList iterations={iterations} selectedIterationId={selectedIterationId} onSelectIteration={onSelectIteration} compact />
-        )}
       </StageContent>
     )
   }

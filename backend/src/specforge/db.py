@@ -61,7 +61,7 @@ class Database:
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL UNIQUE,
                     description TEXT,
-                    default_mode TEXT NOT NULL DEFAULT 'dry-run',
+                    default_mode TEXT NOT NULL DEFAULT 'real-cli',
                     default_test_command TEXT,
                     planner_model TEXT,
                     coder_model TEXT,
@@ -136,7 +136,7 @@ class Database:
                 for row in conn.execute("PRAGMA table_info(projects)").fetchall()
             }
             project_defaults = {
-                "default_mode": "TEXT NOT NULL DEFAULT 'dry-run'",
+                "default_mode": "TEXT NOT NULL DEFAULT 'real-cli'",
                 "default_test_command": "TEXT",
                 "planner_model": "TEXT",
                 "coder_model": "TEXT",
@@ -163,7 +163,7 @@ class Database:
         create_if_missing: bool = False,
         name: Optional[str] = None,
         description: Optional[str] = None,
-        default_mode: str = "dry-run",
+        default_mode: str = "real-cli",
         default_test_command: Optional[str] = None,
         max_coder_tester_retries: int = 5,
         max_clarifications: int = 3,
@@ -343,7 +343,7 @@ class Database:
             )
         project_row = self.get_project_row(resolved_project_id)
         resolved_project_name = project_row["name"] if project_row is not None else project_name
-        resolved_mode = mode or (project_row["default_mode"] if project_row is not None else "dry-run")
+        resolved_mode = mode or (project_row["default_mode"] if project_row is not None else "real-cli")
         resolved_test_command = test_command
         if resolved_test_command is None and project_row is not None:
             resolved_test_command = project_row["default_test_command"]

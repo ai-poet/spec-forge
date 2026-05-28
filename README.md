@@ -25,7 +25,7 @@ Project -> Epic -> Iteration -> Planner/Coder/Tester run
 - Epic 层：一个大需求可以包含多个 iteration，并自动汇总 active、blocked、delivered 状态。
 - 后台执行：本地单 worker 队列执行 LangGraph，创建 iteration 不阻塞 HTTP 请求。
 - 实时状态：WebSocket 首包 snapshot，之后按事件推送，并在前端显示连接状态与自动重连。
-- 运行模式：`dry-run` 稳定演示，`real-cli` 接入结构化 artifact 协议。
+- 运行模式：默认 `real-cli`，通过 Claude / Codex CLI 执行流水线；测试环境仍可使用 `dry-run`。
 - 人类检查点：设计审批和验证审批通过 LangGraph interrupt/resume 推进。
 - 治理：Planner/Tester artifact 由后端校验后写入；Coder 后执行 protected tests checksum gate。
 - 开发者工作台：需要处理、摘要、文档、测试、日志、事件过滤、项目配置面板。
@@ -117,32 +117,26 @@ UI spec 示例：
 
 ## 运行模式
 
-### dry-run
-
-默认模式。不会调用外部大模型 CLI，会生成确定性的设计文档、测试计划、示例代码和验证报告，适合开发控制台和验证 LangGraph 流程。
-
-### real-cli
-
-设置环境变量：
-
-```bash
-SPECFORGE_MODE=real-cli ./scripts/dev.sh
-```
-
-该模式会调用：
+SpecForge 默认使用 **real-cli** 模式，会调用本地已安装的 CLI：
 
 - `claude -p`：Planner / Coder
 - `codex exec`：Tester
+
+启动前请确保 Claude CLI 与 Codex CLI 已安装并在 PATH 中可用。
 
 Planner/Tester 必须输出 JSON artifact，后端校验 schema 和路径白名单后落盘。Coder 可以编辑 iteration 工作区里的 `src/**`；如果 protected tests 被修改，流程会进入 `blocked`。
 
 当前隔离仍是本地 MVP 级别，只用于可信工作区；容器、只读挂载和更强权限策略留到后续版本。
 
+### dry-run（仅开发/测试）
+
+`dry-run` 不会调用外部大模型 CLI，会生成确定性的设计文档、测试计划、示例代码和验证报告，适合 CI 与 LangGraph 流程验证。测试套件通过 `SPECFORGE_MODE=dry-run` 启用；用户界面不再暴露该选项。
+
 ## 项目配置
 
 每个项目可以配置：
 
-- 默认运行模式和默认测试命令。
+- 默认测试命令。
 - Coder/Tester retry 上限。
 - Coder clarification 上限。
 - Planner verify reject 上限。

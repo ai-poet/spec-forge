@@ -5,6 +5,7 @@ import { ProjectConfigPanel } from '../features/projects/components/ProjectConfi
 import { CreateProjectModal } from '../features/projects/components/CreateProjectModal'
 import { ProjectSidebar } from '../features/projects/components/ProjectSidebar'
 import { useEpics } from '../features/epics/hooks/useEpics'
+import { EpicPipelineSidebar } from '../features/pipeline/components/EpicPipelineSidebar'
 import { PipelineRail } from '../features/pipeline/components/PipelineRail'
 import { StageFocusPanel } from '../features/pipeline/components/StageFocusPanel'
 import type { PipelineStepKey } from '../features/pipeline/lib/pipelineSteps'
@@ -12,7 +13,7 @@ import { useIterationLive } from '../features/iteration/hooks/useIterationLive'
 import { useProjects } from '../features/projects/hooks/useProjects'
 import { ContextHeader } from '../features/workspace/components/ContextHeader'
 import { WorkspaceShell } from '../features/workspace/components/WorkspaceShell'
-import type { CreateProjectInput, IterationSummary, Mode, UpdateProjectInput } from '../shared/lib/types'
+import type { CreateProjectInput, IterationSummary, UpdateProjectInput } from '../shared/lib/types'
 
 function buildIterationGoal(title: string, description: string, acceptanceCriteria: string) {
   return [description, acceptanceCriteria ? `验收标准:\n${acceptanceCriteria}` : ''].filter(Boolean).join('\n\n') || title
@@ -86,7 +87,7 @@ export function DashboardPage() {
     await projects.addProject(input)
   }
 
-  async function handleCreatePipeline(input: { text: string; runMode: Mode | null; mode: 'new' | 'append' }) {
+  async function handleCreatePipeline(input: { text: string; mode: 'new' | 'append' }) {
     if (!projects.selectedProjectId) return
     setBusy(true)
     try {
@@ -109,7 +110,7 @@ export function DashboardPage() {
         project_id: projects.selectedProjectId,
         epic_id: epicId,
         goal,
-        mode: input.runMode,
+        mode: 'real-cli',
       })
       await projects.refreshProjects()
       await epics.refreshEpics(epicId)
@@ -210,9 +211,11 @@ export function DashboardPage() {
   }
 
   const showRail = Boolean(selectedIterationId && !settingsOpen)
+  const hasEpicColumn = Boolean(projects.selectedProject)
+  const selectedIteration = iterations.find((item) => item.id === selectedIterationId) ?? null
 
   return (
-    <div className={`app ${showRail ? '' : 'no-rail'}`}>
+    <div className={`app ${hasEpicColumn ? 'with-epic-sidebar' : ''} ${showRail ? '' : 'no-rail'}`}>
       <ProjectSidebar
         projects={projects.projects}
         selectedProjectId={projects.selectedProjectId}
@@ -227,6 +230,18 @@ export function DashboardPage() {
         onClose={() => setCreateProjectOpen(false)}
         onCreate={handleAddProject}
       />
+
+      {projects.selectedProject ? (
+        <EpicPipelineSidebar
+          epics={epics.epics}
+          selectedEpicId={epics.selectedEpicId}
+          onSelectEpic={handleSelectEpic}
+          iterations={iterations}
+          selectedIterationId={selectedIterationId}
+          onSelectIteration={handleSelectIteration}
+          onCreatePipeline={() => setShowCreatePipeline(true)}
+        />
+      ) : null}
 
       <main className="main workspace-main">
         {settingsOpen && projects.selectedProject ? (
@@ -256,12 +271,7 @@ export function DashboardPage() {
             {projects.selectedProject ? (
               <ContextHeader
                 project={projects.selectedProject}
-                epics={epics.epics}
-                selectedEpicId={epics.selectedEpicId}
-                onSelectEpic={handleSelectEpic}
-                iterations={iterations}
-                selectedIterationId={selectedIterationId}
-                onSelectIteration={handleSelectIteration}
+                selectedIteration={selectedIteration}
                 onCreatePipeline={() => setShowCreatePipeline(true)}
                 onOpenSettings={() => setSettingsOpen(true)}
               />
@@ -272,10 +282,7 @@ export function DashboardPage() {
                 project={projects.selectedProject}
                 epics={epics.epics}
                 selectedEpicId={epics.selectedEpicId}
-                onSelectEpic={epics.setSelectedEpicId}
-                iterations={iterations}
                 selectedIterationId={selectedIterationId}
-                onSelectIteration={setSelectedIterationId}
                 busy={busy}
                 showCreatePipeline={showCreatePipeline}
                 onStartPipeline={() => setShowCreatePipeline(true)}

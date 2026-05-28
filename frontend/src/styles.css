@@ -575,8 +575,34 @@ button {
   background: var(--bg-app);
 }
 
+.app.with-epic-sidebar {
+  grid-template-columns: var(--sidebar-width) var(--epic-sidebar-width) minmax(0, 1fr) var(--rail-width);
+}
+
 .app.no-rail {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+}
+
+.app.with-epic-sidebar.no-rail {
+  grid-template-columns: var(--sidebar-width) var(--epic-sidebar-width) minmax(0, 1fr);
+}
+
+.epic-pipeline-sidebar {
+  overflow: hidden;
+}
+
+.epic-pipeline-sidebar .sidebar-top {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pipeline-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar {
@@ -696,6 +722,14 @@ button {
   padding-top: 4px;
 }
 
+.compose-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
 .btn-accent {
   background: var(--accent-soft);
   border-color: rgba(59, 130, 246, 0.35);
@@ -709,7 +743,7 @@ button {
 }
 
 .pipeline-entry-btn {
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .compose-textarea {
@@ -1806,7 +1840,9 @@ button.artifact-chip:disabled {
 
 @media (max-width: 1080px) {
   .app,
-  .app.no-rail {
+  .app.no-rail,
+  .app.with-epic-sidebar,
+  .app.with-epic-sidebar.no-rail {
     grid-template-columns: 1fr;
     height: auto;
     min-height: 100vh;

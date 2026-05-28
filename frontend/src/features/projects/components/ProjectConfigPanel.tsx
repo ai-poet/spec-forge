@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Mode, ProjectSummary, UpdateProjectInput } from '../../../shared/lib/types'
+import type { ProjectSummary, UpdateProjectInput } from '../../../shared/lib/types'
 import { ProjectFolderPanel } from './ProjectFolderPanel'
 
 interface Props {
@@ -11,7 +11,6 @@ interface Props {
 }
 
 export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDelete }: Props) {
-  const [defaultMode, setDefaultMode] = useState<Mode>('dry-run')
   const [defaultTestCommand, setDefaultTestCommand] = useState('')
   const [coderRetries, setCoderRetries] = useState(5)
   const [clarifications, setClarifications] = useState(3)
@@ -19,7 +18,6 @@ export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDele
 
   useEffect(() => {
     if (!project) return
-    setDefaultMode(project.default_mode)
     setDefaultTestCommand(project.default_test_command ?? '')
     setCoderRetries(project.max_coder_tester_retries)
     setClarifications(project.max_clarifications)
@@ -29,7 +27,6 @@ export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDele
   async function handleSave() {
     if (!project) return
     await onSave(project.id, {
-      default_mode: defaultMode,
       default_test_command: defaultTestCommand.trim() || null,
       max_coder_tester_retries: coderRetries,
       max_clarifications: clarifications,
@@ -54,20 +51,13 @@ export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDele
       <div className="section-row">
         <div>
           <h2 className="section-title">项目配置</h2>
-          <p className="muted">real-cli 模式下各 CLI 使用其默认模型，无需单独配置。</p>
+          <p className="muted">流水线通过 Claude / Codex CLI 执行，各 CLI 使用其默认模型，无需单独配置。</p>
         </div>
         <button type="button" className="btn primary" onClick={handleSave} disabled={busy || !project}>
           保存配置
         </button>
       </div>
       <div className="config-grid">
-        <label>
-          <span>默认模式</span>
-          <select value={defaultMode} onChange={(event) => setDefaultMode(event.target.value as Mode)} disabled={!project}>
-            <option value="dry-run">dry-run</option>
-            <option value="real-cli">real-cli</option>
-          </select>
-        </label>
         <label>
           <span>默认测试命令</span>
           <input value={defaultTestCommand} onChange={(event) => setDefaultTestCommand(event.target.value)} placeholder="pytest" disabled={!project} />
