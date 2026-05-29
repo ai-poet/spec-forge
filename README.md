@@ -83,67 +83,55 @@ Project（项目）
 
 ## 流水线怎么跑（通俗版）
 
-你可以把整个流程想成一条工厂流水线，上面有三个主要工人（Agent）和两个质检岗，最后有一个老板签字（你）。
+你可以把整个流程想成一条工厂流水线：三个 Agent 工人、两个程序门禁、一个规格复核、最后由你签字交付。下图对应 LangGraph 的真实边（见 `pipeline.py` 的 `_build_graph`）。
 
-```text
-  START
-    │
-    ▼
-┌─────────┐  status = blocked / stopped
-│ Planner │ ──────────────────────────────────────────────► END
-│ (Claude)│
-└────┬────┘
-     │ 规划成功
-     ▼
-┌─────────┐  status = blocked / blocked_user / stopped
-│  Coder  │ ──────────────────────────────────────────────► END
-│ (Claude)│
-└────┬────┘
-     │
-     ├─ Coder 输出 clarification_request
-     │  (默认最多 3 次，超限 → blocked_user) ──► planner_clarification ──┐
-     │                                                                      │
-     │◄─────────────────────────────────────────────────────────────────────┘
-     │  回答完成，回到 Coder
-     │
-     │ 正常完成（无澄清请求）
-     ▼
-┌──────────────┐  受保护测试 checksum 不匹配
-│integrity_check│ ───────────────────────────────────────► END (blocked)
-└──────┬───────┘
-       │ 通过
-       ▼
-┌─────────┐  status = blocked / stopped
-│ Tester  │ ──────────────────────────────────────────────► END
-│ (Codex) │
-└────┬────┘
-     │
-     ├─ CLI 失败 / 测试未通过 / UI 断言失败
-     │  且 coder↔tester 重试次数 ≤ max（默认 5）
-     │  ──► 回到 Coder → integrity_check → Tester
-     │  超限 → END (blocked)
-     │
-     │ 验证通过
-     ▼
-┌──────────────┐  status = blocked / stopped
-│planner_verify│ ─────────────────────────────────────────► END
-│ (机械复核报告) │
-└──────┬───────┘
-       │
-       ├─ verify_report 格式不合格
-       │  且驳回次数 ≤ max（默认 2）
-       │  ──► 回到 Coder → integrity_check → Tester → planner_verify
-       │  超限 → END (blocked)
-       │
-       │ 复核通过
-       ▼
-┌──────────────────┐
-│ verify_approval  │ ◄── interrupt：你在前端点「确认交付」
-│   (人工检查点)    │
-└────────┬─────────┘
-         ▼
-      delivered → END
+```mermaid
+flowchart TB
+  startNode([START]) --> planner
+
+  subgraph agentNodes ["Agent 节点（调用 CLI）"]
+    planner["Planner\nClaude CLI"]
+    coder["Coder\nClaude CLI"]
+    plannerClarification["planner_clarification\nClaude CLI"]
+    tester["Tester\nCodex CLI"]
+  end
+
+  subgraph gateNodes ["程序门禁 / 人工检查点"]
+    integrityCheck["integrity_check\n受保护测试 checksum"]
+    plannerVerify["planner_verify\n验证报告格式复核"]
+    verifyApproval["verify_approval\ninterrupt：你点「确认交付」"]
+    doneNode["done\n写入 iteration_log"]
+  end
+
+  planner -->|"规划成功"| coder
+  planner -->|"失败 / 停止"| endBlocked([END\nblocked / stopped])
+
+  coder -->|"clarification_request"| plannerClarification
+  coder -->|"实现完成"| integrityCheck
+  coder -->|"失败 / 停止"| endBlocked
+
+  plannerClarification -->|"Planner 已回答"| coder
+  plannerClarification -->|"澄清超限 → blocked_user"| endBlockedUser([END\nblocked_user])
+  plannerClarification -->|"失败 / 停止"| endBlocked
+
+  integrityCheck -->|"checksum 通过"| tester
+  integrityCheck -->|"测试被篡改"| endBlocked
+
+  tester -->|"验证通过"| plannerVerify
+  tester -->|"失败且未超重试上限\n→ 回环 ②"| coder
+  tester -->|"失败且超重试上限"| endBlocked
+
+  plannerVerify -->|"报告合格"| verifyApproval
+  plannerVerify -->|"驳回且未超上限\n→ 回环 ③"| coder
+  plannerVerify -->|"驳回且超上限"| endBlocked
+
+  verifyApproval --> doneNode
+  doneNode --> endDelivered([END\ndelivered])
+
+  tester -.->|"Tester 内部调用\n非 LangGraph 节点"| uiDriver["UI Driver\nCua 优先 · Web 回退 Playwright"]
 ```
+
+**图例：** 实线 = LangGraph 边；虚线 = Tester 节点内的工具调用。`integrity_check` 与 `planner_verify` 不调用外部 CLI。
 
 ### 各步骤在干什么
 
@@ -164,20 +152,98 @@ Project（项目）
 
 ## 三条自动回环（失败怎么办）
 
-系统不会无限重试，每条回环都有上限（可在项目设置里调）：
+系统**不会无限重试**。每条回环独立计数（存在 `iteration.retry_counts`），超限后流水线进入 `blocked` 或 `blocked_user`，需你查看事件流 / 运行日志后人工处理。
 
-```text
-1. 澄清回环（默认最多 3 次）
-   Coder 提问题 → planner_clarification → 回到 Coder
+```mermaid
+flowchart LR
+  subgraph loop1 ["回环 ① 澄清（默认 ≤ 3 次）"]
+    direction TB
+    c1["Coder 输出\nclarification_request"] --> pc1["planner_clarification\n写入 clarifications/"]
+    pc1 --> c1b["回到 Coder\n携带 Planner 回答"]
+    c1b --> c1
+    pc1 -->|"count > max_clarifications"| bu1["blocked_user"]
+  end
 
-2. 实现/验证回环（默认最多 5 次）
-   Tester 失败 → 回到 Coder → integrity_check → Tester
+  subgraph loop2 ["回环 ② 实现/验证（默认 ≤ 5 次）"]
+    direction TB
+    t2["Tester 失败\nCLI 错误 / 测试未通过 / UI 断言失败"] --> c2["Coder 修复\nstatus=retrying"]
+    c2 --> ic2["integrity_check"]
+    ic2 --> t2b["Tester 再验证\n含 UI Driver"]
+    t2b --> t2
+    t2 -->|"coder_tester > max"| b2["blocked"]
+  end
 
-3. 规格复核回环（默认最多 2 次）
-   planner_verify 驳回报告 → 回到 Coder → ... → 再验证
+  subgraph loop3 ["回环 ③ 规格复核（默认 ≤ 2 次）"]
+    direction TB
+    pv3["planner_verify 驳回\nverify_report 格式不合格"] --> c3["Coder 修复报告相关实现"]
+    c3 --> ic3["integrity_check"]
+    ic3 --> t3["Tester"]
+    t3 --> pv3b["planner_verify 再审"]
+    pv3b --> pv3
+    pv3 -->|"planner_verify_reject > max"| b3["blocked"]
+  end
 ```
 
-超过上限 → 状态变为 `blocked` 或 `blocked_user`，需要你看日志/events 决定怎么处理。
+三条回环的触发条件与计数键对照：
+
+| 回环 | 计数键 `retry_counts` | 默认上限 | 入口条件 | 回跳路径 | 超限终态 |
+|------|----------------------|----------|----------|----------|----------|
+| **① 澄清** | `coder_planner_clarify` | 3 | Coder artifact 含 `clarification_request` | `coder → planner_clarification → coder` | `blocked_user` |
+| **② 实现/验证** | `coder_tester` | 5 | Tester CLI 失败、`passed=false`、或 UI `failed` | `tester → coder → integrity_check → tester` | `blocked` |
+| **③ 规格复核** | `planner_verify_reject` | 2 | `verify_report.md` 缺少标题或 Pass 摘要 | `planner_verify → coder → integrity_check → tester → planner_verify` | `blocked` |
+
+回环 ② 中 **UI Driver** 在 `tester` 节点内执行（扫描 `docs/.../tests/ui/*.json`）：Cua 可用则走 CuaDriver；Cua 不可用时 **Web** trajectory 由 Playwright 真实执行；**native** 仍记为未执行（`warning`），不单独占一条 LangGraph 边。
+
+```mermaid
+sequenceDiagram
+  participant Coder
+  participant Integrity as integrity_check
+  participant Tester
+  participant UI as UI Driver
+  participant Verify as planner_verify
+
+  Note over Coder,Verify: 回环 ② — Tester 失败后
+  Tester->>Tester: Codex 产出 verify_report
+  Tester->>UI: run_specs（Cua 或 Playwright）
+  alt UI 断言失败或 passed=false
+    Tester-->>Coder: status=tester_failed_retry<br/>retry_counts.coder_tester += 1
+    Coder->>Coder: 根据 failure_notes 改 src
+    Coder->>Integrity: checksum 门禁
+    Integrity->>Tester: 再跑验证
+  else 验证通过
+    Tester->>Verify: 进入规格复核
+  end
+```
+
+**与主流程图的关系：** 回环 ① 只发生在 `coder` 与 `planner_clarification` 之间；回环 ②③ 都从 `coder` 重新进入，且**必须经过** `integrity_check → tester`（③ 还要多一次 `planner_verify`）。
+
+下面把三条回环叠在同一条主骨架上（边上标注 ①②③ 与默认上限）：
+
+```mermaid
+flowchart TD
+  planner["Planner"] --> coder["Coder"]
+
+  coder -->|"① clarification_request\n≤3"| clar["planner_clarification"]
+  clar -->|"回答写入 clarifications/"| coder
+
+  coder --> integrity["integrity_check"]
+  integrity --> tester["Tester\n+ UI Driver"]
+
+  tester -->|"② 失败\n≤5"| coder
+  tester -->|"通过"| pverify["planner_verify"]
+
+  pverify -->|"③ 驳回\n≤2"| coder
+  pverify -->|"通过"| approval["verify_approval\n你确认交付"]
+  approval --> delivered["delivered"]
+
+  coder -.->|"① 超限"| blockedUser["blocked_user"]
+  tester -.->|"② 超限"| blocked["blocked"]
+  pverify -.->|"③ 超限"| blocked
+  planner -.->|"规划失败"| blocked
+  integrity -.->|"测试被改"| blocked
+```
+
+> 带 ①②③ 的实线为自动回跳；虚线指向 `blocked` / `blocked_user` 为超限或硬失败。任意节点还可因你点击「停止」进入 `stopped`；点「继续执行」从 `stopped_at_node` 恢复，不消耗回环计数。
 
 ---
 
