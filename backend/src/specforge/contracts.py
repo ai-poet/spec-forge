@@ -93,6 +93,14 @@ class TesterArtifact(BaseModel):
         return any(result.status == "failed" for result in self.ui_results)
 
 
+def merge_cli_artifact_output(stdout: str, stderr: str) -> str:
+    out = stdout.strip()
+    err = stderr.strip()
+    if out and err:
+        return f"{out}\n{err}"
+    return out or err
+
+
 def parse_json_artifact(raw: str, model: type[BaseModel]) -> BaseModel:
     text = raw.strip()
     if not text:

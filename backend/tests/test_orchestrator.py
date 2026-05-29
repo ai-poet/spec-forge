@@ -444,6 +444,67 @@ def test_execute_non_json_output_falls_back_to_node_progress():
     assert any(event["type"] == "node.progress" and event["payload"]["title"] == "已收到模型输出" for event in detail["events"])
 
 
+def test_execute_stderr_jsonl_emits_cli_display_without_error_warning():
+    iteration_id = create_manual_iteration("cli-stderr-jsonl")
+    pipeline.db.update_iteration(iteration_id, current_node="tester", status="testing", last_error=None)
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "tester"}
+    code = (
+        "import json, sys; "
+        "print(json.dumps({'type':'thread.started'})); "
+        "print(json.dumps({'type':'turn.started'}), file=sys.stderr)"
+    )
+
+    pipeline._execute(state, ["python", "-c", code], node="tester")
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert any(event["type"] == "cli.display" for event in detail["events"])
+    assert not any(
+        event["type"] == "node.progress" and event["payload"].get("title") == "已收到错误输出"
+        for event in detail["events"]
+    )
+
+
+def test_execute_stderr_plain_logs_use_diagnostic_title():
+    iteration_id = create_manual_iteration("cli-stderr-plain")
+    pipeline.db.update_iteration(iteration_id, current_node="tester", status="testing", last_error=None)
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "tester"}
+    code = "import sys; print('stdout ok'); print('stderr diag', file=sys.stderr)"
+
+    pipeline._execute(state, ["python", "-c", code], node="tester")
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert any(event["type"] == "node.progress" and event["payload"].get("title") == "CLI 诊断输出" for event in detail["events"])
+    assert not any(
+        event["type"] == "node.progress" and event["payload"].get("title") == "已收到错误输出"
+        for event in detail["events"]
+    )
+
+
+def test_tester_command_uses_project_cli_bindings(tmp_path):
+    project = post_project(tmp_path, "cli-bindings")
+    project_id = project.json()["id"]
+    patch = client.patch(
+        f"/api/projects/{project_id}",
+        json={
+            "cli_bindings": {
+                "planner": "claude",
+                "planner_clarification": "claude",
+                "coder": "claude",
+                "tester": "claude",
+            }
+        },
+    )
+    assert patch.status_code == 200
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        goal="cli binding test",
+        mode="real-cli",
+        test_command=None,
+        project_id=project_id,
+    )
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id}
+    command = pipeline._tester_command(state)
+    assert command[0] == "claude"
+
+
 def test_execute_live_cli_node_from_db_current_node():
     iteration_id = create_manual_iteration("live-cli-node", mode="dry-run")
     pipeline.db.update_iteration(iteration_id, current_node="planner", status="planning")

@@ -283,7 +283,7 @@ flowchart TD
 |------|--------|------|----------|
 | **Node 1 Planner** | Claude CLI | 读需求、写 spec、写 protected tests | `docs/system_design/iteration_NNN/` 下的规划和测试 |
 | **Node 2 Coder** | Claude CLI | 根据 spec 写代码 | `.specforge/iterations/{id}/src/**` |
-| **Node 3 Tester** | Codex CLI | 独立验证、写报告 | `verify_report.md`、`tests/adversarial/` |
+| **Node 3 Tester** | Claude CLI（可在项目设置改为 Codex） | 独立验证、写报告 | `verify_report.md`、`tests/adversarial/` |
 | **Node 4 UI Driver** | CuaDriver CLI（Web 可回退 Playwright） | 跑 UI trajectory | 由 Tester 内部调用，不是独立图节点 |
 
 反串谋设计：Planner 和 Tester 用不同模型；测试文件有 checksum 保护；Tester 可以额外写 adversarial 测试。

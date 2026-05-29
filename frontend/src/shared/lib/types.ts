@@ -53,6 +53,22 @@ export interface EpicDetail extends EpicSummary {
   iterations: IterationSummary[]
 }
 
+export type CliBindingProvider = 'claude' | 'codex'
+
+export interface CliBindings {
+  planner: CliBindingProvider
+  planner_clarification: CliBindingProvider
+  coder: CliBindingProvider
+  tester: CliBindingProvider
+}
+
+export const DEFAULT_CLI_BINDINGS: CliBindings = {
+  planner: 'claude',
+  planner_clarification: 'claude',
+  coder: 'claude',
+  tester: 'claude',
+}
+
 export interface ProjectSummary {
   id: string
   name: string
@@ -60,6 +76,7 @@ export interface ProjectSummary {
   description: string | null
   default_mode: Mode
   default_test_command: string | null
+  cli_bindings: CliBindings | null
   planner_model: string | null
   coder_model: string | null
   tester_model: string | null
@@ -208,6 +225,7 @@ export interface UpdateProjectInput {
   create_if_missing?: boolean
   default_mode?: Mode
   default_test_command?: string | null
+  cli_bindings?: CliBindings | null
   max_coder_tester_retries?: number
   max_clarifications?: number
   max_verify_rejects?: number

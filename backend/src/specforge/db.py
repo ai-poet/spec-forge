@@ -155,6 +155,8 @@ class Database:
             if "root_path" not in project_columns:
                 conn.execute("ALTER TABLE projects ADD COLUMN root_path TEXT")
                 conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_root_path ON projects(root_path) WHERE root_path IS NOT NULL")
+            if "cli_bindings" not in project_columns:
+                conn.execute("ALTER TABLE projects ADD COLUMN cli_bindings TEXT")
 
     def get_project_by_root_path(self, root_path: str) -> Optional[sqlite3.Row]:
         with self.connect() as conn:
@@ -223,6 +225,7 @@ class Database:
             "root_path",
             "default_mode",
             "default_test_command",
+            "cli_bindings",
             "max_coder_tester_retries",
             "max_clarifications",
             "max_verify_rejects",

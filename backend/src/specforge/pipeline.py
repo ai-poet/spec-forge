@@ -12,6 +12,15 @@ from langgraph.types import Command, interrupt
 from pydantic import BaseModel
 from typing_extensions import TypedDict
 
+from .cli_commands import (
+    CliStage,
+    build_coder_command,
+    build_planner_clarification_command,
+    build_planner_command,
+    build_tester_command,
+    parse_cli_bindings,
+    resolve_cli_provider,
+)
 from .cli_runner import BaseRunner, CLIResult, DryRunRunner, RealCLIRunner
 from .cli_event_presenter import CliDisplayEvent, CliEventPresenter
 from .config import settings
@@ -24,6 +33,7 @@ from .contracts import (
     UIDriverRunResult,
     UITestResult,
     UITestSpec,
+    merge_cli_artifact_output,
     parse_json_artifact,
 )
 from .db import Database, iso, utcnow
@@ -896,7 +906,7 @@ class LangGraphPipeline:
             self._maybe_publish_live_cli(iteration_id)
             if not chunk.strip():
                 return
-            if stream == "stdout" and self._is_real_cli(state.get("mode")):
+            if self._is_real_cli(state.get("mode")):
                 cli_events = self.cli_presenter.present_chunk(chunk, node=str(current_node))
                 for event in cli_events:
                     key = event.key
@@ -909,13 +919,19 @@ class LangGraphPipeline:
             if seen_output[stream]:
                 return
             seen_output[stream] = True
+            if stream == "stdout":
+                title = "已收到模型输出"
+                message = "Agent CLI 正在输出内容，可在下方实时日志查看。"
+            else:
+                title = "CLI 诊断输出"
+                message = "CLI 向 stderr 输出了附加日志，可在实时日志查看。"
             self._node_event(
                 iteration_id,
                 "node.progress",
                 str(current_node),
-                "已收到模型输出" if stream == "stdout" else "已收到错误输出",
-                "Agent CLI 正在输出内容，可在下方实时日志查看。" if stream == "stdout" else "Agent CLI 输出了错误流，请查看实时日志。",
-                severity="info" if stream == "stdout" else "warning",
+                title,
+                message,
+                severity="info",
             )
 
         try:
@@ -953,6 +969,11 @@ class LangGraphPipeline:
             parts.append(f"Epic acceptance criteria: {state['epic_acceptance_criteria']}")
         return "\n".join(parts)
 
+    def _cli_provider(self, state: PipelineState, stage: CliStage) -> str:
+        raw = self._project_field(state, "cli_bindings")
+        bindings = parse_cli_bindings(raw)
+        return resolve_cli_provider(bindings, stage)
+
     def _planner_command(self, state: PipelineState) -> list[str]:
         iteration_id = state["iteration_id"]
         brief = self._planner_brief(state)
@@ -968,26 +989,18 @@ class LangGraphPipeline:
                 "{id,title,kind:web|native,target:{url|bundle_id|app_name},steps:[{action,text,value,key,keys,direction,amount}]}. "
                 f"{brief}"
             )
-            command = [
-                "claude",
-                "-p",
-                "--output-format",
-                "stream-json",
-                "--input-format",
-                "text",
-                "--permission-mode",
-                "bypassPermissions",
-                "--verbose",
-                "--include-partial-messages",
-                "--json-schema",
-                self._artifact_schema_inline(PlannerArtifact),
-                prompt,
-            ]
-            return command
+            provider = self._cli_provider(state, "planner")
+            return build_planner_command(
+                provider=provider,
+                prompt=prompt,
+                schema_inline=self._artifact_schema_inline(PlannerArtifact),
+                schema_file=self._artifact_schema_file(iteration_id, "planner_artifact", PlannerArtifact),
+            )
         return ["specforge", "planner", iteration_id]
 
     def _planner_clarification_command(self, state: PipelineState, clarification_request: str) -> list[str]:
         if self._is_real_cli(state.get("mode")):
+            iteration_id = state["iteration_id"]
             prompt = (
                 "You are Planner for SpecForge answering a Coder clarification request. "
                 "Read the approved system_design.md, modification_plan.md, testing_plan.md, and project invariants. "
@@ -995,21 +1008,13 @@ class LangGraphPipeline:
                 "The answer must be actionable for Coder and should not change protected tests. "
                 f"Clarification request: {clarification_request}"
             )
-            return [
-                "claude",
-                "-p",
-                "--output-format",
-                "stream-json",
-                "--input-format",
-                "text",
-                "--permission-mode",
-                "bypassPermissions",
-                "--verbose",
-                "--include-partial-messages",
-                "--json-schema",
-                self._artifact_schema_inline(PlannerClarificationArtifact),
-                prompt,
-            ]
+            provider = self._cli_provider(state, "planner_clarification")
+            return build_planner_clarification_command(
+                provider=provider,
+                prompt=prompt,
+                schema_inline=self._artifact_schema_inline(PlannerClarificationArtifact),
+                schema_file=self._artifact_schema_file(iteration_id, "planner_clarification_artifact", PlannerClarificationArtifact),
+            )
         return ["specforge", "planner_clarification", state["iteration_id"]]
 
     def _coder_command(self, state: PipelineState) -> list[str]:
@@ -1023,22 +1028,13 @@ class LangGraphPipeline:
                 "{changed_paths:[string], summary:string, clarification_request?:string}. "
                 f"Failure notes to address: {notes}"
             )
-            command = [
-                "claude",
-                "-p",
-                "--output-format",
-                "stream-json",
-                "--input-format",
-                "text",
-                "--permission-mode",
-                "bypassPermissions",
-                "--verbose",
-                "--include-partial-messages",
-                "--json-schema",
-                self._artifact_schema_inline(CoderArtifact),
-                prompt,
-            ]
-            return command
+            provider = self._cli_provider(state, "coder")
+            return build_coder_command(
+                provider=provider,
+                prompt=prompt,
+                schema_inline=self._artifact_schema_inline(CoderArtifact),
+                schema_file=self._artifact_schema_file(iteration_id, "coder_artifact", CoderArtifact),
+            )
         return ["specforge", "coder", iteration_id]
 
     def _tester_command(self, state: PipelineState) -> list[str]:
@@ -1052,17 +1048,13 @@ class LangGraphPipeline:
                 "ui_results?:[], ui_warnings?:[], adversarial_tests:[{path:string, content:string}]}. "
                 "Only propose adversarial tests under tests/adversarial."
             )
-            command = [
-                "codex",
-                "exec",
-                "--json",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--output-schema",
-                str(self._artifact_schema_file(iteration_id, "tester_artifact", TesterArtifact)),
-                "--skip-git-repo-check",
-                prompt,
-            ]
-            return command
+            provider = self._cli_provider(state, "tester")
+            return build_tester_command(
+                provider=provider,
+                prompt=prompt,
+                schema_inline=self._artifact_schema_inline(TesterArtifact),
+                schema_file=self._artifact_schema_file(iteration_id, "tester_artifact", TesterArtifact),
+            )
         return ["specforge", "tester", iteration_id]
 
     def _artifact_schema_inline(self, model: type[BaseModel]) -> str:
@@ -1086,7 +1078,8 @@ class LangGraphPipeline:
 
     def _planner_artifact(self, state: PipelineState, run_result: CLIResult) -> PlannerArtifact:
         if self._is_real_cli(state.get("mode")):
-            return parse_json_artifact(run_result.stdout, PlannerArtifact)  # type: ignore[return-value]
+            raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
+            return parse_json_artifact(raw, PlannerArtifact)  # type: ignore[return-value]
         goal = state["goal"]
         return PlannerArtifact(
             system_design=f"""---\ndoc: system_design\niteration: 1\nstatus: draft\nowner: node1\n---\n\n# Iteration 1 - System Design\n\nGoal: {goal}\n\nThis dry-run design was produced by the LangGraph planner node.\n""",
@@ -1102,7 +1095,8 @@ class LangGraphPipeline:
 
     def _planner_clarification_artifact(self, state: PipelineState, run_result: CLIResult) -> PlannerClarificationArtifact:
         if self._is_real_cli(state.get("mode")):
-            return parse_json_artifact(run_result.stdout, PlannerClarificationArtifact)  # type: ignore[return-value]
+            raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
+            return parse_json_artifact(raw, PlannerClarificationArtifact)  # type: ignore[return-value]
         request = state.get("clarification_request") or "unspecified clarification"
         return PlannerClarificationArtifact(
             answer=f"Proceed with the approved spec. Clarification resolved: {request}",
@@ -1186,12 +1180,14 @@ class LangGraphPipeline:
 
     def _coder_artifact(self, state: PipelineState, run_result: CLIResult) -> CoderArtifact:
         if self._is_real_cli(state.get("mode")):
-            return parse_json_artifact(run_result.stdout, CoderArtifact)  # type: ignore[return-value]
+            raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
+            return parse_json_artifact(raw, CoderArtifact)  # type: ignore[return-value]
         return CoderArtifact(changed_paths=["src/app.py"], summary="dry-run source module generated")
 
     def _tester_artifact(self, state: PipelineState, run_result: CLIResult) -> TesterArtifact:
         if self._is_real_cli(state.get("mode")):
-            return parse_json_artifact(run_result.stdout, TesterArtifact)  # type: ignore[return-value]
+            raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
+            return parse_json_artifact(raw, TesterArtifact)  # type: ignore[return-value]
         if "force tester failure" in state.get("goal", ""):
             return TesterArtifact(
                 verify_report="""---\ndoc: verify_report\niteration: 1\nstatus: draft\nowner: node3\n---\n\n# Iteration 1 - Verify Report\n\n## Summary\n- Tests in plan: 3\n- Tests executed: 3\n- Pass: 0\n- Fail: 3\n""",

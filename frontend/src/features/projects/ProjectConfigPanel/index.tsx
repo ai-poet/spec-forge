@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { ProjectSummary, UpdateProjectInput } from '../../../shared/lib/types'
+import type { CliBindingProvider, CliBindings, ProjectSummary, UpdateProjectInput } from '../../../shared/lib/types'
+import { DEFAULT_CLI_BINDINGS } from '../../../shared/lib/types'
 import { ProjectFolderPanel } from '../ProjectFolderPanel'
 
 interface Props {
@@ -10,11 +11,23 @@ interface Props {
   onDelete: (projectId: string) => Promise<void>
 }
 
+const STAGE_LABELS: { key: keyof CliBindings; label: string }[] = [
+  { key: 'planner', label: '规划 (Planner)' },
+  { key: 'planner_clarification', label: '规划澄清' },
+  { key: 'coder', label: '实现 (Coder)' },
+  { key: 'tester', label: '验证 (Tester)' },
+]
+
+function mergeBindings(project: ProjectSummary | null): CliBindings {
+  return { ...DEFAULT_CLI_BINDINGS, ...(project?.cli_bindings ?? {}) }
+}
+
 export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDelete }: Props) {
   const [defaultTestCommand, setDefaultTestCommand] = useState('')
   const [coderRetries, setCoderRetries] = useState(5)
   const [clarifications, setClarifications] = useState(3)
   const [verifyRejects, setVerifyRejects] = useState(2)
+  const [cliBindings, setCliBindings] = useState<CliBindings>(DEFAULT_CLI_BINDINGS)
 
   useEffect(() => {
     if (!project) return
@@ -22,16 +35,22 @@ export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDele
     setCoderRetries(project.max_coder_tester_retries)
     setClarifications(project.max_clarifications)
     setVerifyRejects(project.max_verify_rejects)
+    setCliBindings(mergeBindings(project))
   }, [project])
 
   async function handleSave() {
     if (!project) return
     await onSave(project.id, {
       default_test_command: defaultTestCommand.trim() || null,
+      cli_bindings: cliBindings,
       max_coder_tester_retries: coderRetries,
       max_clarifications: clarifications,
       max_verify_rejects: verifyRejects,
     })
+  }
+
+  function updateBinding(stage: keyof CliBindings, provider: CliBindingProvider) {
+    setCliBindings((prev) => ({ ...prev, [stage]: provider }))
   }
 
   async function handleDelete() {
@@ -51,7 +70,7 @@ export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDele
       <div className="section-row">
         <div>
           <h2 className="section-title">项目配置</h2>
-          <p className="muted">流水线通过 Claude / Codex CLI 执行，各 CLI 使用其默认模型，无需单独配置。</p>
+          <p className="muted">为各环节选择 CLI（Claude Code 或 Codex）。未单独配置时，默认全部为 Claude Code。</p>
         </div>
         <button type="button" className="btn primary" onClick={handleSave} disabled={busy || !project}>
           保存配置
@@ -74,6 +93,21 @@ export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDele
           <span>规格复核驳回上限</span>
           <input type="number" min="0" max="20" value={verifyRejects} onChange={(event) => setVerifyRejects(Number(event.target.value))} disabled={!project} />
         </label>
+      </div>
+      <div className="config-grid">
+        {STAGE_LABELS.map(({ key, label }) => (
+          <label key={key}>
+            <span>{label}</span>
+            <select
+              value={cliBindings[key]}
+              onChange={(event) => updateBinding(key, event.target.value as CliBindingProvider)}
+              disabled={!project}
+            >
+              <option value="claude">Claude Code</option>
+              <option value="codex">Codex</option>
+            </select>
+          </label>
+        ))}
       </div>
     </section>
 

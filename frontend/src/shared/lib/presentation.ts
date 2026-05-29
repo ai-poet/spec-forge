@@ -74,6 +74,18 @@ export function cliProviderLabel(value: string | undefined) {
   return value ?? 'CLI'
 }
 
+const IGNORED_PROGRESS_TITLES = new Set(['已收到错误输出', 'CLI 诊断输出'])
+
+function isActionableWarning(event: ReturnType<typeof presentEvent>): boolean {
+  if (event.type === 'node.progress' && IGNORED_PROGRESS_TITLES.has(event.title)) {
+    return false
+  }
+  if (event.type === 'cli.display' && event.severity !== 'error') {
+    return false
+  }
+  return event.severity === 'warning'
+}
+
 export function classifyIterationProblem(detail: IterationDetail | null): ReadableError | null {
   if (!detail) return null
   const semanticError = [...detail.events].reverse().map(presentEvent).find((event) => event.severity === 'error')
@@ -85,7 +97,7 @@ export function classifyIterationProblem(detail: IterationDetail | null): Readab
       severity: 'error',
     }
   }
-  const warning = [...detail.events].reverse().map(presentEvent).find((event) => event.severity === 'warning')
+  const warning = [...detail.events].reverse().map(presentEvent).find(isActionableWarning)
   if (warning) {
     return {
       title: warning.title,

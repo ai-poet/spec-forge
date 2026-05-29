@@ -14,6 +14,18 @@ class Mode(str, Enum):
     real_cli = "real-cli"
 
 
+class CliProviderName(str, Enum):
+    claude = "claude"
+    codex = "codex"
+
+
+class CliBindings(BaseModel):
+    planner: CliProviderName = CliProviderName.claude
+    planner_clarification: CliProviderName = CliProviderName.claude
+    coder: CliProviderName = CliProviderName.claude
+    tester: CliProviderName = CliProviderName.claude
+
+
 class IterationStatus(str, Enum):
     created = "created"
     queued = "queued"
@@ -95,6 +107,7 @@ class UpdateProjectRequest(BaseModel):
     create_if_missing: Optional[bool] = False
     default_mode: Optional[Mode] = None
     default_test_command: Optional[str] = None
+    cli_bindings: Optional[CliBindings] = None
     max_coder_tester_retries: Optional[int] = Field(default=None, ge=0, le=20)
     max_clarifications: Optional[int] = Field(default=None, ge=0, le=20)
     max_verify_rejects: Optional[int] = Field(default=None, ge=0, le=20)
@@ -127,6 +140,7 @@ class ProjectSummary(BaseModel):
     description: Optional[str] = None
     default_mode: Mode = Mode.real_cli
     default_test_command: Optional[str] = None
+    cli_bindings: Optional[CliBindings] = None
     planner_model: Optional[str] = None
     coder_model: Optional[str] = None
     tester_model: Optional[str] = None

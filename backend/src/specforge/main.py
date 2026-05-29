@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnec
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from .cli_commands import parse_cli_bindings, serialize_cli_bindings
 from .cli_runner import DryRunRunner, RealCLIRunner
 from .config import settings
 from .db import Database
@@ -27,6 +28,8 @@ from .models import (
     RetryRequest,
     UpdateEpicRequest,
     UpdateProjectRequest,
+    CliBindings,
+    CliProviderName,
     ValidateProjectPathRequest,
     BrowseDirectoryResponse,
     PickFolderResponse,
@@ -183,6 +186,17 @@ def update_project(project_id: str, payload: UpdateProjectRequest) -> ProjectSum
         data["root_path"] = resolved_str
     if "default_mode" in data and data["default_mode"] is not None:
         data["default_mode"] = data["default_mode"].value
+    if "cli_bindings" in data:
+        bindings = data.pop("cli_bindings")
+        if bindings is None:
+            data["cli_bindings"] = None
+        else:
+            dumped = bindings.model_dump() if isinstance(bindings, CliBindings) else bindings
+            normalized = {
+                key: (value.value if hasattr(value, "value") else value)
+                for key, value in dumped.items()
+            }
+            data["cli_bindings"] = serialize_cli_bindings(normalized)
     db.update_project(project_id, **data)
     updated = db.get_project_row(project_id)
     assert updated is not None
@@ -484,6 +498,17 @@ def project_counts(project_id: str) -> dict[str, int]:
     return bucket
 
 
+def _cli_bindings_from_row(row) -> CliBindings | None:
+    if "cli_bindings" not in row.keys() or not row["cli_bindings"]:
+        return None
+    parsed = parse_cli_bindings(row["cli_bindings"])
+    if not parsed:
+        return None
+    defaults = CliBindings().model_dump()
+    defaults.update(parsed)
+    return CliBindings(**{key: CliProviderName(defaults[key]) for key in defaults})
+
+
 def project_summary(row, counts: dict[str, int] | None = None) -> ProjectSummary:
     bucket = counts or {"total": 0, "active": 0, "delivered": 0}
     return ProjectSummary(
@@ -493,6 +518,7 @@ def project_summary(row, counts: dict[str, int] | None = None) -> ProjectSummary
         description=row["description"],
         default_mode=row["default_mode"],
         default_test_command=row["default_test_command"],
+        cli_bindings=_cli_bindings_from_row(row),
         planner_model=row["planner_model"],
         coder_model=row["coder_model"],
         tester_model=row["tester_model"],
