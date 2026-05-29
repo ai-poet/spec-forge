@@ -681,9 +681,19 @@ class LangGraphPipeline:
             if ui_result.results:
                 artifact.ui_results.extend(ui_result.results)
                 artifact.ux_notes.extend(self._ui_observations(ui_result))
+            if ui_result.fallback == "playwright":
+                self._add_event(
+                    iteration_id,
+                    event_type="ui_driver.fallback",
+                    payload={"fallback": ui_result.fallback, "count": len(ui_result.results)},
+                )
             if ui_result.warning:
                 artifact.ui_warnings.append(ui_result.warning)
-                artifact.delivery_recommendations.append(f"UI Driver 未完整执行: {ui_result.warning}")
+                has_native_warning = any(
+                    result.status == "warning" and result.kind == "native" for result in ui_result.results
+                )
+                if has_native_warning or not ui_result.fallback:
+                    artifact.delivery_recommendations.append(f"部分 UI 未执行: {ui_result.warning}")
                 self._add_event(iteration_id, event_type="ui_driver.warning", payload={"warning": ui_result.warning})
             elif ui_result.results:
                 self._add_event(iteration_id, event_type="ui_driver.completed", payload={"count": len(ui_result.results)})
@@ -1106,17 +1116,37 @@ class LangGraphPipeline:
         self._node_event(iteration_id, "node.started", "ui_driver", "UI Driver 已启动", f"正在执行 {len(specs)} 条 UI trajectory。")
         self._add_event(iteration_id, event_type="ui_driver.started", payload={"count": len(specs)})
         result = self.ui_driver.run_specs(specs, docs.root)
-        if result.warning:
+        if result.fallback == "playwright":
             self._node_event(
                 iteration_id,
                 "node.progress",
                 "ui_driver",
-                "UI Driver 已降级",
+                "已切换 Playwright 执行 Web UI 测试",
+                result.warning or "CuaDriver 不可用，Web UI trajectory 已由 Playwright 执行。",
+                severity="info",
+                action_hint="原生 UI 仍需 CuaDriver；查看 UI 验证结果与截图 artifact。",
+            )
+        if result.warning and not result.fallback:
+            self._node_event(
+                iteration_id,
+                "node.progress",
+                "ui_driver",
+                "部分 UI 未执行",
                 result.warning,
                 severity="warning",
-                action_hint="Cua 不可用或权限不足，本轮不会因此阻断交付。",
+                action_hint="安装 CuaDriver 或 Playwright（pip install specforge[ui]）以执行全部 UI trajectory。",
             )
-        elif any(item.status == "failed" for item in result.results):
+        elif result.warning and any(item.kind == "native" and item.status == "warning" for item in result.results):
+            self._node_event(
+                iteration_id,
+                "node.progress",
+                "ui_driver",
+                "部分 UI 未执行",
+                result.warning,
+                severity="warning",
+                action_hint="原生 UI 需要 CuaDriver；Web UI 可能已由 Playwright 执行。",
+            )
+        if any(item.status == "failed" for item in result.results):
             self._node_event(
                 iteration_id,
                 "node.failed",
@@ -1126,7 +1156,7 @@ class LangGraphPipeline:
                 severity="error",
                 action_hint="查看 UI 验证结果和截图 artifact。",
             )
-        else:
+        elif not any(item.status == "warning" for item in result.results) or result.fallback:
             self._node_event(iteration_id, "node.completed", "ui_driver", "UI 验证完成", f"已完成 {len(result.results)} 条 UI trajectory。", severity="success")
         return result
 
@@ -1142,13 +1172,16 @@ class LangGraphPipeline:
 
     def _ui_observations(self, ui_result: UIDriverRunResult) -> list[str]:
         observations: list[str] = []
+        if ui_result.fallback == "playwright":
+            observations.append("Web UI 验证已由 Playwright 回退执行（CuaDriver 不可用）。")
         for result in ui_result.results:
+            driver = f" ({result.driver})" if result.driver else ""
             if result.status == "passed":
-                observations.append(f"UI 验证通过: {result.title or result.id}")
+                observations.append(f"UI 验证通过{driver}: {result.title or result.id}")
             elif result.status == "failed":
-                observations.append(f"UI 验证失败: {result.title or result.id}: {result.error}")
+                observations.append(f"UI 验证失败{driver}: {result.title or result.id}: {result.error}")
             elif result.status == "warning":
-                observations.append(f"UI 验证降级: {result.title or result.id}: {result.error}")
+                observations.append(f"UI 未执行{driver}: {result.title or result.id}: {result.error}")
         return observations
 
     def _coder_artifact(self, state: PipelineState, run_result: CLIResult) -> CoderArtifact:
@@ -1237,7 +1270,8 @@ class LangGraphPipeline:
         rows = []
         for result in artifact.ui_results:
             error = result.error or ""
-            rows.append(f"| {result.id} | {result.kind} | {result.target} | {result.status} | {error} |")
+            driver = result.driver or "-"
+            rows.append(f"| {result.id} | {result.kind} | {result.target} | {driver} | {result.status} | {error} |")
         warning_lines = "\n".join(f"- {warning}" for warning in artifact.ui_warnings) or "- 无"
         return (
             "---\n"
@@ -1250,12 +1284,12 @@ class LangGraphPipeline:
             f"- UI 测试数量: {total}\n"
             f"- 通过: {passed}\n"
             f"- 失败: {failed}\n"
-            f"- Warning: {warnings}\n\n"
+            f"- 未执行: {warnings}\n\n"
             "## 结果\n"
-            "| ID | 类型 | 目标 | 状态 | 错误 |\n"
-            "|---|---|---|---|---|\n"
-            f"{chr(10).join(rows) if rows else '| - | - | - | - | - |'}\n\n"
-            "## 降级信息\n"
+            "| ID | 类型 | 目标 | Driver | 状态 | 错误 |\n"
+            "|---|---|---|---|---|---|\n"
+            f"{chr(10).join(rows) if rows else '| - | - | - | - | - | - |'}\n\n"
+            "## 未执行 / 回退说明\n"
             f"{warning_lines}\n"
         )
 

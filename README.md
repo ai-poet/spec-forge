@@ -86,24 +86,63 @@ Project（项目）
 你可以把整个流程想成一条工厂流水线，上面有三个主要工人（Agent）和两个质检岗，最后有一个老板签字（你）。
 
 ```text
-  ┌─────────┐     ┌─────────┐     ┌──────────────┐     ┌─────────┐
-  │ Planner │ ──► │  Coder  │ ──► │integrity_check│ ──► │ Tester  │
-  │ (Claude)│     │ (Claude)│     │  (checksum)   │     │ (Codex) │
-  └─────────┘     └────┬────┘     └──────────────┘     └────┬────┘
-       ▲               │                                      │
-       │         planner_clarification                          │
-       │         (Planner 回答 Coder 的疑问)                    ▼
-       │               │                               ┌──────────────┐
-       └───────────────┘                               │planner_verify│
-                                                        │ (机械复核报告)│
-                                                        └──────┬───────┘
-                                                               ▼
-                                                    ┌──────────────────┐
-                                                    │ verify_approval  │ ◄── 你点「确认交付」
-                                                    │   (人工检查点)    │
-                                                    └────────┬─────────┘
-                                                             ▼
-                                                          delivered
+  START
+    │
+    ▼
+┌─────────┐  status = blocked / stopped
+│ Planner │ ──────────────────────────────────────────────► END
+│ (Claude)│
+└────┬────┘
+     │ 规划成功
+     ▼
+┌─────────┐  status = blocked / blocked_user / stopped
+│  Coder  │ ──────────────────────────────────────────────► END
+│ (Claude)│
+└────┬────┘
+     │
+     ├─ Coder 输出 clarification_request
+     │  (默认最多 3 次，超限 → blocked_user) ──► planner_clarification ──┐
+     │                                                                      │
+     │◄─────────────────────────────────────────────────────────────────────┘
+     │  回答完成，回到 Coder
+     │
+     │ 正常完成（无澄清请求）
+     ▼
+┌──────────────┐  受保护测试 checksum 不匹配
+│integrity_check│ ───────────────────────────────────────► END (blocked)
+└──────┬───────┘
+       │ 通过
+       ▼
+┌─────────┐  status = blocked / stopped
+│ Tester  │ ──────────────────────────────────────────────► END
+│ (Codex) │
+└────┬────┘
+     │
+     ├─ CLI 失败 / 测试未通过 / UI 断言失败
+     │  且 coder↔tester 重试次数 ≤ max（默认 5）
+     │  ──► 回到 Coder → integrity_check → Tester
+     │  超限 → END (blocked)
+     │
+     │ 验证通过
+     ▼
+┌──────────────┐  status = blocked / stopped
+│planner_verify│ ─────────────────────────────────────────► END
+│ (机械复核报告) │
+└──────┬───────┘
+       │
+       ├─ verify_report 格式不合格
+       │  且驳回次数 ≤ max（默认 2）
+       │  ──► 回到 Coder → integrity_check → Tester → planner_verify
+       │  超限 → END (blocked)
+       │
+       │ 复核通过
+       ▼
+┌──────────────────┐
+│ verify_approval  │ ◄── interrupt：你在前端点「确认交付」
+│   (人工检查点)    │
+└────────┬─────────┘
+         ▼
+      delivered → END
 ```
 
 ### 各步骤在干什么
@@ -179,7 +218,7 @@ Project（项目）
 | **Node 1 Planner** | Claude CLI | 读需求、写 spec、写 protected tests | `docs/system_design/iteration_NNN/` 下的规划和测试 |
 | **Node 2 Coder** | Claude CLI | 根据 spec 写代码 | `.specforge/iterations/{id}/src/**` |
 | **Node 3 Tester** | Codex CLI | 独立验证、写报告 | `verify_report.md`、`tests/adversarial/` |
-| **Node 4 UI Driver** | CuaDriver CLI | 跑 UI trajectory | 由 Tester 内部调用，不是独立图节点 |
+| **Node 4 UI Driver** | CuaDriver CLI（Web 可回退 Playwright） | 跑 UI trajectory | 由 Tester 内部调用，不是独立图节点 |
 
 反串谋设计：Planner 和 Tester 用不同模型；测试文件有 checksum 保护；Tester 可以额外写 adversarial 测试。
 
@@ -228,7 +267,11 @@ cd frontend && npm install && npm run dev:all
 
 CLI 使用 `bypassPermissions` / `--dangerously-bypass-approvals-and-sandbox` 跳过交互式权限确认。测试不可变主要靠后端 `integrity_check` 保障，而非 CLI 目录 deny。
 
-可选 UI 测试需要 `cua-driver`（CuaDriver）。
+可选 UI 测试优先使用 `cua-driver`（CuaDriver）；Cua 不可用时 Web UI 自动回退 Playwright：
+
+```bash
+pip install -e "backend/.[ui]" && playwright install chromium
+```
 
 ---
 
@@ -292,7 +335,7 @@ spec-forge/
 
 - 单用户本地原型，无登录和多租户
 - CLI 权限策略为 bypass 模式，隔离强度有限
-- CuaDriver 不可用时 UI 测试降级为 warning，不阻断交付
+- CuaDriver 不可用时 Web UI 由 Playwright 执行；仅 native UI 或未安装 Playwright 时记为未执行（warning）
 - 渐进式 checkpoint 策略（前 N 轮强制审批）尚未实现
 - 生产部署、成本监控、量化成功标准留待后续
 

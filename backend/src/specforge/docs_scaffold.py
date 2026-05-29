@@ -209,6 +209,7 @@ owner: user
 # ADR-003: Cua Driver for UI Verification
 
 UI tests are executed by Tester via CuaDriver, not as an independent LangGraph node.
+When Cua is unavailable, web trajectories fall back to Playwright; native trajectories remain skipped with warning.
 """,
         "ADR-004-model-family-split.md": """---
 doc: adr

@@ -6,9 +6,12 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
+from .config import settings
 from .contracts import UIArtifactLink, UIDriverRunResult, UITestResult, UITestSpec
+from .ui_driver_common import artifact_path, skipped_result, target_label
+from .ui_driver_playwright import NATIVE_UNAVAILABLE, PlaywrightUIDriverRunner
 
 
 class UIDriverTransport(Protocol):
@@ -59,39 +62,11 @@ class CuaCliTransport:
         return proc.returncode, proc.stdout, proc.stderr
 
 
-class UIDriverRunner:
+class CuaUIDriverRunner:
     def __init__(self, transport: UIDriverTransport | None = None) -> None:
         self.transport = transport or CuaCliTransport()
 
-    def run_specs(self, specs: list[UITestSpec], docs_root: Path) -> UIDriverRunResult:
-        if not specs:
-            return UIDriverRunResult(available=True, results=[])
-        availability = self._ensure_available()
-        if availability:
-            return UIDriverRunResult(
-                available=False,
-                warning=availability,
-                results=[self._skipped_result(spec, availability) for spec in specs],
-            )
-
-        results: list[UITestResult] = []
-        for spec in specs:
-            try:
-                results.append(self._run_spec(spec, docs_root))
-            except Exception as exc:
-                results.append(
-                    UITestResult(
-                        id=spec.id,
-                        title=spec.title,
-                        kind=spec.kind,
-                        status="failed",
-                        target=self._target_label(spec),
-                        error=str(exc),
-                    )
-                )
-        return UIDriverRunResult(available=True, results=results)
-
-    def _ensure_available(self) -> str | None:
+    def ensure_available(self) -> str | None:
         code, stdout, stderr = self.transport.run("status", timeout=5)
         if code:
             start_code, _, start_err = self.transport.start_daemon()
@@ -108,6 +83,25 @@ class UIDriverRunner:
         if '"accessibility": false' in text or '"screen_recording": false' in text:
             return "CuaDriver permissions missing: Accessibility or Screen Recording is false"
         return None
+
+    def run_specs(self, specs: list[UITestSpec], docs_root: Path) -> list[UITestResult]:
+        results: list[UITestResult] = []
+        for spec in specs:
+            try:
+                results.append(self._run_spec(spec, docs_root))
+            except Exception as exc:
+                results.append(
+                    UITestResult(
+                        id=spec.id,
+                        title=spec.title,
+                        kind=spec.kind,
+                        status="failed",
+                        target=target_label(spec),
+                        error=str(exc),
+                        driver="cua",
+                    )
+                )
+        return results
 
     def _run_spec(self, spec: UITestSpec, docs_root: Path) -> UITestResult:
         launch_payload = self._launch_payload(spec)
@@ -128,7 +122,7 @@ class UIDriverRunner:
         artifacts: list[UIArtifactLink] = []
         observations: list[str] = []
         state = self._snapshot(pid, window_id, recording_dir / "initial.png")
-        artifacts.append(UIArtifactLink(label="初始截图", path=self._artifact_path(docs_root, recording_dir / "initial.png")))
+        artifacts.append(UIArtifactLink(label="初始截图", path=artifact_path(docs_root, recording_dir / "initial.png")))
         tree = str(state.get("tree_markdown") or "")
 
         try:
@@ -145,7 +139,7 @@ class UIDriverRunner:
                         raise RuntimeError(f"click target not found: {expected}")
                     self._action("click", {"pid": pid, "window_id": window_id, "element_index": element_index})
                     state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
-                    artifacts.append(UIArtifactLink(label=f"步骤 {index} 截图", path=self._artifact_path(docs_root, recording_dir / f"step_{index:02d}.png")))
+                    artifacts.append(UIArtifactLink(label=f"步骤 {index} 截图", path=artifact_path(docs_root, recording_dir / f"step_{index:02d}.png")))
                     tree = str(state.get("tree_markdown") or "")
                 elif step.action == "type_text":
                     self._action("type_text", {"pid": pid, "window_id": window_id, "text": step.text or step.value or ""})
@@ -165,20 +159,21 @@ class UIDriverRunner:
                     tree = str(state.get("tree_markdown") or "")
                 elif step.action == "screenshot":
                     state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
-                    artifacts.append(UIArtifactLink(label=f"截图 {index}", path=self._artifact_path(docs_root, recording_dir / f"step_{index:02d}.png")))
+                    artifacts.append(UIArtifactLink(label=f"截图 {index}", path=artifact_path(docs_root, recording_dir / f"step_{index:02d}.png")))
                     tree = str(state.get("tree_markdown") or "")
         finally:
             self.transport.run("recording_stop", timeout=10)
 
-        artifacts.append(UIArtifactLink(label="轨迹目录", path=self._artifact_path(docs_root, recording_dir)))
+        artifacts.append(UIArtifactLink(label="轨迹目录", path=artifact_path(docs_root, recording_dir)))
         return UITestResult(
             id=spec.id,
             title=spec.title,
             kind=spec.kind,
             status="passed",
-            target=self._target_label(spec),
+            target=target_label(spec),
             observations=observations,
             artifacts=artifacts,
+            driver="cua",
         )
 
     def _snapshot(self, pid: int, window_id: int, screenshot_path: Path) -> dict:
@@ -208,21 +203,6 @@ class UIDriverRunner:
             return {"name": spec.target.app_name}
         raise ValueError("native UI test requires target.bundle_id or target.app_name")
 
-    def _target_label(self, spec: UITestSpec) -> str:
-        if spec.kind == "web":
-            return spec.target.url or ""
-        return spec.target.bundle_id or spec.target.app_name or ""
-
-    def _skipped_result(self, spec: UITestSpec, warning: str) -> UITestResult:
-        return UITestResult(
-            id=spec.id,
-            title=spec.title,
-            kind=spec.kind,
-            status="warning",
-            target=self._target_label(spec),
-            error=warning,
-        )
-
     def _find_element_index(self, tree: str, text: str) -> int | None:
         if not text:
             return None
@@ -232,12 +212,6 @@ class UIDriverRunner:
                 if match:
                     return int(match.group(1))
         return None
-
-    def _artifact_path(self, docs_root: Path, path: Path) -> str:
-        try:
-            return path.relative_to(docs_root).as_posix()
-        except ValueError:
-            return path.name
 
     def _json(self, stdout: str) -> dict:
         text = stdout.strip()
@@ -252,3 +226,86 @@ class UIDriverRunner:
                 raise
             payload = json.loads(text[start : end + 1])
         return payload if isinstance(payload, dict) else {}
+
+
+class UIDriverRunner:
+    def __init__(
+        self,
+        transport: UIDriverTransport | None = None,
+        *,
+        cua_runner: CuaUIDriverRunner | None = None,
+        playwright_runner: PlaywrightUIDriverRunner | None = None,
+    ) -> None:
+        self._cua = cua_runner or CuaUIDriverRunner(transport)
+        self._playwright = playwright_runner or PlaywrightUIDriverRunner()
+        self._force = settings.ui_driver_force.lower()
+
+    def run_specs(self, specs: list[UITestSpec], docs_root: Path) -> UIDriverRunResult:
+        if not specs:
+            return UIDriverRunResult(available=True, results=[])
+
+        if self._force == "playwright":
+            return self._run_playwright_only(specs, docs_root)
+        if self._force == "cua":
+            return self._run_cua_only(specs, docs_root)
+
+        cua_error = self._cua.ensure_available()
+        if cua_error is None:
+            return UIDriverRunResult(available=True, results=self._cua.run_specs(specs, docs_root))
+
+        return self._run_with_playwright_fallback(specs, docs_root, cua_error)
+
+    def _run_cua_only(self, specs: list[UITestSpec], docs_root: Path) -> UIDriverRunResult:
+        cua_error = self._cua.ensure_available()
+        if cua_error:
+            return UIDriverRunResult(
+                available=False,
+                warning=cua_error,
+                results=[skipped_result(spec, cua_error, driver="cua") for spec in specs],
+            )
+        return UIDriverRunResult(available=True, results=self._cua.run_specs(specs, docs_root))
+
+    def _run_playwright_only(self, specs: list[UITestSpec], docs_root: Path) -> UIDriverRunResult:
+        web_specs = [spec for spec in specs if spec.kind == "web"]
+        native_specs = [spec for spec in specs if spec.kind == "native"]
+        results = self._playwright.run_specs(web_specs, docs_root) if web_specs else []
+        results.extend(skipped_result(spec, NATIVE_UNAVAILABLE, driver="playwright") for spec in native_specs)
+        warning = self._build_warning(results, self._playwright.ensure_available())
+        fallback: Literal["playwright"] | None = "playwright" if web_specs else None
+        return UIDriverRunResult(
+            available=not warning or any(result.status == "passed" for result in results),
+            warning=warning,
+            fallback=fallback,
+            results=results,
+        )
+
+    def _run_with_playwright_fallback(self, specs: list[UITestSpec], docs_root: Path, cua_error: str) -> UIDriverRunResult:
+        web_specs = [spec for spec in specs if spec.kind == "web"]
+        native_specs = [spec for spec in specs if spec.kind == "native"]
+        results: list[UITestResult] = []
+        fallback: Literal["playwright"] | None = None
+
+        if web_specs:
+            pw_error = self._playwright.ensure_available()
+            if pw_error:
+                results.extend(skipped_result(spec, f"{cua_error}; {pw_error}", driver="playwright") for spec in web_specs)
+            else:
+                fallback = "playwright"
+                results.extend(self._playwright.run_specs(web_specs, docs_root))
+
+        results.extend(skipped_result(spec, NATIVE_UNAVAILABLE, driver="cua") for spec in native_specs)
+        warning = self._build_warning(results, cua_error if native_specs else None)
+        if web_specs and fallback is None:
+            pw_error = self._playwright.ensure_available()
+            warning = self._build_warning(results, f"{cua_error}; {pw_error or 'Playwright unavailable'}")
+
+        available = any(result.status in {"passed", "failed"} for result in results)
+        return UIDriverRunResult(available=available, warning=warning, fallback=fallback, results=results)
+
+    def _build_warning(self, results: list[UITestResult], extra: str | None) -> str | None:
+        warnings = [result.error for result in results if result.status == "warning" and result.error]
+        if extra:
+            warnings.insert(0, extra)
+        if not warnings:
+            return None
+        return "; ".join(dict.fromkeys(warnings))

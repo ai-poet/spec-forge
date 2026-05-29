@@ -65,6 +65,7 @@ class UITestResult(BaseModel):
     kind: Literal["web", "native"]
     status: Literal["passed", "failed", "skipped", "warning"]
     target: str = ""
+    driver: Optional[Literal["cua", "playwright"]] = None
     error: Optional[str] = None
     observations: list[str] = Field(default_factory=list)
     artifacts: list[UIArtifactLink] = Field(default_factory=list)
@@ -73,6 +74,7 @@ class UITestResult(BaseModel):
 class UIDriverRunResult(BaseModel):
     available: bool
     warning: Optional[str] = None
+    fallback: Optional[Literal["playwright"]] = None
     results: list[UITestResult] = Field(default_factory=list)
 
 

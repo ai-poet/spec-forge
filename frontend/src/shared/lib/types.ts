@@ -164,6 +164,7 @@ export interface UITestResult {
   kind: 'web' | 'native'
   status: UITestStatus
   target: string
+  driver?: 'cua' | 'playwright' | null
   error: string | null
   observations: string[]
   artifacts: UIArtifactLink[]

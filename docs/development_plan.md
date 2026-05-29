@@ -38,7 +38,7 @@ supersedes: docs/development_plan.md@0.4.0
 25. Tester artifact 扩展为验证报告、用户体验观察和交付建议。
 26. 前端主要用户可见文案改为中文，并保留必要的运行模式原值。
 27. 接入 Cua UI Driver：Tester 扫描 `docs/tests/ui/*.json`，通过 `cua-driver` CLI 执行 Web / Native UI trajectory。
-28. Cua 不可用或权限不足时降级为 `ui_driver.warning`，不阻断交付；UI assertion 失败时进入现有 Coder/Tester retry。
+28. Cua 不可用时 Web UI 由 Playwright 回退执行（`ui_driver.fallback`）；native UI 或未安装 Playwright 时记为 `ui_driver.warning`；UI assertion 失败时进入现有 Coder/Tester retry。
 29. 新增 `ui_results.json`、`ui_report.md`、UI artifact 只读 API 和前端 UI 验证面板。
 30. 调整测试完整性：`tests/ui/recordings/**` 不纳入 protected checksum baseline。
 

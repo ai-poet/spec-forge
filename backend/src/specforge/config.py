@@ -16,6 +16,8 @@ class Settings:
     data_dir: Path = Path(os.getenv("SPECFORGE_DATA_DIR", REPO_ROOT / ".specforge"))
     mode: str = os.getenv("SPECFORGE_MODE", "real-cli")
     backend_cors_origin: str = os.getenv("SPECFORGE_CORS_ORIGIN", "http://127.0.0.1:5178")
+    ui_driver_force: str = os.getenv("SPECFORGE_UI_DRIVER_FORCE", "auto")
+    playwright_browser: str = os.getenv("SPECFORGE_PLAYWRIGHT_BROWSER", "chromium")
 
     @property
     def db_path(self) -> Path:

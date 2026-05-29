@@ -77,7 +77,8 @@ export function eventLabel(value: string) {
     'tester.failed_retry': '验证失败，准备重试',
     'ui_driver.started': 'UI Driver 已开始',
     'ui_driver.completed': 'UI Driver 已完成',
-    'ui_driver.warning': 'UI Driver 降级执行',
+    'ui_driver.fallback': 'Playwright 回退执行',
+    'ui_driver.warning': '部分 UI 未执行',
     'ui_driver.failed': 'UI Driver 验证失败',
     'planner_verify.accepted': '规格复核通过',
     'planner_verify.rejected': '规格复核驳回',
@@ -116,7 +117,15 @@ export function uiStatusLabel(value: string) {
     passed: '通过',
     failed: '失败',
     skipped: '跳过',
-    warning: '降级',
+    warning: '未执行',
   }
   return labels[value] ?? value
+}
+
+export function uiDriverLabel(value: string | null | undefined) {
+  const labels: Record<string, string> = {
+    cua: 'CuaDriver',
+    playwright: 'Playwright',
+  }
+  return value ? labels[value] ?? value : ''
 }

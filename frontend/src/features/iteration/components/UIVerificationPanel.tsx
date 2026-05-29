@@ -1,5 +1,5 @@
 import { artifactUrl } from '../../../shared/lib/api'
-import { uiStatusLabel } from '../../../shared/lib/labels'
+import { uiDriverLabel, uiStatusLabel } from '../../../shared/lib/labels'
 import type { IterationDetail, UITestResult } from '../../../shared/lib/types'
 
 interface Props {
@@ -26,7 +26,7 @@ export function UIVerificationPanel({ detail }: Props) {
           <span className="pill">总数: {results.length}</span>
           <span className="pill good">通过: {count(results, 'passed')}</span>
           <span className={`pill ${failed ? 'danger-pill' : ''}`}>失败: {failed}</span>
-          <span className={`pill ${warnings.length ? 'warning-pill' : ''}`}>降级: {warnings.length}</span>
+          <span className={`pill ${warnings.length ? 'warning-pill' : ''}`}>未执行: {warnings.length}</span>
         </div>
       </div>
 
@@ -37,7 +37,10 @@ export function UIVerificationPanel({ detail }: Props) {
             <div className="section-row">
               <div>
                 <strong>{result.title || result.id}</strong>
-                <div className="muted">{result.kind === 'web' ? 'Web 应用' : '原生应用'} · {result.target || '未声明目标'}</div>
+                <div className="muted">
+                  {result.kind === 'web' ? 'Web 应用' : '原生应用'} · {result.target || '未声明目标'}
+                  {result.driver ? ` · ${uiDriverLabel(result.driver)}` : ''}
+                </div>
               </div>
               <span className={`status-dot ${result.status}`}>{uiStatusLabel(result.status)}</span>
             </div>

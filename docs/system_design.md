@@ -92,11 +92,12 @@ Tester 失败会回到 Coder，受 `max_coder_tester_retries` 限制。Coder 可
 
 v0.6 将 Node 4 落地为 Tester 内部调用的 Cua UI Driver 工具层，而不是独立 LangGraph 节点。
 
-- 接入方式：默认 `cua-driver` CLI，后续可扩展 MCP transport。
-- 调用原则：遵守 `launch_app -> get_window_state -> action -> get_window_state`，不使用会抢前台的 app 驱动命令。
-- 覆盖目标：Web 应用和 macOS 原生应用。
-- 降级策略：Cua daemon 不可用或权限不足时写入 `ui_driver.warning`，不阻断交付。
-- 失败策略：Cua 可用但 UI assertion 失败时，Tester artifact 标记失败，进入 Coder/Tester retry。
+- 接入方式：默认 `cua-driver` CLI；Cua 不可用时 Web UI 回退 Python Playwright（`pip install specforge[ui]`）。
+- 调用原则：Cua 路径遵守 `launch_app -> get_window_state -> action -> get_window_state`；Playwright 路径直接打开 `target.url` 执行 trajectory。
+- 覆盖目标：Web 应用（Cua 或 Playwright）和 macOS 原生应用（仅 Cua）。
+- 回退策略：Cua 不可用时 Web spec 由 Playwright 真实执行，发 `ui_driver.fallback`；native spec 记为 `warning`（未执行）。
+- 双后端不可用：Web spec 也记为 `warning`，写入 `ui_driver.warning`。
+- 失败策略：UI assertion 失败时，Tester artifact 标记失败，进入 Coder/Tester retry（与 transport 无关）。
 
 Planner 可写入 `docs/tests/ui/*.json`，每个文件是一个 UI trajectory：
 
