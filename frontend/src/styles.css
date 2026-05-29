@@ -1865,13 +1865,18 @@ button.artifact-chip:disabled {
   border: 1px solid #202838;
   border-radius: 8px;
   background: #090f19;
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
   overflow: hidden;
   min-height: 0;
 }
 
 .cli-log-row {
-  border-bottom: 1px solid #1a2434;
+  border: 1px solid #1a2434;
+  border-radius: 8px;
+  background: #0d1422;
   display: grid;
   grid-template-columns: 104px minmax(0, 1fr);
   gap: 12px;
@@ -1881,7 +1886,7 @@ button.artifact-chip:disabled {
 }
 
 .cli-log-row.is-new {
-  animation: cli-log-row-enter 280ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: cli-log-row-enter 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .cli-log-row.is-new::after {
@@ -1892,11 +1897,11 @@ button.artifact-chip:disabled {
   pointer-events: none;
   background: #75d0b3;
   box-shadow: 0 0 18px rgba(117, 208, 179, 0.45);
-  animation: cli-log-row-flash 820ms ease-out both;
+  animation: cli-log-row-flash 1100ms ease-out both;
 }
 
 .cli-log-row:last-child {
-  border-bottom: 0;
+  border-bottom: 1px solid #1a2434;
 }
 
 .cli-log-row.command {
@@ -1954,11 +1959,11 @@ button.artifact-chip:disabled {
 @keyframes cli-log-row-enter {
   from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(-10px) scale(0.985);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 

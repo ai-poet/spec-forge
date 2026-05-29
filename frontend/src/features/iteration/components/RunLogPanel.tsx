@@ -54,6 +54,7 @@ function cliLogMessage(event: SemanticEvent): string {
 export function RunLogPanel({ detail, stepKey = null }: Props) {
   const initializedRef = useRef(false)
   const previousEventIdsRef = useRef<Set<string>>(new Set())
+  const timersRef = useRef<Map<string, number>>(new Map())
   const [animatedEventIds, setAnimatedEventIds] = useState<Set<string>>(new Set())
   const nodes = stepKey ? new Set(nodesForStep(stepKey)) : null
   const cliActive = isCliActive(detail, stepKey)
@@ -81,10 +82,31 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
     previousEventIdsRef.current = nextIds
     if (!newIds.length) return
 
-    setAnimatedEventIds(new Set(newIds))
-    const timer = window.setTimeout(() => setAnimatedEventIds(new Set()), 900)
-    return () => window.clearTimeout(timer)
+    setAnimatedEventIds((prev) => {
+      const next = new Set(prev)
+      newIds.forEach((id) => next.add(id))
+      return next
+    })
+    newIds.forEach((id) => {
+      const previousTimer = timersRef.current.get(id)
+      if (previousTimer) window.clearTimeout(previousTimer)
+      const timer = window.setTimeout(() => {
+        setAnimatedEventIds((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        timersRef.current.delete(id)
+      }, 1100)
+      timersRef.current.set(id, timer)
+    })
   }, [cliDisplayKey])
+
+  useEffect(() => () => {
+    timersRef.current.forEach((timer) => window.clearTimeout(timer))
+    timersRef.current.clear()
+  }, [])
 
   return (
     <section className="panel stack">
