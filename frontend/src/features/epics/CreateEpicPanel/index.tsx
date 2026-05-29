@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { parseEpicDraft } from '../lib/parseEpicDraft'
+import compose from '../../../shared/ui/compose.module.less'
 
 interface Props {
   disabled: boolean
@@ -30,16 +31,16 @@ export function CreateEpicPanel({ disabled, onCreate }: Props) {
   }
 
   return (
-    <section className="workspace-stage-card compose-card stack">
+    <section className={`workspace-stage-card ${compose.card} stack`}>
       <h2 className="section-title">新建大需求</h2>
       <textarea
-        className="compose-textarea"
+        className={compose.textarea}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         placeholder={PLACEHOLDER}
         disabled={disabled || busy}
       />
-      <div className="compose-actions">
+      <div className={compose.actions}>
         <button className="btn primary" onClick={handleCreate} disabled={busy || disabled || !parsed}>
           创建大需求
         </button>

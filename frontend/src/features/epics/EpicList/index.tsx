@@ -1,5 +1,6 @@
 import type { EpicSummary } from '../../../shared/lib/types'
 import { epicStatusLabel } from '../../../shared/lib/labels'
+import styles from './EpicList.module.less'
 
 interface Props {
   epics: EpicSummary[]
@@ -12,14 +13,14 @@ export function EpicList({ epics, selectedEpicId, onSelectEpic, compact = false 
   if (!epics.length) return null
 
   return (
-    <section className={compact ? 'compact-list stack' : 'panel stack'}>
+    <section className={compact ? `${styles.compactList} stack` : 'panel stack'}>
       <div className="section-row">
         <h2 className="section-title">已有大需求</h2>
         <span className="pill">{epics.length}</span>
       </div>
-      <div className={`list epic-list ${compact ? 'compact' : ''}`}>
+      <div className={`list ${styles.list} ${compact ? 'compact' : ''}`}>
         {epics.map((epic) => (
-          <button key={epic.id} className={`item epic-item ${selectedEpicId === epic.id ? 'active' : ''}`} onClick={() => onSelectEpic(epic.id)}>
+          <button key={epic.id} className={`item ${selectedEpicId === epic.id ? 'active' : ''}`} onClick={() => onSelectEpic(epic.id)}>
             <div className="item-head">
               <strong>{epic.title}</strong>
               <span className={`status-dot ${epic.status}`}>{epicStatusLabel[epic.status]}</span>

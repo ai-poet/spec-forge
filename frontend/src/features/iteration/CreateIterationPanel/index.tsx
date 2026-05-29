@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Mode } from '../../../shared/lib/types'
+import compose from '../../../shared/ui/compose.module.less'
 
 interface Props {
   disabled: boolean
@@ -24,10 +25,10 @@ export function CreateIterationPanel({ disabled, goalPlaceholder, onCreate }: Pr
   }
 
   return (
-    <section className="workspace-stage-card compose-card stack">
+    <section className={`workspace-stage-card ${compose.card} stack`}>
       <h2 className="section-title">新建流水线</h2>
       <textarea
-        className="compose-textarea"
+        className={compose.textarea}
         value={goal}
         onChange={(event) => setGoal(event.target.value)}
         placeholder={goalPlaceholder || '描述本次迭代的业务目标或系统改动'}
@@ -38,7 +39,7 @@ export function CreateIterationPanel({ disabled, goalPlaceholder, onCreate }: Pr
         <option value="dry-run">演示模式 dry-run</option>
         <option value="real-cli">真实 CLI 模式</option>
       </select>
-      <div className="compose-actions">
+      <div className={compose.actions}>
         <button className="btn primary" onClick={handleCreate} disabled={busy || disabled || !goal.trim()}>
           创建流水线
         </button>

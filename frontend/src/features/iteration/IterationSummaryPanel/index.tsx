@@ -1,9 +1,16 @@
 import { eventLabel, graphNodeLabel, iterationStatusLabel, nodeLabel, retryLabel } from '../../../shared/lib/labels'
 import type { IterationDetail } from '../../../shared/lib/types'
 import { documentSummary, presentEvent } from '../../../shared/lib/presentation'
+import styles from './IterationSummaryPanel.module.less'
 
 interface Props {
   detail: IterationDetail | null
+}
+
+const NARRATIVE_CLASS: Record<string, string | undefined> = {
+  success: styles.narrativeSuccess,
+  warning: styles.narrativeWarning,
+  error: styles.narrativeError,
 }
 
 function eventMatches(detail: IterationDetail | null, token: string) {
@@ -35,7 +42,7 @@ export function IterationSummaryPanel({ detail }: Props) {
       {!detail ? <div className="empty">请选择迭代</div> : null}
       {detail ? (
         <>
-          <div className="summary-grid">
+          <div className={styles.summaryGrid}>
             <span>状态: {iterationStatusLabel[detail.status]}</span>
             <span>模式: {detail.mode}</span>
             <span>节点: {currentNode}</span>
@@ -43,25 +50,33 @@ export function IterationSummaryPanel({ detail }: Props) {
             <span>产物: {detail.documents.length} 份</span>
           </div>
           {latest ? (
-            <div className={`status-narrative ${latest.severity}`}>
+            <div className={`${styles.narrative} ${NARRATIVE_CLASS[latest.severity] ?? ''}`}>
               <strong>{latest.title}</strong>
               <span>{latest.message}</span>
             </div>
           ) : null}
           {Object.keys(detail.retry_counts).length ? (
-            <div className="retry-row">
+            <div className={styles.retryRow}>
               {Object.entries(detail.retry_counts).map(([key, value]) => (
                 <span className="pill" key={key}>{retryLabel(key)}: {value}</span>
               ))}
             </div>
           ) : null}
-          {error ? <div className="error-banner"><strong>{error.title}</strong><p>{error.message}</p>{error.action_hint ? <small>{error.action_hint}</small> : null}</div> : null}
-          <div className="artifact-summary">
+          {error ? (
+            <div className={styles.errorBanner}>
+              <strong>{error.title}</strong>
+              <p>{error.message}</p>
+              {error.action_hint ? <small>{error.action_hint}</small> : null}
+            </div>
+          ) : null}
+          <div className={styles.artifactSummary}>
             {docs.map((doc) => (
-              <span key={doc.name} className={`artifact-chip ${doc.present ? 'present' : ''}`}>{doc.present ? '✓' : '·'} {doc.label}</span>
+              <span key={doc.name} className={`${styles.artifactChip} ${doc.present ? styles.chipPresent : ''}`}>
+                {doc.present ? '✓' : '·'} {doc.label}
+              </span>
             ))}
           </div>
-          <div className="summary-columns">
+          <div className={styles.columns}>
             <div>
               <strong>变更路径</strong>
               <ul>
@@ -84,7 +99,7 @@ export function IterationSummaryPanel({ detail }: Props) {
             </div>
           </div>
           {uxNotes.length || recommendations.length ? (
-            <div className="summary-columns">
+            <div className={styles.columns}>
               <div>
                 <strong>用户体验观察</strong>
                 <ul>

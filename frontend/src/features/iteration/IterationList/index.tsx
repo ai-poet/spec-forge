@@ -1,5 +1,6 @@
 import type { IterationSummary } from '../../../shared/lib/types'
 import { iterationStatusLabel } from '../../../shared/lib/labels'
+import styles from './IterationList.module.less'
 
 interface Props {
   iterations: IterationSummary[]
@@ -12,12 +13,12 @@ export function IterationList({ iterations, selectedIterationId, onSelectIterati
   if (!iterations.length) return null
 
   return (
-    <section className={compact ? 'compact-list stack' : 'panel stack'}>
+    <section className={compact ? `${styles.compactList} stack` : 'panel stack'}>
       <div className="section-row">
         <h2 className="section-title">已有流水线</h2>
         <span className="pill">{iterations.length}</span>
       </div>
-      <div className={`list iteration-list ${compact ? 'compact' : ''}`}>
+      <div className={`list ${styles.list} ${compact ? 'compact' : ''}`}>
         {iterations.map((item) => (
           <button
             key={item.id}

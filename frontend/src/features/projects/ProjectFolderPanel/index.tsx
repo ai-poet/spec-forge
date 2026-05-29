@@ -3,6 +3,8 @@ import { validateProjectPath } from '../../../shared/lib/api'
 import type { ProjectSummary } from '../../../shared/lib/types'
 import { FolderPicker } from '../FolderPicker'
 import { formatProjectPath } from '../lib/formatPath'
+import compose from '../../../shared/ui/compose.module.less'
+import styles from './ProjectFolderPanel.module.less'
 
 interface Props {
   project: ProjectSummary | null
@@ -58,16 +60,16 @@ export function ProjectFolderPanel({ project, busy, onBind }: Props) {
   const currentPath = project?.root_path ?? null
 
   return (
-    <section className="surface stack project-folder-panel">
+    <section className={`surface stack ${styles.root}`}>
       <div>
         <h2 className="section-title">绑定目录</h2>
         <p className="muted">项目必须绑定本地文件夹，流水线产物写入 `.specforge/iterations/`。</p>
       </div>
 
       {currentPath ? (
-        <div className="project-folder-current">
+        <div className={styles.current}>
           <span className="eyebrow">当前目录</span>
-          <code className="project-folder-path" title={currentPath}>
+          <code className={styles.path} title={currentPath}>
             {formatProjectPath(currentPath)}
           </code>
         </div>
@@ -77,7 +79,7 @@ export function ProjectFolderPanel({ project, busy, onBind }: Props) {
 
       <FolderPicker selectedPath={selectedPath} onSelectPath={setSelectedPath} />
 
-      <label className="folder-mode-option">
+      <label className={styles.modeOption}>
         <input
           type="checkbox"
           checked={createIfMissing}
@@ -95,7 +97,7 @@ export function ProjectFolderPanel({ project, busy, onBind }: Props) {
         <p className={validationOk ? 'ok-text' : 'error-text'}>{validationMessage}</p>
       ) : null}
 
-      <div className="compose-actions">
+      <div className={compose.actions}>
         <button type="button" className="btn btn-ghost btn-sm" onClick={handleValidate} disabled={isBusy || !selectedPath}>
           校验路径
         </button>

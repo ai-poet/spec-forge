@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { validateProjectPath } from '../../../shared/lib/api'
 import type { CreateProjectInput } from '../../../shared/lib/types'
 import { FolderPicker } from '../FolderPicker'
+import styles from './CreateProjectDialog.module.less'
 
 type FolderMode = 'open' | 'create'
 
@@ -95,15 +96,15 @@ export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
   }
 
   return (
-    <section className={`create-project-dialog stack ${embedded ? 'embedded' : 'surface'}`}>
+    <section className={`${styles.root} stack ${embedded ? styles.embedded : 'surface'}`}>
       {!embedded ? <h2 className="section-title">打开 / 新建项目</h2> : null}
 
-      <div className="folder-mode-toggle">
-        <label className="folder-mode-option">
+      <div className={styles.modeToggle}>
+        <label className={styles.modeOption}>
           <input type="radio" name="folder-mode" checked={mode === 'open'} onChange={() => handleModeChange('open')} />
           打开已有文件夹
         </label>
-        <label className="folder-mode-option">
+        <label className={styles.modeOption}>
           <input type="radio" name="folder-mode" checked={mode === 'create'} onChange={() => handleModeChange('create')} />
           在此目录下新建项目文件夹
         </label>
@@ -112,7 +113,7 @@ export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
       <FolderPicker selectedPath={selectedPath} onSelectPath={handleSelectPath} />
 
       {mode === 'create' ? (
-        <label className="folder-name-field">
+        <label className={styles.nameField}>
           <span>新建文件夹名称</span>
           <input
             value={folderName}
@@ -129,7 +130,7 @@ export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
         </label>
       ) : null}
 
-      <label className="folder-name-field">
+      <label className={styles.nameField}>
         <span>项目显示名称（可选）</span>
         <input
           value={name}
@@ -148,7 +149,7 @@ export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
         </p>
       )}
 
-      <div className="actions">
+      <div className={`actions ${styles.actions}`}>
         <button type="button" className="btn btn-ghost" onClick={handleValidate} disabled={busy || !targetPath}>
           校验路径
         </button>

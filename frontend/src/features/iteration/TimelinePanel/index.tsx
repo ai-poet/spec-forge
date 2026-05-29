@@ -1,11 +1,20 @@
 import type { IterationDetail, TimelineFilter } from '../../../shared/lib/types'
 import { timelineFilterLabel } from '../../../shared/lib/labels'
 import { cliPhaseLabel, cliProviderLabel, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
+import styles from './TimelinePanel.module.less'
 
 interface Props {
   detail: IterationDetail | null
   filter?: TimelineFilter
   onFilterChange?: (filter: TimelineFilter) => void
+}
+
+const EVENT_SEVERITY_CLASS: Record<string, string | undefined> = {
+  danger: styles.eventDanger,
+  info: styles.eventInfo,
+  success: styles.eventSuccess,
+  warning: styles.eventWarning,
+  error: styles.eventError,
 }
 
 function matchesFilter(type: string, filter: TimelineFilter) {
@@ -33,9 +42,9 @@ export function TimelinePanel({ detail, filter = 'all', onFilterChange }: Props)
           </select>
         ) : null}
       </div>
-      <div className="timeline">
+      <div className={styles.timeline}>
         {events.map((event) => (
-          <div key={event.id} className={`item event-item ${event.severity}`}>
+          <div key={event.id} className={`item ${styles.eventItem} ${EVENT_SEVERITY_CLASS[event.severity] ?? ''}`}>
             <div className="item-head">
               <strong>{event.title}</strong>
               <span className={`status-dot ${event.severity}`}>
@@ -44,11 +53,11 @@ export function TimelinePanel({ detail, filter = 'all', onFilterChange }: Props)
             </div>
             <div className="muted">{event.message}</div>
             {event.command ? <code className="inline-code">{event.command}</code> : null}
-            {event.paths?.length ? <div className="event-hint">{event.paths.join(', ')}</div> : null}
-            {event.action_hint ? <div className="event-hint">{event.action_hint}</div> : null}
-            <details className="event-details">
+            {event.paths?.length ? <div className={styles.eventHint}>{event.paths.join(', ')}</div> : null}
+            {event.action_hint ? <div className={styles.eventHint}>{event.action_hint}</div> : null}
+            <details className={styles.eventDetails}>
               <summary>查看详情</summary>
-              <pre className="event-json">{JSON.stringify(event.raw.payload, null, 2)}</pre>
+              <pre className={styles.eventJson}>{JSON.stringify(event.raw.payload, null, 2)}</pre>
             </details>
           </div>
         ))}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { browseProjectDirectory, pickProjectFolder } from '../../../shared/lib/api'
 import type { BrowseDirectoryResult } from '../../../shared/lib/types'
 import { formatProjectPath } from '../lib/formatPath'
+import styles from './FolderPicker.module.less'
 
 interface Props {
   selectedPath: string | null
@@ -56,15 +57,15 @@ export function FolderPicker({ selectedPath, onSelectPath }: Props) {
   }
 
   return (
-    <div className="folder-picker">
-      <div className="folder-picker-native-row">
+    <div className={styles.root}>
+      <div className={styles.nativeRow}>
         <button type="button" className="btn btn-accent btn-sm" onClick={handleNativePick} disabled={loading}>
           选择文件夹…
         </button>
-        <span className="muted folder-picker-native-hint">打开系统文件夹选择窗口</span>
+        <span className={`muted ${styles.nativeHint}`}>打开系统文件夹选择窗口</span>
       </div>
 
-      <div className="folder-picker-toolbar">
+      <div className={styles.toolbar}>
         <button
           type="button"
           className="btn btn-ghost btn-sm"
@@ -73,18 +74,18 @@ export function FolderPicker({ selectedPath, onSelectPath }: Props) {
         >
           上一级
         </button>
-        <div className="folder-picker-path" title={browse?.path ?? ''}>
+        <div className={styles.path} title={browse?.path ?? ''}>
           {browse ? formatProjectPath(browse.path) : '加载中…'}
         </div>
       </div>
 
       {browse?.quick_roots.length ? (
-        <div className="folder-picker-quick">
+        <div className={styles.quick}>
           {browse.quick_roots.map((root) => (
             <button
               key={root.path}
               type="button"
-              className="folder-quick-btn"
+              className={styles.quickBtn}
               onClick={() => handleEnter(root.path)}
               disabled={loading}
             >
@@ -94,40 +95,40 @@ export function FolderPicker({ selectedPath, onSelectPath }: Props) {
         </div>
       ) : null}
 
-      <div className="folder-picker-list">
-        {loading ? <div className="folder-picker-empty">正在读取目录…</div> : null}
-        {error ? <div className="folder-picker-empty error-text">{error}</div> : null}
+      <div className={styles.list}>
+        {loading ? <div className={styles.empty}>正在读取目录…</div> : null}
+        {error ? <div className={`${styles.empty} error-text`}>{error}</div> : null}
         {!loading && !error && browse ? (
           <button
             type="button"
-            className={`folder-picker-row current ${selectedPath === browse.path ? 'selected' : ''}`}
+            className={`${styles.row} ${styles.rowCurrent} ${selectedPath === browse.path ? styles.rowSelected : ''}`}
             onClick={handleSelectCurrent}
           >
-            <span className="folder-picker-icon">📂</span>
-            <span className="folder-picker-name">当前目录</span>
+            <span className={styles.icon}>📂</span>
+            <span className={styles.name}>当前目录</span>
           </button>
         ) : null}
         {!loading && !error && browse?.entries.length === 0 ? (
-          <div className="folder-picker-empty muted">此目录下没有子文件夹</div>
+          <div className={`${styles.empty} muted`}>此目录下没有子文件夹</div>
         ) : null}
         {!loading && !error
           ? browse?.entries.map((entry) => (
               <button
                 key={entry.path}
                 type="button"
-                className={`folder-picker-row ${selectedPath === entry.path ? 'selected' : ''}`}
+                className={`${styles.row} ${selectedPath === entry.path ? styles.rowSelected : ''}`}
                 onClick={() => onSelectPath(entry.path)}
                 onDoubleClick={() => handleEnter(entry.path)}
               >
-                <span className="folder-picker-icon">📁</span>
-                <span className="folder-picker-name">{entry.name}</span>
+                <span className={styles.icon}>📁</span>
+                <span className={styles.name}>{entry.name}</span>
               </button>
             ))
           : null}
       </div>
 
       {selectedPath ? (
-        <p className="folder-picker-selected">
+        <p className={styles.selected}>
           已选择：<span title={selectedPath}>{formatProjectPath(selectedPath)}</span>
         </p>
       ) : null}

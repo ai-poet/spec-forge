@@ -1,9 +1,16 @@
 import { artifactUrl } from '../../../shared/lib/api'
 import { uiDriverLabel, uiStatusLabel } from '../../../shared/lib/labels'
 import type { IterationDetail, UITestResult } from '../../../shared/lib/types'
+import styles from './UIVerificationPanel.module.less'
 
 interface Props {
   detail: IterationDetail | null
+}
+
+const RESULT_STATUS_CLASS: Record<string, string | undefined> = {
+  failed: styles.resultFailed,
+  warning: styles.resultWarning,
+  skipped: styles.resultWarning,
 }
 
 function count(results: UITestResult[], status: UITestResult['status']) {
@@ -16,13 +23,13 @@ export function UIVerificationPanel({ detail }: Props) {
   const failed = count(results, 'failed')
 
   return (
-    <section className="ui-verify stack">
+    <section className={`${styles.root} stack`}>
       <div className="section-row">
         <div>
           <h3 className="section-title">UI 验证</h3>
           <div className="muted">Node 4 作为 Tester 的工具调用，不改变 LangGraph 主节点。</div>
         </div>
-        <div className="ui-metrics">
+        <div className={styles.metrics}>
           <span className="pill">总数: {results.length}</span>
           <span className="pill good">通过: {count(results, 'passed')}</span>
           <span className={`pill ${failed ? 'danger-pill' : ''}`}>失败: {failed}</span>
@@ -31,9 +38,9 @@ export function UIVerificationPanel({ detail }: Props) {
       </div>
 
       {!results.length ? <div className="empty">本轮没有 Planner 定义的 UI trajectory，或尚未执行到 Tester。</div> : null}
-      <div className="ui-result-list">
+      <div className={styles.resultList}>
         {results.map((result) => (
-          <article key={result.id} className={`ui-result ${result.status}`}>
+          <article key={result.id} className={`${styles.result} ${RESULT_STATUS_CLASS[result.status] ?? ''}`}>
             <div className="section-row">
               <div>
                 <strong>{result.title || result.id}</strong>
@@ -46,7 +53,7 @@ export function UIVerificationPanel({ detail }: Props) {
             </div>
             {result.error ? <div className="error-text">{result.error}</div> : null}
             {result.observations.length ? (
-              <ul className="compact-list">
+              <ul className={styles.compactList}>
                 {result.observations.map((item) => <li key={item}>{item}</li>)}
               </ul>
             ) : null}
@@ -55,7 +62,7 @@ export function UIVerificationPanel({ detail }: Props) {
                 {result.artifacts.map((artifact) => (
                   <a
                     key={`${result.id}-${artifact.path}`}
-                    className="artifact-link"
+                    className={styles.artifactLink}
                     href={detail ? artifactUrl(detail.id, artifact.path) : '#'}
                     target="_blank"
                     rel="noreferrer"

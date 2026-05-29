@@ -1,6 +1,7 @@
 import type { IterationDetail } from '../../../shared/lib/types'
 import { documentLabel } from '../../../shared/lib/labels'
 import { documentSummary } from '../../../shared/lib/presentation'
+import styles from './DocumentPanel.module.less'
 
 interface Props {
   detail: IterationDetail | null
@@ -13,11 +14,11 @@ export function DocumentPanel({ detail, docText, onLoadDocument }: Props) {
   return (
     <section className="panel stack">
       <h2 className="section-title">文档</h2>
-      <div className="artifact-summary">
+      <div className={styles.artifactSummary}>
         {summaries.map((doc) => (
           <button
             key={doc.name}
-            className={`artifact-chip ${doc.present ? 'present' : ''}`}
+            className={`${styles.artifactChip} ${doc.present ? styles.chipPresent : styles.chipMissing}`}
             onClick={() => doc.present && onLoadDocument(doc.name)}
             disabled={!doc.present}
           >
@@ -32,7 +33,7 @@ export function DocumentPanel({ detail, docText, onLoadDocument }: Props) {
           </button>
         ))}
       </div>
-      <div className="docs code">{docText || '请选择一份文档'}</div>
+      <div className={`${styles.docs} code`}>{docText || '请选择一份文档'}</div>
     </section>
   )
 }

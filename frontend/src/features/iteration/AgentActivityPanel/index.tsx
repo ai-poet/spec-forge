@@ -2,10 +2,17 @@ import type { IterationDetail } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
 import { isAgentActivity, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
+import styles from './AgentActivityPanel.module.less'
 
 interface Props {
   detail: IterationDetail | null
   stepKey?: PipelineStepKey | null
+}
+
+const SEVERITY_CLASS: Record<string, string | undefined> = {
+  success: styles.itemSuccess,
+  warning: styles.itemWarning,
+  error: styles.itemError,
 }
 
 export function AgentActivityPanel({ detail, stepKey = null }: Props) {
@@ -22,11 +29,11 @@ export function AgentActivityPanel({ detail, stepKey = null }: Props) {
         <h2 className="section-title">{stepKey ? '本阶段 Agent 执行' : 'Agent 运行状态'}</h2>
         <span className="pill">{activities.length} 条</span>
       </div>
-      <div className="activity-list">
+      <div className={styles.list}>
         {visible.map((event) => (
-          <article key={event.id} className={`activity-item ${event.severity}`}>
+          <article key={event.id} className={`${styles.item} ${SEVERITY_CLASS[event.severity] ?? ''}`}>
             <div>
-              <div className="activity-title-row">
+              <div className={styles.titleRow}>
                 <strong>{event.title}</strong>
               </div>
               <p>{event.message}</p>
