@@ -112,6 +112,28 @@ if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
   (cd "$FRONTEND_DIR" && npm install)
 fi
 
+free_port() {
+  local port="$1"
+  local pids
+  pids="$(lsof -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  [[ -z "$pids" ]] && return 0
+  echo "Port $port is in use by PID(s): $pids — terminating..."
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  for _ in 1 2 3 4 5; do
+    sleep 0.3
+    pids="$(lsof -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+    [[ -z "$pids" ]] && return 0
+  done
+  echo "Port $port still in use — sending SIGKILL to: $pids"
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
+  sleep 0.3
+}
+
+free_port 8787
+free_port 5178
+
 trap 'kill 0' EXIT
 
 echo "Starting backend on http://127.0.0.1:8787"
