@@ -33,8 +33,11 @@ from .contracts import (
     UIDriverRunResult,
     UITestResult,
     UITestSpec,
+    UI_TEST_ACTIONS,
     merge_cli_artifact_output,
     parse_json_artifact,
+    ui_spec_error_type,
+    validate_ui_spec_content,
 )
 from .db import Database, iso, utcnow
 from .docs_io import IterationDocs, checksum, compare_test_integrity, safe_relative_path, test_integrity_manifest
@@ -486,8 +489,16 @@ class LangGraphPipeline:
             )
             return {"status": IterationStatus.coding.value, "current_node": None, "planner_run_id": run_id, "design_approval": "auto-approved"}
         except Exception as exc:
-            self._node_event(iteration_id, "node.failed", NodeName.planner.value, "规划产物无效", "Planner 输出无法被解析为合法 artifact。", severity="error", run_id=run_id, action_hint="查看 Planner 原始日志，要求模型只输出符合 schema 的 JSON。")
-            return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
+            event_type = ui_spec_error_type(str(exc))
+            hint = (
+                "检查 tests/ui/*.json 是否使用 snake_case 动作名，并符合 UITestSpec schema。"
+                if event_type == "ui_spec.invalid"
+                else "查看 Planner 原始日志，要求模型只输出符合 schema 的 JSON。"
+            )
+            title = "UI 测试规格无效" if event_type == "ui_spec.invalid" else "规划产物无效"
+            body = "Planner 写入了无法执行的 UI trajectory。" if event_type == "ui_spec.invalid" else "Planner 输出无法被解析为合法 artifact。"
+            self._node_event(iteration_id, "node.failed", NodeName.planner.value, title, body, severity="error", run_id=run_id, action_hint=hint)
+            return self._block(iteration_id, event_type, run_id, str(exc))
 
     def _coder_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
@@ -728,8 +739,16 @@ class LangGraphPipeline:
             self._node_event(iteration_id, "node.completed", NodeName.tester.value, "验证通过", "验证报告和交付建议已生成，等待规格复核和最终确认。", severity="success", run_id=run_id)
             return {"status": "tester_passed", "current_node": None, "tester_run_id": run_id}
         except Exception as exc:
-            self._node_event(iteration_id, "node.failed", NodeName.tester.value, "验证产物无效", "Tester 输出无法被解析为合法 artifact。", severity="error", run_id=run_id, action_hint="查看 Tester 原始日志，要求模型只输出符合 schema 的 JSON。")
-            return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
+            event_type = ui_spec_error_type(str(exc))
+            hint = (
+                "检查 tests/ui/*.json 动作名与字段是否符合 UITestSpec schema。"
+                if event_type == "ui_spec.invalid"
+                else "查看 Tester 原始日志，要求模型只输出符合 schema 的 JSON。"
+            )
+            title = "UI 测试规格无效" if event_type == "ui_spec.invalid" else "验证产物无效"
+            body = "受保护 UI trajectory 无法被 UI Driver 加载。" if event_type == "ui_spec.invalid" else "Tester 输出无法被解析为合法 artifact。"
+            self._node_event(iteration_id, "node.failed", NodeName.tester.value, title, body, severity="error", run_id=run_id, action_hint=hint)
+            return self._block(iteration_id, event_type, run_id, str(exc))
 
     def _planner_verify_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
@@ -986,7 +1005,9 @@ class LangGraphPipeline:
                 "tests:[{path:string, content:string}]}. "
                 "Use code test paths under tests/unit or tests/integration. "
                 "For UI tests, write JSON specs under tests/ui/*.json with shape "
-                "{id,title,kind:web|native,target:{url|bundle_id|app_name},steps:[{action,text,value,key,keys,direction,amount}]}. "
+                "{id,title,kind:web|native,target:{url|bundle_id|app_name},steps:[{action,text,value,selector,key,keys,direction,amount}]}. "
+                f"Allowed UI actions (snake_case only): {', '.join(UI_TEST_ACTIONS)}. "
+                "Example step: {\"action\":\"click_text\",\"text\":\"Submit\"}. "
                 f"{brief}"
             )
             provider = self._cli_provider(state, "planner")
@@ -1160,8 +1181,8 @@ class LangGraphPipeline:
             return []
         specs: list[UITestSpec] = []
         for path in sorted(ui_root.glob("*.json")):
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            specs.append(UITestSpec.model_validate(payload))
+            content = path.read_text(encoding="utf-8")
+            specs.append(validate_ui_spec_content(path.relative_to(docs.root).as_posix(), content))
         return specs
 
     def _ui_observations(self, ui_result: UIDriverRunResult) -> list[str]:
@@ -1216,6 +1237,8 @@ class LangGraphPipeline:
             relative = safe_relative_path(file.path)
             if not relative.parts or relative.parts[0] != "tests" or (len(relative.parts) > 1 and relative.parts[1] == "adversarial"):
                 raise ValueError(f"planner test path not allowed: {file.path}")
+            if len(relative.parts) >= 3 and relative.parts[1] == "ui" and relative.suffix == ".json":
+                validate_ui_spec_content(relative.as_posix(), file.content)
             path = docs.write_text(relative.as_posix(), file.content)
             self._record_document(iteration_id, relative.as_posix(), path)
             self._node_event(iteration_id, "artifact.created", NodeName.planner.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix())
@@ -1386,6 +1409,7 @@ class LangGraphPipeline:
     def _error_title(self, event_type: str) -> str:
         titles = {
             "artifact.invalid": "Agent 产物格式无效",
+            "ui_spec.invalid": "UI 测试规格无效",
             "test_integrity.failed": "测试完整性失败",
             "planner.failed": "规划节点失败",
             "coder.failed": "实现节点失败",
@@ -1399,6 +1423,7 @@ class LangGraphPipeline:
     def _error_action_hint(self, event_type: str) -> str:
         hints = {
             "artifact.invalid": "查看对应 agent 的原始日志，确认输出是否为合法 JSON artifact。",
+            "ui_spec.invalid": "检查 tests/ui/*.json 是否使用 snake_case 动作名，并符合 UITestSpec schema。",
             "test_integrity.failed": "检查受保护测试是否被修改；必要时重新生成规划和测试基线。",
             "planner.failed": "检查 Claude CLI、模型配置和 API 凭据。",
             "coder.failed": "检查 Claude CLI、工作区权限和失败日志。",

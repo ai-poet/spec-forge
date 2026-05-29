@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from specforge.contracts import UITestSpec
 from specforge.ui_driver_playwright import PlaywrightUIDriverRunner
@@ -27,18 +28,34 @@ class FakeMouse:
 
 
 class FakeLocator:
-    def __init__(self, page: "FakePage") -> None:
+    def __init__(self, page: "FakePage", *, selector: str | None = None, text: str | None = None) -> None:
         self._page = page
+        self._selector = selector
+        self._text = text
 
     @property
     def first(self) -> "FakeLocator":
         return self
 
     def click(self, *, timeout: int = 0) -> None:
-        self._page.clicked.append(self._page._pending_text)
+        self._page.clicked.append(self._text or self._selector or self._page._pending_text)
 
     def fill(self, text: str) -> None:
         self._page.keyboard.typed.append(text)
+
+    def is_visible(self, *, timeout: int = 0) -> bool:
+        if self._selector:
+            return self._selector.strip(".") in self._page._content or self._selector in self._page._content
+        if self._text:
+            return self._text in self._page._content
+        return False
+
+    def inner_text(self, *, timeout: int = 0) -> str:
+        if self._selector == ".titlebar-timer":
+            return "05:00"
+        if self._text:
+            return self._text
+        return self._page._content
 
 
 class FakePage:
@@ -50,6 +67,8 @@ class FakePage:
         self.clicked: list[str] = []
         self._pending_text = ""
         self.screenshots: list[Path] = []
+        self.viewport: dict[str, int] | None = None
+        self.slept_ms: list[int] = []
 
     def goto(self, url: str, *, wait_until: str = "domcontentloaded", timeout: int = 0) -> None:
         self._url = url
@@ -59,7 +78,13 @@ class FakePage:
 
     def get_by_text(self, text: str, *, exact: bool = False) -> FakeLocator:
         self._pending_text = text
-        return FakeLocator(self)
+        return FakeLocator(self, text=text)
+
+    def locator(self, selector: str) -> FakeLocator:
+        return FakeLocator(self, selector=selector)
+
+    def set_viewport_size(self, viewport: dict[str, int]) -> None:
+        self.viewport = viewport
 
     def screenshot(self, *, path: str | Path, full_page: bool = True) -> bytes:
         screenshot_path = Path(path)
@@ -129,6 +154,46 @@ def test_playwright_runner_click_text(tmp_path: Path) -> None:
     results = runner.run_specs([spec], tmp_path)
     assert results[0].status == "passed", results[0].error
     assert page.clicked == ["Submit"]
+
+
+def test_playwright_runner_wait_and_resize_window(tmp_path: Path) -> None:
+    spec = UITestSpec.model_validate(
+        {
+            "id": "web_resize",
+            "kind": "web",
+            "target": {"url": "http://127.0.0.1:5178"},
+            "steps": [
+                {"action": "wait", "value": "100"},
+                {"action": "resize_window", "value": "360,420"},
+            ],
+        }
+    )
+    page = FakePage(content='<html><div class="titlebar-timer">05:00</div></html>')
+    runner = PlaywrightUIDriverRunner(session_factory=lambda: FakeSession(page))
+    with patch("specforge.ui_driver_playwright.time.sleep") as sleep:
+        results = runner.run_specs([spec], tmp_path)
+    assert results[0].status == "passed", results[0].error
+    sleep.assert_called_once_with(0.1)
+    assert page.viewport == {"width": 360, "height": 420}
+
+
+def test_playwright_runner_assert_text_match_and_visibility(tmp_path: Path) -> None:
+    spec = UITestSpec.model_validate(
+        {
+            "id": "web_assertions",
+            "kind": "web",
+            "target": {"url": "http://127.0.0.1:5178"},
+            "steps": [
+                {"action": "assert_text_match", "selector": ".titlebar-timer", "value": "^\\d{2}:\\d{2}$"},
+                {"action": "assert_visible", "selector": ".titlebar-timer"},
+                {"action": "assert_missing", "text": "MissingLabel"},
+            ],
+        }
+    )
+    page = FakePage(content='<html><div class="titlebar-timer">05:00</div></html>')
+    runner = PlaywrightUIDriverRunner(session_factory=lambda: FakeSession(page))
+    results = runner.run_specs([spec], tmp_path)
+    assert results[0].status == "passed", results[0].error
 
 
 def test_playwright_runner_native_spec_warns(tmp_path: Path) -> None:

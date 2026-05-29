@@ -36,10 +36,27 @@ class UITestTarget(BaseModel):
     chrome_bundle_id: str = "com.google.Chrome"
 
 
+UITestAction = Literal[
+    "assert_text",
+    "assert_text_match",
+    "assert_missing",
+    "assert_visible",
+    "click_text",
+    "type_text",
+    "press_key",
+    "hotkey",
+    "scroll",
+    "screenshot",
+    "wait",
+    "resize_window",
+]
+
+
 class UITestStep(BaseModel):
-    action: Literal["assert_text", "click_text", "type_text", "press_key", "hotkey", "scroll", "screenshot"]
+    action: UITestAction
     text: Optional[str] = None
     value: Optional[str] = None
+    selector: Optional[str] = None
     key: Optional[str] = None
     keys: list[str] = Field(default_factory=list)
     direction: Literal["up", "down", "left", "right"] = "down"
@@ -52,6 +69,37 @@ class UITestSpec(BaseModel):
     kind: Literal["web", "native"]
     target: UITestTarget
     steps: list[UITestStep] = Field(default_factory=list)
+
+
+UI_TEST_ACTIONS = (
+    "assert_text",
+    "assert_text_match",
+    "assert_missing",
+    "assert_visible",
+    "click_text",
+    "type_text",
+    "press_key",
+    "hotkey",
+    "scroll",
+    "screenshot",
+    "wait",
+    "resize_window",
+)
+
+
+def validate_ui_spec_content(path: str, content: str) -> UITestSpec:
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid UI spec {path}: {exc}") from exc
+    try:
+        return UITestSpec.model_validate(payload)
+    except ValidationError as exc:
+        raise ValueError(f"invalid UI spec {path}: {exc}") from exc
+
+
+def ui_spec_error_type(message: str) -> str:
+    return "ui_spec.invalid" if message.startswith("invalid UI spec ") else "artifact.invalid"
 
 
 class UIArtifactLink(BaseModel):

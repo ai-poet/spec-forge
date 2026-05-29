@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+import re
+import time
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from .config import settings
-from .contracts import UIArtifactLink, UITestResult, UITestSpec
-from .ui_driver_common import artifact_path, skipped_result, target_label
+from .contracts import UIArtifactLink, UITestResult, UITestSpec, UITestStep
+from .ui_driver_common import (
+    artifact_path,
+    parse_window_size,
+    skipped_result,
+    step_selector,
+    step_text,
+    target_label,
+    wait_milliseconds,
+)
 
 NATIVE_UNAVAILABLE = "CuaDriver unavailable for native UI"
 
@@ -16,6 +26,10 @@ class PlaywrightPage(Protocol):
     def content(self) -> str: ...
 
     def get_by_text(self, text: str, *, exact: bool = ...) -> Any: ...
+
+    def locator(self, selector: str) -> Any: ...
+
+    def set_viewport_size(self, viewport: dict[str, int]) -> None: ...
 
     def screenshot(self, *, path: str | Path, full_page: bool = ...) -> bytes: ...
 
@@ -92,43 +106,7 @@ class PlaywrightUIDriverRunner:
 
             for index, step in enumerate(spec.steps, start=1):
                 screenshot_path = recording_dir / f"step_{index:02d}.png"
-                if step.action == "assert_text":
-                    expected = step.text or step.value or ""
-                    if expected not in page.content():
-                        raise RuntimeError(f"UI text not found: {expected}")
-                    observations.append(f"找到文本: {expected}")
-                elif step.action == "click_text":
-                    expected = step.text or step.value or ""
-                    page.get_by_text(expected, exact=False).first.click(timeout=10_000)
-                    page.screenshot(path=str(screenshot_path), full_page=True)
-                    artifacts.append(UIArtifactLink(label=f"步骤 {index} 截图", path=artifact_path(docs_root, screenshot_path)))
-                elif step.action == "type_text":
-                    text = step.text or step.value or ""
-                    page.keyboard.type(text)
-                    page.screenshot(path=str(screenshot_path), full_page=True)
-                elif step.action == "press_key":
-                    key = step.key or step.text or "Enter"
-                    page.keyboard.press(self._playwright_key(key))
-                    page.screenshot(path=str(screenshot_path), full_page=True)
-                elif step.action == "hotkey":
-                    keys = [self._playwright_key(item) for item in step.keys]
-                    if keys:
-                        page.keyboard.press("+".join(keys))
-                    page.screenshot(path=str(screenshot_path), full_page=True)
-                elif step.action == "scroll":
-                    delta = step.amount * 400
-                    if step.direction == "down":
-                        page.mouse.wheel(0, delta)
-                    elif step.direction == "up":
-                        page.mouse.wheel(0, -delta)
-                    elif step.direction == "right":
-                        page.mouse.wheel(delta, 0)
-                    else:
-                        page.mouse.wheel(-delta, 0)
-                    page.screenshot(path=str(screenshot_path), full_page=True)
-                elif step.action == "screenshot":
-                    page.screenshot(path=str(screenshot_path), full_page=True)
-                    artifacts.append(UIArtifactLink(label=f"截图 {index}", path=artifact_path(docs_root, screenshot_path)))
+                self._run_step(page, step, index, screenshot_path, docs_root, recording_dir, artifacts, observations)
         finally:
             session.close()
 
@@ -143,6 +121,99 @@ class PlaywrightUIDriverRunner:
             artifacts=artifacts,
             driver="playwright",
         )
+
+    def _run_step(
+        self,
+        page: PlaywrightPage,
+        step: UITestStep,
+        index: int,
+        screenshot_path: Path,
+        docs_root: Path,
+        recording_dir: Path,
+        artifacts: list[UIArtifactLink],
+        observations: list[str],
+    ) -> None:
+        if step.action == "assert_text":
+            expected = step_text(step)
+            if expected not in page.content():
+                raise RuntimeError(f"UI text not found: {expected}")
+            observations.append(f"找到文本: {expected}")
+        elif step.action == "assert_text_match":
+            pattern = (step.value or step.text or "").strip()
+            if not pattern:
+                raise ValueError("assert_text_match requires value regex pattern")
+            target = self._step_target_text(page, step)
+            if not re.search(pattern, target):
+                raise RuntimeError(f"UI text pattern not matched: {pattern}")
+            observations.append(f"文本匹配: {pattern}")
+        elif step.action == "assert_missing":
+            if self._is_visible(page, step):
+                raise RuntimeError(f"UI element still visible: {step.selector or step.text}")
+            observations.append(f"元素不可见: {step.selector or step.text}")
+        elif step.action == "assert_visible":
+            if not self._is_visible(page, step):
+                raise RuntimeError(f"UI element not visible: {step.selector or step.text}")
+            observations.append(f"元素可见: {step.selector or step.text}")
+        elif step.action == "click_text":
+            expected = step_text(step)
+            page.get_by_text(expected, exact=False).first.click(timeout=10_000)
+            page.screenshot(path=str(screenshot_path), full_page=True)
+            artifacts.append(UIArtifactLink(label=f"步骤 {index} 截图", path=artifact_path(docs_root, screenshot_path)))
+        elif step.action == "type_text":
+            text = step_text(step)
+            page.keyboard.type(text)
+            page.screenshot(path=str(screenshot_path), full_page=True)
+        elif step.action == "press_key":
+            key = step.key or step.text or "Enter"
+            page.keyboard.press(self._playwright_key(key))
+            page.screenshot(path=str(screenshot_path), full_page=True)
+        elif step.action == "hotkey":
+            keys = [self._playwright_key(item) for item in step.keys]
+            if keys:
+                page.keyboard.press("+".join(keys))
+            page.screenshot(path=str(screenshot_path), full_page=True)
+        elif step.action == "scroll":
+            delta = step.amount * 400
+            if step.direction == "down":
+                page.mouse.wheel(0, delta)
+            elif step.direction == "up":
+                page.mouse.wheel(0, -delta)
+            elif step.direction == "right":
+                page.mouse.wheel(delta, 0)
+            else:
+                page.mouse.wheel(-delta, 0)
+            page.screenshot(path=str(screenshot_path), full_page=True)
+        elif step.action == "wait":
+            delay_ms = wait_milliseconds(step)
+            time.sleep(delay_ms / 1000)
+            observations.append(f"等待 {delay_ms}ms")
+        elif step.action == "resize_window":
+            width, height = parse_window_size(step)
+            page.set_viewport_size({"width": width, "height": height})
+            page.screenshot(path=str(screenshot_path), full_page=True)
+            artifacts.append(UIArtifactLink(label=f"步骤 {index} 视口截图", path=artifact_path(docs_root, screenshot_path)))
+            observations.append(f"视口调整为 {width}x{height}")
+        elif step.action == "screenshot":
+            page.screenshot(path=str(screenshot_path), full_page=True)
+            artifacts.append(UIArtifactLink(label=f"截图 {index}", path=artifact_path(docs_root, screenshot_path)))
+        else:
+            raise RuntimeError(f"unsupported UI action: {step.action}")
+
+    def _step_target_text(self, page: PlaywrightPage, step: UITestStep) -> str:
+        selector = step_selector(step)
+        if selector:
+            locator = page.locator(selector).first
+            return str(locator.inner_text(timeout=10_000))
+        return page.content()
+
+    def _is_visible(self, page: PlaywrightPage, step: UITestStep) -> bool:
+        selector = step_selector(step)
+        if selector:
+            return bool(page.locator(selector).first.is_visible(timeout=2_000))
+        expected = step_text(step)
+        if not expected:
+            raise ValueError("assert step requires selector or text")
+        return bool(page.get_by_text(expected, exact=False).first.is_visible(timeout=2_000))
 
     def _open_session(self) -> PlaywrightSession:
         if self._session_factory is not None:

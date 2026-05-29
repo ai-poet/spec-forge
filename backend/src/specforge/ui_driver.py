@@ -9,8 +9,16 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from .config import settings
-from .contracts import UIArtifactLink, UIDriverRunResult, UITestResult, UITestSpec
-from .ui_driver_common import artifact_path, skipped_result, target_label
+from .contracts import UIArtifactLink, UIDriverRunResult, UITestResult, UITestSpec, UITestStep
+from .ui_driver_common import (
+    artifact_path,
+    parse_window_size,
+    skipped_result,
+    step_selector,
+    step_text,
+    target_label,
+    wait_milliseconds,
+)
 from .ui_driver_playwright import NATIVE_UNAVAILABLE, PlaywrightUIDriverRunner
 
 
@@ -127,40 +135,7 @@ class CuaUIDriverRunner:
 
         try:
             for index, step in enumerate(spec.steps, start=1):
-                if step.action == "assert_text":
-                    expected = step.text or step.value or ""
-                    if expected not in tree:
-                        raise RuntimeError(f"UI text not found: {expected}")
-                    observations.append(f"找到文本: {expected}")
-                elif step.action == "click_text":
-                    expected = step.text or step.value or ""
-                    element_index = self._find_element_index(tree, expected)
-                    if element_index is None:
-                        raise RuntimeError(f"click target not found: {expected}")
-                    self._action("click", {"pid": pid, "window_id": window_id, "element_index": element_index})
-                    state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
-                    artifacts.append(UIArtifactLink(label=f"步骤 {index} 截图", path=artifact_path(docs_root, recording_dir / f"step_{index:02d}.png")))
-                    tree = str(state.get("tree_markdown") or "")
-                elif step.action == "type_text":
-                    self._action("type_text", {"pid": pid, "window_id": window_id, "text": step.text or step.value or ""})
-                    state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
-                    tree = str(state.get("tree_markdown") or "")
-                elif step.action == "press_key":
-                    self._action("press_key", {"pid": pid, "window_id": window_id, "key": step.key or step.text or "return"})
-                    state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
-                    tree = str(state.get("tree_markdown") or "")
-                elif step.action == "hotkey":
-                    self._action("hotkey", {"pid": pid, "window_id": window_id, "keys": step.keys})
-                    state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
-                    tree = str(state.get("tree_markdown") or "")
-                elif step.action == "scroll":
-                    self._action("scroll", {"pid": pid, "window_id": window_id, "direction": step.direction, "amount": step.amount, "by": "page"})
-                    state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
-                    tree = str(state.get("tree_markdown") or "")
-                elif step.action == "screenshot":
-                    state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
-                    artifacts.append(UIArtifactLink(label=f"截图 {index}", path=artifact_path(docs_root, recording_dir / f"step_{index:02d}.png")))
-                    tree = str(state.get("tree_markdown") or "")
+                tree = self._run_step(spec, step, index, pid, window_id, recording_dir, docs_root, artifacts, observations, tree)
         finally:
             self.transport.run("recording_stop", timeout=10)
 
@@ -175,6 +150,128 @@ class CuaUIDriverRunner:
             artifacts=artifacts,
             driver="cua",
         )
+
+    def _run_step(
+        self,
+        spec: UITestSpec,
+        step: UITestStep,
+        index: int,
+        pid: int,
+        window_id: int,
+        recording_dir: Path,
+        docs_root: Path,
+        artifacts: list[UIArtifactLink],
+        observations: list[str],
+        tree: str,
+    ) -> str:
+        if step.action == "assert_text":
+            expected = step_text(step)
+            if expected not in tree:
+                raise RuntimeError(f"UI text not found: {expected}")
+            observations.append(f"找到文本: {expected}")
+            return tree
+        elif step.action == "assert_text_match":
+            pattern = (step.value or step.text or "").strip()
+            if not pattern:
+                raise ValueError("assert_text_match requires value regex pattern")
+            target = self._cua_target_text(pid, window_id, tree, step)
+            if not re.search(pattern, target):
+                raise RuntimeError(f"UI text pattern not matched: {pattern}")
+            observations.append(f"文本匹配: {pattern}")
+            return tree
+        elif step.action == "assert_missing":
+            if self._cua_present(tree, step):
+                raise RuntimeError(f"UI element still visible: {step.selector or step.text}")
+            observations.append(f"元素不可见: {step.selector or step.text}")
+            return tree
+        elif step.action == "assert_visible":
+            if not self._cua_present(tree, step):
+                raise RuntimeError(f"UI element not visible: {step.selector or step.text}")
+            observations.append(f"元素可见: {step.selector or step.text}")
+            return tree
+        elif step.action == "click_text":
+            expected = step_text(step)
+            element_index = self._find_element_index(tree, expected)
+            if element_index is None:
+                raise RuntimeError(f"click target not found: {expected}")
+            self._action("click", {"pid": pid, "window_id": window_id, "element_index": element_index})
+            state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
+            artifacts.append(UIArtifactLink(label=f"步骤 {index} 截图", path=artifact_path(docs_root, recording_dir / f"step_{index:02d}.png")))
+            return str(state.get("tree_markdown") or tree)
+        elif step.action == "type_text":
+            self._action("type_text", {"pid": pid, "window_id": window_id, "text": step_text(step)})
+            state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
+            return str(state.get("tree_markdown") or tree)
+        elif step.action == "press_key":
+            self._action("press_key", {"pid": pid, "window_id": window_id, "key": step.key or step.text or "return"})
+            state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
+            return str(state.get("tree_markdown") or tree)
+        elif step.action == "hotkey":
+            self._action("hotkey", {"pid": pid, "window_id": window_id, "keys": step.keys})
+            state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
+            return str(state.get("tree_markdown") or tree)
+        elif step.action == "scroll":
+            self._action("scroll", {"pid": pid, "window_id": window_id, "direction": step.direction, "amount": step.amount, "by": "page"})
+            state = self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
+            return str(state.get("tree_markdown") or tree)
+        elif step.action == "wait":
+            delay_ms = wait_milliseconds(step)
+            time.sleep(delay_ms / 1000)
+            observations.append(f"等待 {delay_ms}ms")
+            return tree
+        elif step.action == "resize_window":
+            if spec.kind == "native":
+                observations.append("resize_window skipped: CuaDriver has no native resize API")
+                return tree
+            width, height = parse_window_size(step)
+            script = f"window.resizeTo({width}, {height}); [window.innerWidth, window.innerHeight];"
+            code, stdout, stderr = self.transport.run(
+                "page",
+                {"pid": pid, "window_id": window_id, "action": "execute_javascript", "script": script},
+                timeout=20,
+            )
+            if code:
+                observations.append(f"resize_window skipped: {stderr or stdout or 'execute_javascript failed'}")
+            else:
+                observations.append(f"视口调整为 {width}x{height}")
+                self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
+                artifacts.append(UIArtifactLink(label=f"步骤 {index} 视口截图", path=artifact_path(docs_root, recording_dir / f"step_{index:02d}.png")))
+            return tree
+        elif step.action == "screenshot":
+            self._snapshot(pid, window_id, recording_dir / f"step_{index:02d}.png")
+            artifacts.append(UIArtifactLink(label=f"截图 {index}", path=artifact_path(docs_root, recording_dir / f"step_{index:02d}.png")))
+            return tree
+        raise RuntimeError(f"unsupported UI action: {step.action}")
+
+    def _cua_target_text(self, pid: int, window_id: int, tree: str, step: UITestStep) -> str:
+        selector = step_selector(step)
+        if selector:
+            code, stdout, stderr = self.transport.run(
+                "page",
+                {
+                    "pid": pid,
+                    "window_id": window_id,
+                    "action": "execute_javascript",
+                    "script": f"document.querySelector({json.dumps(selector)})?.innerText || ''",
+                },
+                timeout=20,
+            )
+            if code == 0:
+                payload = self._json(stdout)
+                result = payload.get("result") if isinstance(payload.get("result"), str) else stdout.strip()
+                if result:
+                    return str(result)
+        return tree
+
+    def _cua_present(self, tree: str, step: UITestStep) -> bool:
+        selector = step_selector(step)
+        needle = selector or step_text(step)
+        if not needle:
+            raise ValueError("assert step requires selector or text")
+        if selector and selector.startswith("."):
+            class_name = selector.lstrip(".")
+            return class_name in tree or selector in tree
+        return needle in tree
 
     def _snapshot(self, pid: int, window_id: int, screenshot_path: Path) -> dict:
         screenshot_path.parent.mkdir(parents=True, exist_ok=True)

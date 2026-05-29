@@ -7,8 +7,8 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from specforge import contracts as contract_models
-from specforge.contracts import ArtifactFile, PlannerArtifact, UIDriverRunResult, UITestResult, UITestSpec, parse_json_artifact
-from specforge.docs_io import compare_test_integrity, test_integrity_manifest as build_test_integrity_manifest
+from specforge.contracts import ArtifactFile, PlannerArtifact, UIDriverRunResult, UITestResult, UITestSpec, parse_json_artifact, validate_ui_spec_content
+from specforge.docs_io import IterationDocs, compare_test_integrity, test_integrity_manifest as build_test_integrity_manifest
 from specforge.main import app, job_queue, pipeline
 
 
@@ -684,6 +684,67 @@ def test_ui_spec_schema_rejects_unknown_action():
                 "steps": [{"action": "drag_text", "text": "SpecForge"}],
             }
         )
+
+
+def test_validate_ui_spec_content_rejects_invalid_action():
+    with pytest.raises(ValueError, match="invalid UI spec"):
+        validate_ui_spec_content(
+            "tests/ui/bad.json",
+            '{"id":"bad","kind":"web","target":{"url":"http://127.0.0.1:5178"},"steps":[{"action":"click","text":"Go"}]}',
+        )
+
+
+def test_planner_write_rejects_invalid_ui_spec(tmp_path):
+    project = post_project(tmp_path, "ui-spec-planner")
+    project_id = project.json()["id"]
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "goal": "ui spec validation", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    docs.ensure()
+    bad_spec = '{"id":"bad","kind":"web","target":{"url":"http://127.0.0.1:5178"},"steps":[{"action":"click","text":"Go"}]}'
+    artifact = PlannerArtifact(
+        system_design="---\n\n# Design\n",
+        modification_plan="---\n\n# Plan\n",
+        testing_plan="---\n\n# Tests\n",
+        tests=[ArtifactFile(path="tests/ui/bad.json", content=bad_spec)],
+    )
+    with pytest.raises(ValueError, match="invalid UI spec"):
+        pipeline._write_planner_artifact(iteration_id, docs, artifact)
+
+
+def test_ui_spec_invalid_blocks_tester_with_classified_error(tmp_path, monkeypatch):
+    project = post_project(tmp_path, "ui-spec-tester")
+    project_id = project.json()["id"]
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "goal": "ui spec tester block", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+
+    ui_path = pipeline.docs_root(iteration_id) / "tests" / "ui" / "bad.json"
+    ui_path.parent.mkdir(parents=True, exist_ok=True)
+    ui_path.write_text(
+        '{"id":"bad","kind":"web","target":{"url":"http://127.0.0.1:5178"},"steps":[{"action":"click","text":"Go"}]}',
+        encoding="utf-8",
+    )
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    pipeline._update_iteration(
+        iteration_id,
+        test_integrity_baseline=build_test_integrity_manifest(docs.root),
+    )
+
+    result = pipeline._tester_node({"iteration_id": iteration_id, "mode": "dry-run"})
+    assert result["status"] == "blocked"
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert any(event["type"] == "ui_spec.invalid" for event in detail["events"])
+    classified = [event for event in detail["events"] if event["type"] == "error.classified"]
+    assert classified[-1]["payload"]["title"] == "UI 测试规格无效"
 
 
 def test_ui_spec_id_must_be_safe_slug():

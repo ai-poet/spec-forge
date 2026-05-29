@@ -98,6 +98,30 @@ owner: user
 - Links use relative paths, not wikilinks.
 - Planner writes specs and protected tests; Coder writes `src/`; Tester writes verify reports and adversarial tests.
 - Each iteration lives under `docs/system_design/iteration_NNN/`.
+
+## UI test specs (`tests/ui/*.json`)
+
+Use snake_case actions only. Example:
+
+```json
+{
+  "id": "web_smoke",
+  "title": "Smoke",
+  "kind": "web",
+  "target": { "url": "http://127.0.0.1:5178" },
+  "steps": [
+    { "action": "click_text", "text": "Submit" },
+    { "action": "wait", "value": "500" },
+    { "action": "resize_window", "value": "360,420" },
+    { "action": "assert_text_match", "selector": ".timer", "value": "^\\\\d{2}:\\\\d{2}$" },
+    { "action": "assert_visible", "selector": ".timer" },
+    { "action": "assert_missing", "selector": ".timer" },
+    { "action": "screenshot" }
+  ]
+}
+```
+
+Allowed actions: `assert_text`, `assert_text_match`, `assert_missing`, `assert_visible`, `click_text`, `type_text`, `press_key`, `hotkey`, `scroll`, `screenshot`, `wait`, `resize_window`.
 """
 
 

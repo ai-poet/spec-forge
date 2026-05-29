@@ -116,15 +116,22 @@ Planner 可写入 `docs/tests/ui/*.json`，每个文件是一个 UI trajectory�
 }
 ```
 
-支持动作：
+支持动作（必须使用 snake_case）：
 
-- `assert_text`
+- `assert_text` — 页面包含指定文本（`text` 或 `value`）
+- `assert_text_match` — 元素或页面文本匹配正则（`value` 为 pattern，可选 `selector`）
+- `assert_missing` — 文本或 selector 不可见/不存在
+- `assert_visible` — 文本或 selector 可见
 - `click_text`
 - `type_text`
 - `press_key`
 - `hotkey`
 - `scroll`
 - `screenshot`
+- `wait` — 等待毫秒（`value`，如 `"1000"`）
+- `resize_window` — 调整视口（`value`: `"宽,高"`，如 `"360,420"`）
+
+可选字段：`selector`（CSS selector，如 `.titlebar-timer`）、`text`、`value`、`key`、`keys`、`direction`、`amount`。
 
 Tester 产物：
 
