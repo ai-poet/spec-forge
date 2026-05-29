@@ -51,6 +51,9 @@ class PipelineJobQueue:
                 elif job.kind == "resume_stopped":
                     self.pipeline.resume_stopped(job.iteration_id, job.note)
             except Exception as exc:  # pragma: no cover - defensive guard for the worker
-                self.pipeline.fail_job(job.iteration_id, str(exc))
+                try:
+                    self.pipeline.fail_job(job.iteration_id, str(exc))
+                except Exception:
+                    pass
             finally:
                 self._queue.task_done()

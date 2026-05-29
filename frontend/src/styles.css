@@ -1672,6 +1672,17 @@ button.artifact-chip:disabled {
   align-items: flex-start;
 }
 
+.activity-title-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.activity-item.cli-activity {
+  border-left: 3px solid rgba(117, 208, 179, 0.65);
+}
+
 .activity-item p {
   margin: 4px 0 0;
   color: #b8c4d6;
@@ -1745,6 +1756,135 @@ button.artifact-chip:disabled {
 .run-card.live {
   border-color: rgba(59, 130, 246, 0.45);
   background: #0d1524;
+}
+
+.mini-pill {
+  border: 1px solid #2d3950;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #9facbf;
+  font-size: 11px;
+}
+
+.inline-code,
+.trace-command {
+  display: inline-block;
+  margin-top: 6px;
+  border: 1px solid #263247;
+  border-radius: 6px;
+  padding: 4px 6px;
+  color: #dbe7ff;
+  background: #0a0f19;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.cli-trace-list,
+.cli-summary-list {
+  display: grid;
+  gap: 8px;
+}
+
+.cli-trace-item {
+  border: 1px solid #253047;
+  border-radius: 8px;
+  background: #0f1624;
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.cli-trace-item.command {
+  border-left: 3px solid #5f9bff;
+}
+
+.cli-trace-item.file_change {
+  border-left: 3px solid #8bdc8d;
+}
+
+.cli-trace-item.mcp,
+.cli-trace-item.tool {
+  border-left: 3px solid #75d0b3;
+}
+
+.cli-trace-item.todo {
+  border-left: 3px solid #f0c56b;
+}
+
+.cli-trace-item.error {
+  border-color: #a74949;
+  background: #21161a;
+}
+
+.cli-trace-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.cli-phase {
+  border: 1px solid #2d3950;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #75d0b3;
+  font-size: 11px;
+}
+
+.cli-trace-item p,
+.cli-summary-row p {
+  margin: 0;
+  color: #b8c4d6;
+}
+
+.trace-paths {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.trace-paths span {
+  border: 1px solid #263247;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #b8c4d6;
+  font-size: 12px;
+}
+
+.trace-preview {
+  margin: 0;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.cli-summary-row {
+  border: 1px solid #253047;
+  border-radius: 8px;
+  padding: 8px;
+  background: #111827;
+}
+
+.cli-summary-row span {
+  color: #9facbf;
+  font-size: 11px;
+}
+
+.cli-summary-row strong {
+  display: block;
+  margin: 2px 0;
+}
+
+.cli-summary-row.error {
+  border-color: #a74949;
+  background: #21161a;
+}
+
+.cli-summary-row.warning {
+  border-color: #a17d2d;
+  background: #211c12;
 }
 
 .live-cli-stream {

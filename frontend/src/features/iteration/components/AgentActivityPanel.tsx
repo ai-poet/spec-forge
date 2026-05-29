@@ -1,7 +1,7 @@
 import type { IterationDetail } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
-import { isAgentActivity, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
+import { cliPhaseLabel, cliProviderLabel, isAgentActivity, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
 
 interface Props {
   detail: IterationDetail | null
@@ -24,10 +24,15 @@ export function AgentActivityPanel({ detail, stepKey = null }: Props) {
       </div>
       <div className="activity-list">
         {visible.map((event) => (
-          <article key={event.id} className={`activity-item ${event.severity}`}>
+          <article key={event.id} className={`activity-item ${event.severity} ${event.type === 'cli.display' ? 'cli-activity' : ''}`}>
             <div>
-              <strong>{event.title}</strong>
+              <div className="activity-title-row">
+                <strong>{event.title}</strong>
+                {event.type === 'cli.display' ? <span className="mini-pill">{cliProviderLabel(event.provider)} · {cliPhaseLabel(event.phase)}</span> : null}
+              </div>
               <p>{event.message}</p>
+              {event.command ? <code className="inline-code">{event.command}</code> : null}
+              {event.paths?.length ? <small>{event.paths.join(', ')}</small> : null}
               {event.action_hint ? <small>{event.action_hint}</small> : null}
             </div>
             <span className={`status-dot ${event.severity}`}>{presentNodeName(event.node)}</span>

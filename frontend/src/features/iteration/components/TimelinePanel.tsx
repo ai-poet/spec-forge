@@ -1,6 +1,6 @@
 import type { IterationDetail, TimelineFilter } from '../../../shared/lib/types'
 import { timelineFilterLabel } from '../../../shared/lib/labels'
-import { presentEvent, presentNodeName } from '../../../shared/lib/presentation'
+import { cliPhaseLabel, cliProviderLabel, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
 
 interface Props {
   detail: IterationDetail | null
@@ -13,7 +13,7 @@ function matchesFilter(type: string, filter: TimelineFilter) {
   if (filter === 'decisions') return type.includes('approved') || type.includes('queued')
   if (filter === 'failures') return type.includes('failed') || type.includes('blocked') || type.includes('max_retries')
   if (filter === 'tests') return type.includes('test') || type.includes('integrity') || type.includes('tester') || type.includes('ui_driver')
-  if (filter === 'runs') return type.includes('planner') || type.includes('coder') || type.includes('tester')
+  if (filter === 'runs') return type === 'cli.display' || type.includes('planner') || type.includes('coder') || type.includes('tester')
   return true
 }
 
@@ -38,9 +38,13 @@ export function TimelinePanel({ detail, filter = 'all', onFilterChange }: Props)
           <div key={event.id} className={`item event-item ${event.severity}`}>
             <div className="item-head">
               <strong>{event.title}</strong>
-              <span className={`status-dot ${event.severity}`}>{presentNodeName(event.node)}</span>
+              <span className={`status-dot ${event.severity}`}>
+                {event.type === 'cli.display' ? `${cliProviderLabel(event.provider)} · ${cliPhaseLabel(event.phase)}` : presentNodeName(event.node)}
+              </span>
             </div>
             <div className="muted">{event.message}</div>
+            {event.command ? <code className="inline-code">{event.command}</code> : null}
+            {event.paths?.length ? <div className="event-hint">{event.paths.join(', ')}</div> : null}
             {event.action_hint ? <div className="event-hint">{event.action_hint}</div> : null}
             <details className="event-details">
               <summary>查看详情</summary>

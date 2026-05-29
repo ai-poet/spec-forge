@@ -89,6 +89,24 @@ export interface EventRecord {
 }
 
 export type EventSeverity = 'info' | 'success' | 'warning' | 'error'
+export type CliProvider = 'claude_code' | 'codex'
+export type CliPhase = 'session' | 'thinking' | 'text' | 'tool' | 'command' | 'file_change' | 'mcp' | 'todo' | 'retry' | 'result' | 'error'
+
+export interface CliDisplayPayload {
+  provider: CliProvider
+  node: string
+  phase: CliPhase
+  title: string
+  message: string
+  severity: EventSeverity
+  item_id?: string
+  status?: string
+  command?: string
+  paths?: string[]
+  tool?: string
+  preview?: string
+  raw_event?: Record<string, unknown>
+}
 
 export interface SemanticEvent {
   id: string
@@ -98,6 +116,13 @@ export interface SemanticEvent {
   message: string
   severity: EventSeverity
   created_at: string
+  provider?: CliProvider
+  phase?: CliPhase
+  status?: string
+  command?: string
+  paths?: string[]
+  tool?: string
+  preview?: string
   run_id?: string
   document?: string
   action_hint?: string

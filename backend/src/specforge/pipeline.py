@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from typing_extensions import TypedDict
 
 from .cli_runner import BaseRunner, CLIResult, DryRunRunner, RealCLIRunner
+from .cli_event_presenter import CliDisplayEvent, CliEventPresenter
 from .config import settings
 from .contracts import (
     ArtifactFile,
@@ -65,6 +66,7 @@ class LangGraphPipeline:
         self.broker = broker or EventBroker()
         self.dry_runner = DryRunRunner()
         self.real_runner = RealCLIRunner()
+        self.cli_presenter = CliEventPresenter()
         self.ui_driver = UIDriverRunner()
         settings.langgraph_db_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpointer_context = SqliteSaver.from_conn_string(str(settings.langgraph_db_path))
@@ -869,7 +871,7 @@ class LangGraphPipeline:
         iteration_id = state["iteration_id"]
         if node is None:
             row = self._require_iteration(iteration_id)
-            current_node = row["current_node"] or state.get("current_node") or "agent"
+            current_node = row["current_node"] or "agent"
         else:
             current_node = node
         self._reset_live_cli(iteration_id, current_node)
@@ -885,21 +887,14 @@ class LangGraphPipeline:
             if not chunk.strip():
                 return
             if stream == "stdout" and self._is_real_cli(state.get("mode")):
-                for event in self._native_cli_events(chunk):
-                    key = event.get("key")
-                    if key and key in seen_cli_events:
+                cli_events = self.cli_presenter.present_chunk(chunk, node=str(current_node))
+                for event in cli_events:
+                    key = event.key
+                    if key in seen_cli_events:
                         continue
-                    if key:
-                        seen_cli_events.add(key)
-                    self._node_event(
-                        iteration_id,
-                        "node.progress",
-                        str(current_node),
-                        event["title"],
-                        event["message"],
-                        severity=event["severity"],
-                    )
-                if seen_cli_events:
+                    seen_cli_events.add(key)
+                    self._cli_display_event(iteration_id, event)
+                if cli_events:
                     return
             if seen_output[stream]:
                 return
@@ -924,68 +919,8 @@ class LangGraphPipeline:
             if not self._is_iteration_gone(iteration_id):
                 self._publish_snapshot(iteration_id)
 
-    def _native_cli_events(self, chunk: str) -> list[dict[str, str]]:
-        events: list[dict[str, str]] = []
-        for line in [line.strip() for line in chunk.splitlines() if line.strip()]:
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            event = self._present_native_cli_event(payload)
-            if event:
-                events.append(event)
-        return events
-
-    def _present_native_cli_event(self, payload: dict[str, Any]) -> Optional[dict[str, str]]:
-        msg = payload.get("msg") if isinstance(payload.get("msg"), dict) else {}
-        event_type = str(payload.get("type") or payload.get("event") or msg.get("type") or "")
-        item = payload.get("item") if isinstance(payload.get("item"), dict) else msg.get("item") if isinstance(msg.get("item"), dict) else {}
-        item_type = str(item.get("type") or "")
-        subtype = str(payload.get("subtype") or "")
-        if event_type == "system" and subtype == "init":
-            return {"key": "claude.init", "title": "Claude Code 会话已初始化", "message": "CLI 已完成会话启动，正在准备工具和上下文。", "severity": "info"}
-        if event_type == "assistant":
-            return {"key": "claude.assistant", "title": "Claude 正在生成方案", "message": "模型正在输出规划或实现内容，最终 artifact 会由后端解析。", "severity": "info"}
-        if event_type == "result":
-            return {"key": "claude.result", "title": "Claude 输出已完成", "message": "CLI 已返回最终结果，正在进入 artifact 校验。", "severity": "success"}
-        if event_type == "thread.started":
-            return {"key": "codex.thread.started", "title": "Codex 验证会话已启动", "message": "Tester 已创建独立执行线程，准备运行验证。", "severity": "info"}
-        if event_type == "turn.started":
-            return {"key": "codex.turn.started", "title": "Codex 回合已开始", "message": "Tester 正在分析任务、执行命令或准备验证报告。", "severity": "info"}
-        if event_type == "turn.completed":
-            return {"key": "codex.turn.completed", "title": "Codex 回合已完成", "message": "Tester 已完成本轮验证输出，正在解析报告。", "severity": "success"}
-        if event_type == "turn.failed":
-            return {"key": "codex.turn.failed", "title": "Codex 回合失败", "message": "Tester 执行过程中出现失败，详情保存在原始日志。", "severity": "error"}
-        if event_type == "item.started":
-            return {"key": f"codex.item.started.{item_type}", "title": self._codex_item_title(item_type, started=True), "message": self._codex_item_message(item, started=True), "severity": "info"}
-        if event_type == "item.completed":
-            return {"key": f"codex.item.completed.{item_type}", "title": self._codex_item_title(item_type, started=False), "message": self._codex_item_message(item, started=False), "severity": "success" if item_type != "command_execution" else "info"}
-        if event_type == "agent_reasoning":
-            return {"key": "codex.agent_reasoning", "title": "Codex 正在推理", "message": str(payload.get("text") or "Tester 正在形成验证判断。"), "severity": "info"}
-        if event_type == "agent_message":
-            return {"key": "codex.agent_message", "title": "Codex 已生成验证说明", "message": "Tester 正在输出最终报告内容。", "severity": "info"}
-        return None
-
-    def _codex_item_title(self, item_type: str, *, started: bool) -> str:
-        action = "开始" if started else "完成"
-        labels = {
-            "reasoning": "推理",
-            "agent_reasoning": "推理",
-            "agent_message": "报告输出",
-            "command_execution": "命令执行",
-            "tool_call": "工具调用",
-        }
-        return f"Codex {labels.get(item_type, item_type or '步骤')}{action}"
-
-    def _codex_item_message(self, item: dict[str, Any], *, started: bool) -> str:
-        command = item.get("command") or item.get("cmd")
-        if isinstance(command, list):
-            command_text = " ".join(map(str, command))
-            return f"{'正在执行' if started else '已执行'}命令: {command_text}"
-        text = item.get("text") or item.get("summary")
-        if isinstance(text, str) and text.strip():
-            return text.strip()
-        return "原始 CLI 事件已保存，可以在日志中展开查看。"
+    def _cli_display_event(self, iteration_id: str, event: CliDisplayEvent) -> None:
+        self._add_event(iteration_id, event_type="cli.display", payload=event.payload())
 
     def _is_real_cli(self, mode: Optional[str]) -> bool:
         return mode == Mode.real_cli.value or settings.mode == Mode.real_cli.value

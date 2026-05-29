@@ -1,5 +1,5 @@
 import { documentLabel, eventLabel, nodeLabel } from './labels'
-import type { EventRecord, EventSeverity, IterationDetail, NodeRunRecord, ReadableError, SemanticEvent } from './types'
+import type { CliPhase, CliProvider, EventRecord, EventSeverity, IterationDetail, NodeRunRecord, ReadableError, SemanticEvent } from './types'
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
@@ -29,6 +29,13 @@ export function presentEvent(event: EventRecord): SemanticEvent {
     message: semanticMessage ?? fallback.message,
     severity: severityValue(payload.severity) ?? fallback.severity,
     created_at: event.created_at,
+    provider: providerValue(payload.provider),
+    phase: phaseValue(payload.phase),
+    status: stringValue(payload.status),
+    command: stringValue(payload.command),
+    paths: arrayValue(payload.paths),
+    tool: stringValue(payload.tool),
+    preview: stringValue(payload.preview),
     run_id: stringValue(payload.run_id),
     document: stringValue(payload.document),
     action_hint: stringValue(payload.action_hint) ?? fallback.action_hint,
@@ -37,7 +44,34 @@ export function presentEvent(event: EventRecord): SemanticEvent {
 }
 
 export function isAgentActivity(event: EventRecord) {
-  return event.type.startsWith('node.') || event.type.startsWith('artifact.') || event.type.startsWith('error.')
+  return event.type === 'cli.display' || event.type.startsWith('node.') || event.type.startsWith('artifact.') || event.type.startsWith('error.')
+}
+
+export function isCliDisplayEvent(event: EventRecord) {
+  return event.type === 'cli.display'
+}
+
+export function cliPhaseLabel(value: string | undefined) {
+  const labels: Record<string, string> = {
+    session: '会话',
+    thinking: '推理',
+    text: '输出',
+    tool: '工具',
+    command: '命令',
+    file_change: '文件',
+    mcp: 'MCP',
+    todo: '清单',
+    retry: '重试',
+    result: '结果',
+    error: '错误',
+  }
+  return value ? labels[value] ?? value : '事件'
+}
+
+export function cliProviderLabel(value: string | undefined) {
+  if (value === 'claude_code') return 'Claude Code'
+  if (value === 'codex') return 'Codex'
+  return value ?? 'CLI'
 }
 
 export function classifyIterationProblem(detail: IterationDetail | null): ReadableError | null {
@@ -98,6 +132,33 @@ function inferNode(type: string) {
   if (type.includes('ui_driver')) return 'ui_driver'
   if (type.includes('verify')) return 'planner_verify'
   return 'system'
+}
+
+function providerValue(value: unknown): CliProvider | undefined {
+  if (value === 'claude_code' || value === 'codex') return value
+  return undefined
+}
+
+function phaseValue(value: unknown): CliPhase | undefined {
+  if (
+    value === 'session' ||
+    value === 'thinking' ||
+    value === 'text' ||
+    value === 'tool' ||
+    value === 'command' ||
+    value === 'file_change' ||
+    value === 'mcp' ||
+    value === 'todo' ||
+    value === 'retry' ||
+    value === 'result' ||
+    value === 'error'
+  ) return value
+  return undefined
+}
+
+function arrayValue(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.map(String)
 }
 
 function fallbackPresentation(event: EventRecord): { title: string; message: string; severity: EventSeverity; action_hint?: string } {

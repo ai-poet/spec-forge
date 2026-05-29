@@ -3,7 +3,7 @@ import type { IterationDetail, LiveCliOutput } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
 import { nodeLabel } from '../../../shared/lib/labels'
-import { presentNodeName, summarizeRun } from '../../../shared/lib/presentation'
+import { cliPhaseLabel, cliProviderLabel, presentEvent, presentNodeName, summarizeRun } from '../../../shared/lib/presentation'
 
 interface Props {
   detail: IterationDetail | null
@@ -39,6 +39,12 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
     if (!nodes) return true
     return nodes.has(run.node)
   })
+  const cliDisplays = (detail?.events ?? [])
+    .filter((event) => event.type === 'cli.display')
+    .map(presentEvent)
+    .filter((event) => !nodes || nodes.has(event.node))
+    .slice(-30)
+    .reverse()
 
   useEffect(() => {
     if (!liveRef.current) return
@@ -52,6 +58,23 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
     <section className="panel stack">
       <h2 className="section-title">{stepKey ? '本阶段 CLI 日志' : '运行日志'}</h2>
       <div className="timeline">
+        {cliDisplays.length ? (
+          <div className="item run-card">
+            <div className="item-head">
+              <strong>原版 CLI 风格摘要</strong>
+              <span className="status-dot info">{cliDisplays.length} 条</span>
+            </div>
+            <div className="cli-summary-list">
+              {cliDisplays.map((event) => (
+                <div key={event.id} className={`cli-summary-row ${event.severity}`}>
+                  <span>{cliProviderLabel(event.provider)} · {cliPhaseLabel(event.phase)}</span>
+                  <strong>{event.title}</strong>
+                  <p>{event.command ?? event.message}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {live ? (
           <div className="item run-card live">
             <div className="item-head">
@@ -78,7 +101,7 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
             </div>
             <div className="muted">{summarizeRun(run).message}</div>
             <details className="run-details" open={Boolean(live)}>
-              <summary>查看原始 CLI 日志</summary>
+              <summary>查看原始 JSONL / CLI 日志</summary>
               <div className="muted">{run.command}</div>
               <pre className="code log">{run.stdout || run.stderr || '暂无输出'}</pre>
             </details>

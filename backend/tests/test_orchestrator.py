@@ -3,6 +3,7 @@ import time
 import pytest
 from pathlib import Path
 from threading import Thread
+from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from specforge import contracts as contract_models
@@ -23,6 +24,17 @@ def post_project(tmp_path, name: str, **extra):
 
 def drain_jobs():
     job_queue.join()
+
+
+def create_manual_iteration(project_name: str, *, mode: str = "real-cli") -> str:
+    iteration_id = pipeline.db.create_iteration(
+        project_name=f"{project_name}-{uuid4().hex[:6]}",
+        goal="manual pipeline test",
+        mode=mode,
+        test_command=None,
+    )
+    pipeline.project_root(iteration_id).mkdir(parents=True, exist_ok=True)
+    return iteration_id
 
 
 def test_delete_epic_and_iterations(tmp_path):
@@ -63,6 +75,7 @@ def test_delete_epic_stops_running_iteration(tmp_path):
 
     delete_epic = client.delete(f"/api/epics/{epic_id}")
     assert delete_epic.status_code == 200
+    drain_jobs()
     assert client.get(f"/api/iterations/{iteration_id}").status_code == 404
 
 
@@ -399,19 +412,40 @@ def test_parse_artifact_from_codex_jsonl_item_message():
     assert "Pass" in artifact.verify_report
 
 
-def test_native_cli_events_are_presented_as_semantic_progress():
-    event = pipeline._present_native_cli_event({"type": "item.started", "item": {"type": "command_execution", "command": ["pytest", "-q"]}})
-    assert event
-    assert event["title"] == "Codex 命令执行开始"
-    assert "pytest -q" in event["message"]
+def test_execute_jsonl_output_emits_cli_display_event():
+    iteration_id = create_manual_iteration("cli-display")
+    pipeline.db.update_iteration(iteration_id, current_node="tester", status="testing", last_error=None)
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "tester"}
+    code = "import json; print(json.dumps({'type':'item.started','item':{'type':'command_execution','command':['pytest','-q']}}))"
+
+    pipeline._execute(
+        state,
+        [
+            "python",
+            "-c",
+            code,
+        ],
+        node="tester",
+    )
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    event = next(event for event in detail["events"] if event["type"] == "cli.display")
+    assert event["payload"]["phase"] == "command"
+    assert event["payload"]["command"] == "pytest -q"
+    assert event["payload"]["provider"] == "codex"
+
+
+def test_execute_non_json_output_falls_back_to_node_progress():
+    iteration_id = create_manual_iteration("cli-fallback")
+    pipeline.db.update_iteration(iteration_id, current_node="tester", status="testing", last_error=None)
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "tester"}
+
+    pipeline._execute(state, ["python", "-c", "print('plain output')"], node="tester")
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert any(event["type"] == "node.progress" and event["payload"]["title"] == "已收到模型输出" for event in detail["events"])
 
 
 def test_execute_live_cli_node_from_db_current_node():
-    resp = client.post(
-        "/api/iterations",
-        json={"project_name": "live-cli-node", "goal": "check live_cli node", "mode": "dry-run"},
-    )
-    iteration_id = resp.json()["id"]
+    iteration_id = create_manual_iteration("live-cli-node", mode="dry-run")
     pipeline.db.update_iteration(iteration_id, current_node="planner", status="planning")
     state = {"iteration_id": iteration_id, "mode": "dry-run", "current_node": None}
 
@@ -449,7 +483,7 @@ def test_append_live_cli_publishes_cli_output_event():
 
 def test_stop_iteration_cancels_active_cli():
     runner = pipeline.real_runner
-    iteration_id = "stop-cli"
+    iteration_id = create_manual_iteration("stop-cli")
     results: list = []
 
     def run_process() -> None:

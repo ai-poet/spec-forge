@@ -3,6 +3,7 @@ import type { IterationDetail, TimelineFilter } from '../../../shared/lib/types'
 import { documentLabel } from '../../../shared/lib/labels'
 import { DocumentPanel } from './DocumentPanel'
 import { AgentActivityPanel } from './AgentActivityPanel'
+import { CliExecutionTracePanel } from './CliExecutionTracePanel'
 import { IterationSummaryPanel } from './IterationSummaryPanel'
 import { RunLogPanel } from './RunLogPanel'
 import { TimelinePanel } from './TimelinePanel'
@@ -42,6 +43,7 @@ export function WorkbenchPanel({ detail, docText, onLoadDocument }: Props) {
           <div className="stack">
             <IterationSummaryPanel detail={detail} />
             <AgentActivityPanel detail={detail} />
+            <CliExecutionTracePanel detail={detail} />
           </div>
           <TimelinePanel detail={detail} filter={timelineFilter} onFilterChange={setTimelineFilter} />
         </div>
