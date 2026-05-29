@@ -1279,6 +1279,7 @@ button {
 .timeline {
   max-height: 440px;
   overflow: auto;
+  overscroll-behavior: contain;
   display: grid;
   gap: 8px;
 }
