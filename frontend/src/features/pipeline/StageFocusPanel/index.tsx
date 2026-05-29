@@ -1,12 +1,12 @@
 import type { IterationDetail } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../lib/pipelineSteps'
 import { inferFocusStep, PIPELINE_STEPS } from '../lib/pipelineSteps'
-import { ActionPanel } from '../../iteration/components/ActionPanel'
-import { DocumentPanel } from '../../iteration/components/DocumentPanel'
-import { IterationSummaryPanel } from '../../iteration/components/IterationSummaryPanel'
-import { StepExecutionPanel } from './StepExecutionPanel'
-import { TimelinePanel } from '../../iteration/components/TimelinePanel'
-import { UIVerificationPanel } from '../../iteration/components/UIVerificationPanel'
+import { ActionPanel } from '../../iteration/ActionPanel'
+import { DocumentPanel } from '../../iteration/DocumentPanel'
+import { IterationSummaryPanel } from '../../iteration/IterationSummaryPanel'
+import { StepExecutionPanel } from '../StepExecutionPanel'
+import { TimelinePanel } from '../../iteration/TimelinePanel'
+import { UIVerificationPanel } from '../../iteration/UIVerificationPanel'
 
 interface Props {
   detail: IterationDetail | null

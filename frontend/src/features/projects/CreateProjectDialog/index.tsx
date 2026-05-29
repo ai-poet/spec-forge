@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { validateProjectPath } from '../../../shared/lib/api'
 import type { CreateProjectInput } from '../../../shared/lib/types'
-import { FolderPicker } from './FolderPicker'
+import { FolderPicker } from '../FolderPicker'
 
 type FolderMode = 'open' | 'create'
 

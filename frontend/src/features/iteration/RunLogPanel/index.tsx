@@ -3,6 +3,7 @@ import type { IterationDetail, SemanticEvent } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
 import { cliPhaseLabel, cliProviderLabel, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
+import styles from './RunLogPanel.module.less'
 
 interface Props {
   detail: IterationDetail | null
@@ -49,6 +50,23 @@ function formatCliText(value: string | undefined): string {
 function cliLogMessage(event: SemanticEvent): string {
   if (event.command) return event.command
   return formatCliText(event.message)
+}
+
+const PHASE_CLASS: Record<string, string | undefined> = {
+  command: styles.phaseCommand,
+  file_change: styles.phaseFileChange,
+  mcp: styles.phaseMcp,
+  tool: styles.phaseTool,
+  todo: styles.phaseTodo,
+}
+
+function rowClassName(event: ReturnType<typeof presentEvent>, animatedIds: Set<string>): string {
+  const phaseClass = PHASE_CLASS[event.phase ?? 'text']
+  const severityClass =
+    event.severity === 'error' ? styles.severityError : event.severity === 'warning' ? styles.severityWarning : ''
+  return [styles.row, phaseClass, severityClass, animatedIds.has(event.id) ? styles.isNew : '']
+    .filter(Boolean)
+    .join(' ')
 }
 
 export function RunLogPanel({ detail, stepKey = null }: Props) {
@@ -109,42 +127,41 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
   }, [])
 
   return (
-    <section className="panel stack">
+    <section className={`panel ${styles.root}`}>
       <h2 className="section-title">{stepKey ? '本阶段 CLI 日志' : '运行日志'}</h2>
-      <div className="timeline">
+      <div className={styles.scrollArea}>
         {cliDisplays.length ? (
-          <div className="cli-log-stream" aria-label="CLI 操作流">
+          <div className={styles.stream} aria-label="CLI 操作流">
             {cliDisplays.map((event) => {
               const message = cliLogMessage(event)
               const preview = formatCliText(event.preview)
               return (
-                <article key={event.id} className={`cli-log-row ${event.phase ?? 'text'} ${event.severity} ${animatedEventIds.has(event.id) ? 'is-new' : ''}`}>
-                  <div className="cli-log-meta">
+                <article key={event.id} className={rowClassName(event, animatedEventIds)}>
+                  <div className={styles.meta}>
                     <span>{cliProviderLabel(event.provider)}</span>
                     <span>{cliPhaseLabel(event.phase)}</span>
                     <span>{presentNodeName(event.node)}</span>
                   </div>
-                  <div className="cli-log-body">
+                  <div className={styles.body}>
                     <strong>{event.title}</strong>
                     {message ? <p>{message}</p> : null}
-                    {event.tool ? <span className="cli-log-detail">工具: {event.tool}</span> : null}
+                    {event.tool ? <span className={styles.detail}>工具: {event.tool}</span> : null}
                     {event.paths?.length ? (
-                      <div className="trace-paths">
+                      <div className={styles.paths}>
                         {event.paths.map((path) => <span key={path}>{path}</span>)}
                       </div>
                     ) : null}
-                    {preview && preview !== message ? <pre className="trace-preview">{preview}</pre> : null}
+                    {preview && preview !== message ? <pre className={styles.preview}>{preview}</pre> : null}
                   </div>
                 </article>
               )
             })}
           </div>
-        ) : null}
-        {!cliDisplays.length ? (
+        ) : (
           <div className="empty">
             {cliActive ? `${presentNodeName(pendingNode)} 正在运行，等待格式化 CLI 事件…` : stepKey ? '本阶段暂无格式化 CLI 日志' : '暂无格式化 CLI 日志'}
           </div>
-        ) : null}
+        )}
       </div>
     </section>
   )

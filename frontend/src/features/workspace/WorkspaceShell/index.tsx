@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
-import { CreatePipelinePanel } from '../../pipeline/components/CreatePipelinePanel'
-import { EmptyWorkspace } from './EmptyWorkspace'
+import { CreatePipelinePanel } from '../../pipeline/CreatePipelinePanel'
+import { EmptyWorkspace } from '../EmptyWorkspace'
 import type { EpicSummary, ProjectSummary } from '../../../shared/lib/types'
 
 interface Props {

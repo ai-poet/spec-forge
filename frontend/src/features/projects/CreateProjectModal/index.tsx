@@ -1,4 +1,4 @@
-import { CreateProjectDialog } from './CreateProjectDialog'
+import { CreateProjectDialog } from '../CreateProjectDialog'
 import type { CreateProjectInput } from '../../../shared/lib/types'
 
 interface Props {

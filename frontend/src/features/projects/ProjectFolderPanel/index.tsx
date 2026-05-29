@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { validateProjectPath } from '../../../shared/lib/api'
 import type { ProjectSummary } from '../../../shared/lib/types'
-import { FolderPicker } from './FolderPicker'
+import { FolderPicker } from '../FolderPicker'
 import { formatProjectPath } from '../lib/formatPath'
 
 interface Props {

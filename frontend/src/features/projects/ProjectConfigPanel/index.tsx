@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ProjectSummary, UpdateProjectInput } from '../../../shared/lib/types'
-import { ProjectFolderPanel } from './ProjectFolderPanel'
+import { ProjectFolderPanel } from '../ProjectFolderPanel'
 
 interface Props {
   project: ProjectSummary | null
