@@ -117,8 +117,8 @@ flowchart TB
   integrityCheck -->|"checksum 通过"| tester
   integrityCheck -->|"测试被篡改"| endBlocked
 
-  tester -->|"验证通过"| plannerVerify
-  tester -->|"失败且未超重试上限\n→ 回环 ②"| coder
+  tester -->|"验证通过\n（UI 失败可带警告）"| plannerVerify
+  tester -->|"passed=false 或审查兜底失败\n且未超重试上限 → 回环 ②"| coder
   tester -->|"失败且超重试上限"| endBlocked
 
   plannerVerify -->|"报告合格"| verifyApproval
@@ -128,7 +128,7 @@ flowchart TB
   verifyApproval --> doneNode
   doneNode --> endDelivered([END\ndelivered])
 
-  tester -.->|"Tester 内部调用\n非 LangGraph 节点"| uiDriver["UI Driver\nCua 优先 · Web 回退 Playwright"]
+  tester -.->|"Tester 内部调用\n含审查兜底 · 非 LangGraph 节点"| uiDriver["UI Driver\nCua 优先 · Web 回退 Playwright\n断言失败 → 警告"]
 ```
 
 **图例：** 实线 = LangGraph 边；虚线 = Tester 节点内的工具调用。`integrity_check` 与 `planner_verify` 不调用外部 CLI。
@@ -141,7 +141,7 @@ flowchart TB
 | 实现 | `coder` | Claude CLI | 只改 `src/**`，根据规划写代码 |
 | 澄清 | `planner_clarification` | Claude CLI | Coder 看不懂时，Planner 正式回答并写入 `clarifications/` |
 | 完整性 | `integrity_check` | 后端程序 | 检查 Planner 写的测试有没有被 Coder 偷偷改掉 |
-| 验证 | `tester` | Codex CLI | 独立跑验证，写 `verify_report.md`，可选 UI 测试 |
+| 验证 | `tester` | Codex CLI | 独立跑验证，写 `verify_report.md`；CLI 异常时可走代码审查兜底；可选 UI 测试 |
 | 复核 | `planner_verify` | 后端程序 | 检查验证报告格式是否合格 |
 | 交付确认 | `verify_approval` | **你** | 在前端点「确认交付」，流水线才归档 |
 | 完成 | `done` | 后端 | 状态变为 `delivered`，写入 iteration_log |
@@ -166,7 +166,7 @@ flowchart LR
 
   subgraph loop2 ["回环 ② 实现/验证（默认 ≤ 5 次）"]
     direction TB
-    t2["Tester 失败\nCLI 错误 / 测试未通过 / UI 断言失败"] --> c2["Coder 修复\nstatus=retrying"]
+    t2["Tester 失败\npassed=false 或审查兜底失败"] --> c2["Coder 修复\nstatus=retrying"]
     c2 --> ic2["integrity_check"]
     ic2 --> t2b["Tester 再验证\n含 UI Driver"]
     t2b --> t2
@@ -189,10 +189,20 @@ flowchart LR
 | 回环 | 计数键 `retry_counts` | 默认上限 | 入口条件 | 回跳路径 | 超限终态 |
 |------|----------------------|----------|----------|----------|----------|
 | **① 澄清** | `coder_planner_clarify` | 3 | Coder artifact 含 `clarification_request` | `coder → planner_clarification → coder` | `blocked_user` |
-| **② 实现/验证** | `coder_tester` | 5 | Tester CLI 失败、`passed=false`、或 UI `failed` | `tester → coder → integrity_check → tester` | `blocked` |
+| **② 实现/验证** | `coder_tester` | 5 | Tester artifact `passed=false`，或 CLI 无合法产物且代码审查兜底也失败 | `tester → coder → integrity_check → tester` | `blocked` |
 | **③ 规格复核** | `planner_verify_reject` | 2 | `verify_report.md` 缺少标题或 Pass 摘要 | `planner_verify → coder → integrity_check → tester → planner_verify` | `blocked` |
 
-回环 ② 中 **UI Driver** 在 `tester` 节点内执行（扫描 `docs/.../tests/ui/*.json`）：Cua 可用则走 CuaDriver；Cua 不可用时 **Web** trajectory 由 Playwright 真实执行；**native** 仍记为未执行（`warning`），不单独占一条 LangGraph 边。
+回环 ② 中 **UI Driver** 在 `tester` 节点内执行（扫描 `docs/.../tests/ui/*.json`）：Cua 可用则走 CuaDriver；Cua 不可用时 **Web** trajectory 由 Playwright 真实执行；**native** 仍记为未执行（`warning`），不单独占一条 LangGraph 边。**UI 断言失败不会触发回环 ②**，只写入 `ui_warnings` 和交付建议，界面显示「需复核」。
+
+**Tester 容错（均在 `tester` 节点内，不占 LangGraph 边）：**
+
+| 情况 | 行为 |
+|------|------|
+| CLI 非零退出，但 stdout 含合法 JSON 产物 | 接受产物，发 `tester.nonzero_artifact.accepted`，异常记为警告 |
+| CLI 非零退出且无合法产物 | 自动启动**代码审查兜底**（`review_only`，禁止 Playwright/CUA），发 `tester.review_fallback.*` 事件 |
+| 审查兜底成功 | 继续跑 UI Driver，进入 `planner_verify` |
+| 审查兜底也失败 | 进入回环 ② |
+| UI 自动化断言失败 | 发 `ui_driver.failed`（`blocking: false`），**不**进入回环 ②；本轮是否通过以代码审查未发现 P0/P1 为准 |
 
 ```mermaid
 sequenceDiagram
@@ -202,15 +212,18 @@ sequenceDiagram
   participant UI as UI Driver
   participant Verify as planner_verify
 
-  Note over Coder,Verify: 回环 ② — Tester 失败后
+  Note over Coder,Verify: 回环 ② — 仅 passed=false 或审查兜底失败时
   Tester->>Tester: Codex 产出 verify_report
+  alt CLI 失败且无合法产物
+    Tester->>Tester: review_only 代码审查兜底
+  end
   Tester->>UI: run_specs（Cua 或 Playwright）
-  alt UI 断言失败或 passed=false
+  alt passed=false
     Tester-->>Coder: status=tester_failed_retry<br/>retry_counts.coder_tester += 1
     Coder->>Coder: 根据 failure_notes 改 src
     Coder->>Integrity: checksum 门禁
     Integrity->>Tester: 再跑验证
-  else 验证通过
+  else passed=true（含 UI 失败降级为警告）
     Tester->>Verify: 进入规格复核
   end
 ```
@@ -229,7 +242,7 @@ flowchart TD
   coder --> integrity["integrity_check"]
   integrity --> tester["Tester\n+ UI Driver"]
 
-  tester -->|"② 失败\n≤5"| coder
+  tester -->|"② passed=false\n或审查兜底失败 ≤5"| coder
   tester -->|"通过"| pverify["planner_verify"]
 
   pverify -->|"③ 驳回\n≤2"| coder
@@ -270,10 +283,11 @@ flowchart TD
 你在界面上能看到：
 
 - **流水线阶段条**：规划 / 实现 / 测试 / 交付确认
-- **Agent 活动**：语义化事件（「规划节点已启动」「已收到模型输出」…）
+- **Agent 活动**：语义化事件（「规划节点已启动」「代码审查兜底已启动」「UI Driver 需复核」…）
 - **本阶段 CLI 日志**：Planner/Coder/Tester 的实时终端输出（stream-json 原始流）
 - **文档面板**：`system_design.md` 等产物
 - **运行日志**：每个节点 CLI 的完整 stdout/stderr 归档
+- **UI 验证面板**：`ui_results.json` / `ui_report.md`；UI 失败时显示警告而非阻断
 
 ---
 
@@ -283,10 +297,10 @@ flowchart TD
 |------|--------|------|----------|
 | **Node 1 Planner** | Claude CLI | 读需求、写 spec、写 protected tests | `docs/system_design/iteration_NNN/` 下的规划和测试 |
 | **Node 2 Coder** | Claude CLI | 根据 spec 写代码 | `.specforge/iterations/{id}/src/**` |
-| **Node 3 Tester** | Claude CLI（可在项目设置改为 Codex） | 独立验证、写报告 | `verify_report.md`、`tests/adversarial/` |
-| **Node 4 UI Driver** | CuaDriver CLI（Web 可回退 Playwright） | 跑 UI trajectory | 由 Tester 内部调用，不是独立图节点 |
+| **Node 3 Tester** | Claude CLI（可在项目设置改为 Codex） | 独立验证、写报告；CLI 异常时走审查兜底 | `verify_report.md`、`tests/adversarial/` |
+| **Node 4 UI Driver** | CuaDriver CLI（Web 可回退 Playwright） | 跑 UI trajectory；断言失败降级为警告 | 由 Tester 内部调用，不是独立图节点 |
 
-反串谋设计：Planner 和 Tester 用不同模型；测试文件有 checksum 保护；Tester 可以额外写 adversarial 测试。
+反串谋设计：Planner 和 Tester 用不同模型；测试文件有 checksum 保护；Tester 可以额外写 adversarial 测试。Playwright/CUA 等 UI 工具环境不可用时会自动走审查兜底，不会直接阻断流水线；UI 断言失败需人工复核，但不单独触发 Coder/Tester 回环。
 
 ---
 
@@ -347,8 +361,8 @@ pip install -e "backend/.[ui]" && playwright install chromium
 2. **创建 Epic（大需求）** — 填写描述和验收标准
 3. **启动流水线** — 系统自动创建 Iteration 并开始规划
 4. **观察执行** — 看阶段条、Agent 活动、CLI 实时日志
-5. **等待验证通过** — Coder/Tester 自动回环修复
-6. **确认交付** — 验证报告就绪后，点「确认交付」
+5. **等待验证通过** — Coder/Tester 自动回环修复；若 UI Driver 显示「需复核」，交付前建议人工点验失败场景
+6. **确认交付** — 验证报告就绪后，点「确认交付」（UI 警告不阻断此步骤）
 7. **查看产物** — `docs/system_design/iteration_NNN/` 和 `src/`
 
 随时可以用「停止」暂停，之后「继续执行」从当前步骤恢复。
@@ -402,6 +416,7 @@ spec-forge/
 - 单用户本地原型，无登录和多租户
 - CLI 权限策略为 bypass 模式，隔离强度有限
 - CuaDriver 不可用时 Web UI 由 Playwright 执行；仅 native UI 或未安装 Playwright 时记为未执行（warning）
+- UI 自动化断言失败仅记为 warning，不触发自动修复回环；交付门槛以 Tester 代码审查无 P0/P1 缺陷为准
 - 渐进式 checkpoint 策略（前 N 轮强制审批）尚未实现
 - 生产部署、成本监控、量化成功标准留待后续
 
