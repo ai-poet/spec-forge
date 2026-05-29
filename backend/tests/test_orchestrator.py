@@ -43,9 +43,11 @@ class SequenceRunner:
     def __init__(self, results: list[CLIResult]) -> None:
         self.results = list(results)
         self.commands: list[list[str]] = []
+        self.cwd_history: list[Path | None] = []
 
     def run(self, command, cwd=None, on_output=None, *, iteration_id=None):
         self.commands.append(command)
+        self.cwd_history.append(cwd)
         result = self.results.pop(0)
         if on_output and result.stdout:
             on_output("stdout", result.stdout)
@@ -511,6 +513,45 @@ def test_execute_stderr_plain_logs_use_diagnostic_title():
     )
 
 
+def test_real_cli_execute_runs_from_project_root(tmp_path, monkeypatch):
+    project = post_project(tmp_path, "real-cli-cwd")
+    project_id = project.json()["id"]
+    repo_root = Path(project.json()["root_path"])
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        goal="cwd test",
+        mode="real-cli",
+        test_command=None,
+        project_id=project_id,
+    )
+    runner = SequenceRunner([CLIResult(command=[], returncode=0, stdout="ok", stderr="")])
+    monkeypatch.setattr(pipeline, "real_runner", runner)
+
+    pipeline._execute({"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id}, ["echo", "ok"], node="tester")
+
+    assert runner.cwd_history == [repo_root]
+
+
+def test_coder_prompt_points_to_project_src_and_iteration_docs(tmp_path):
+    project = post_project(tmp_path, "coder-prompt")
+    project_id = project.json()["id"]
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        goal="prompt test",
+        mode="real-cli",
+        test_command=None,
+        project_id=project_id,
+    )
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id}
+    command = pipeline._coder_command(state)
+    prompt = command[-1]
+
+    assert "current working directory is the project root" in prompt
+    assert "Edit only project source files under src/**" in prompt
+    assert str(pipeline.docs_root(iteration_id)) in prompt
+    assert "Do not edit docs/**" in prompt
+
+
 def test_tester_command_uses_project_cli_bindings(tmp_path):
     project = post_project(tmp_path, "cli-bindings")
     project_id = project.json()["id"]
@@ -536,6 +577,35 @@ def test_tester_command_uses_project_cli_bindings(tmp_path):
     state = {"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id}
     command = pipeline._tester_command(state)
     assert command[0] == "claude"
+
+
+def test_planner_verify_reject_routes_back_to_tester():
+    state = {"iteration_id": "iter", "status": "verify_rejected"}
+    assert pipeline._route_after_planner_verify(state) == "tester"
+
+
+def test_tester_retry_prompt_handles_verify_report_rejection(tmp_path):
+    project = post_project(tmp_path, "tester-verify-retry")
+    project_id = project.json()["id"]
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        goal="verify report retry",
+        mode="real-cli",
+        test_command=None,
+        project_id=project_id,
+    )
+    prompt = pipeline._tester_prompt(
+        {
+            "iteration_id": iteration_id,
+            "mode": "real-cli",
+            "project_id": project_id,
+            "failure_notes": "verify_report missing required summary markers",
+        },
+        review_only=False,
+    )
+
+    assert "regenerate verify_report" in prompt
+    assert "not a Coder src/** change" in prompt
 
 
 def test_tester_review_fallback_succeeds_without_retry(monkeypatch):
@@ -1067,6 +1137,13 @@ def test_ui_driver_failure_warns_without_retry(tmp_path):
 
     assert detail["status"] == "awaiting_verify_approval"
     assert detail["retry_counts"] == {}
+    ui_progress = [
+        event
+        for event in detail["events"]
+        if event["type"] == "node.progress" and event["payload"].get("node") == "ui_driver"
+    ]
+    assert ui_progress[-1]["payload"]["severity"] == "warning"
+    assert "非阻断" in ui_progress[-1]["payload"]["message"]
     failed_event = next(event for event in detail["events"] if event["type"] == "ui_driver.failed")
     assert failed_event["payload"]["blocking"] is False
     assert detail["ui_results"][0]["status"] == "failed"

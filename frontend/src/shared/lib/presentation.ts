@@ -177,8 +177,11 @@ function fallbackPresentation(event: EventRecord): { title: string; message: str
   const payload = event.payload
   const reason = stringValue(payload.stderr) ?? stringValue(payload.reason) ?? stringValue(payload.notes) ?? stringValue(payload.warning)
   const count = typeof payload.count === 'number' ? `数量: ${payload.count}` : undefined
+  const nonBlockingFailure = event.type === 'ui_driver.failed' && payload.blocking === false
   const severity: EventSeverity =
-    event.type.includes('failed') || event.type.includes('blocked') || event.type.includes('max_retries') || event.type === 'artifact.invalid' || event.type === 'ui_spec.invalid'
+    nonBlockingFailure
+      ? 'warning'
+      : event.type.includes('failed') || event.type.includes('blocked') || event.type.includes('max_retries') || event.type === 'artifact.invalid' || event.type === 'ui_spec.invalid'
       ? 'error'
       : event.type.includes('warning') || event.type.includes('rejected')
         ? 'warning'

@@ -421,7 +421,7 @@ class LangGraphPipeline:
         )
         builder.add_conditional_edges("integrity_check", self._route_after_integrity, {"blocked": END, "tester": "tester"})
         builder.add_conditional_edges("tester", self._route_after_tester, {"blocked": END, "retry": "coder", "verify": "planner_verify"})
-        builder.add_conditional_edges("planner_verify", self._route_after_planner_verify, {"blocked": END, "retry": "coder", "approval": "verify_approval"})
+        builder.add_conditional_edges("planner_verify", self._route_after_planner_verify, {"blocked": END, "tester": "tester", "approval": "verify_approval"})
         builder.add_edge("verify_approval", "done")
         builder.add_edge("done", END)
         return builder
@@ -878,11 +878,11 @@ class LangGraphPipeline:
             return "retry"
         return "verify"
 
-    def _route_after_planner_verify(self, state: PipelineState) -> Literal["blocked", "retry", "approval"]:
+    def _route_after_planner_verify(self, state: PipelineState) -> Literal["blocked", "tester", "approval"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
         if state.get("status") == "verify_rejected":
-            return "retry"
+            return "tester"
         return "approval"
 
     def _config(self, iteration_id: str) -> dict[str, Any]:
@@ -1017,7 +1017,7 @@ class LangGraphPipeline:
         try:
             return runner.run(
                 command,
-                cwd=self.project_root(iteration_id),
+                cwd=self._execution_cwd(state),
                 on_output=on_output,
                 iteration_id=iteration_id,
             )
@@ -1030,6 +1030,12 @@ class LangGraphPipeline:
 
     def _is_real_cli(self, mode: Optional[str]) -> bool:
         return mode == Mode.real_cli.value or settings.mode == Mode.real_cli.value
+
+    def _execution_cwd(self, state: PipelineState) -> Path:
+        iteration_id = state["iteration_id"]
+        if self._is_real_cli(state.get("mode")):
+            return self.project_repo_root(iteration_id)
+        return self.project_root(iteration_id)
 
     def _planner_brief(self, state: PipelineState) -> str:
         iteration_id = state["iteration_id"]
@@ -1083,8 +1089,10 @@ class LangGraphPipeline:
     def _planner_clarification_command(self, state: PipelineState, clarification_request: str) -> list[str]:
         if self._is_real_cli(state.get("mode")):
             iteration_id = state["iteration_id"]
+            docs_root = self.docs_root(iteration_id)
             prompt = (
                 "You are Planner for SpecForge answering a Coder clarification request. "
+                f"Iteration docs root: {docs_root}. "
                 "Read the approved system_design.md, modification_plan.md, testing_plan.md, and project invariants. "
                 "Return only JSON matching {answer:string, summary:string}. "
                 "The answer must be actionable for Coder and should not change protected tests. "
@@ -1103,10 +1111,14 @@ class LangGraphPipeline:
         iteration_id = state["iteration_id"]
         if self._is_real_cli(state.get("mode")):
             notes = state.get("failure_notes") or ""
+            docs_root = self.docs_root(iteration_id)
             prompt = (
-                "You are Coder for SpecForge. Edit only src/** in this iteration workspace. "
-                "Read project docs under docs/ and iteration specs under the iteration docs root. "
-                "Do not edit docs/tests or protected planning documents. Return only JSON matching "
+                "You are Coder for SpecForge. Your current working directory is the project root. "
+                f"Iteration docs root: {docs_root}. "
+                "Edit only project source files under src/**. "
+                "Read project docs under docs/ and the approved iteration specs under the iteration docs root. "
+                "Do not edit docs/**, tests/**, .specforge/**, verify_report.md, or protected planning documents. "
+                "Return only JSON matching "
                 "{changed_paths:[string], summary:string, clarification_request?:string}. "
                 f"Failure notes to address: {notes}"
             )
@@ -1153,6 +1165,13 @@ class LangGraphPipeline:
             "and continue with static inspection/code review. UI automation assertion failures are warnings unless your code review shows "
             "the same issue is a P0/P1 implementation bug. "
         )
+        if state.get("failure_notes"):
+            common += (
+                "Retry notes to address in the Tester artifact: "
+                f"{state.get('failure_notes')}. "
+                "If Planner verification rejected verify_report.md structure, regenerate verify_report with a Markdown title, "
+                "a Summary section, and explicit Pass/Fail counts; this is a Tester docs artifact, not a Coder src/** change. "
+            )
         if test_command:
             common += f"Configured test command: {test_command}. Run it when practical and report the result. "
         else:
@@ -1261,12 +1280,12 @@ class LangGraphPipeline:
         if any(item.status == "failed" for item in result.results):
             self._node_event(
                 iteration_id,
-                "node.failed",
+                "node.progress",
                 "ui_driver",
-                "UI 验证失败",
-                "至少一条 UI trajectory 未通过，系统将进入实现/验证重试。",
-                severity="error",
-                action_hint="查看 UI 验证结果和截图 artifact。",
+                "UI 验证需复核",
+                "至少一条 UI trajectory 未通过，已作为非阻断警告记录；本轮是否通过由 Tester 代码审查的 P0/P1 结论决定。",
+                severity="warning",
+                action_hint="查看 UI 验证结果和截图 artifact；交付前建议人工复核失败 UI 场景。",
             )
         elif not any(item.status == "warning" for item in result.results) or result.fallback:
             self._node_event(iteration_id, "node.completed", "ui_driver", "UI 验证完成", f"已完成 {len(result.results)} 条 UI trajectory。", severity="success")
