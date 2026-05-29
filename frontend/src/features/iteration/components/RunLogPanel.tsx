@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { IterationDetail, LiveCliOutput } from '../../../shared/lib/types'
+import type { IterationDetail, LiveCliOutput, SemanticEvent } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
 import { nodeLabel } from '../../../shared/lib/labels'
@@ -28,6 +28,11 @@ function isCliStarting(detail: IterationDetail | null, stepKey: PipelineStepKey 
   if (!detail || !stepKey || !detail.current_node) return false
   if (!CLI_ACTIVE_STATUSES.has(detail.status)) return false
   return nodesForStep(stepKey).includes(detail.current_node)
+}
+
+function cliLogMessage(event: SemanticEvent): string {
+  if (event.command) return event.command
+  return event.message
 }
 
 export function RunLogPanel({ detail, stepKey = null }: Props) {
@@ -59,20 +64,27 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
       <h2 className="section-title">{stepKey ? '本阶段 CLI 日志' : '运行日志'}</h2>
       <div className="timeline">
         {cliDisplays.length ? (
-          <div className="item run-card">
-            <div className="item-head">
-              <strong>原版 CLI 风格摘要</strong>
-              <span className="status-dot info">{cliDisplays.length} 条</span>
-            </div>
-            <div className="cli-summary-list">
-              {cliDisplays.map((event) => (
-                <div key={event.id} className={`cli-summary-row ${event.severity}`}>
-                  <span>{cliProviderLabel(event.provider)} · {cliPhaseLabel(event.phase)}</span>
-                  <strong>{event.title}</strong>
-                  <p>{event.command ?? event.message}</p>
+          <div className="cli-log-stream" aria-label="CLI 操作流">
+            {cliDisplays.map((event) => (
+              <article key={event.id} className={`cli-log-row ${event.phase ?? 'text'} ${event.severity}`}>
+                <div className="cli-log-meta">
+                  <span>{cliProviderLabel(event.provider)}</span>
+                  <span>{cliPhaseLabel(event.phase)}</span>
+                  <span>{presentNodeName(event.node)}</span>
                 </div>
-              ))}
-            </div>
+                <div className="cli-log-body">
+                  <strong>{event.title}</strong>
+                  <p>{cliLogMessage(event)}</p>
+                  {event.tool ? <span className="cli-log-detail">工具: {event.tool}</span> : null}
+                  {event.paths?.length ? (
+                    <div className="trace-paths">
+                      {event.paths.map((path) => <span key={path}>{path}</span>)}
+                    </div>
+                  ) : null}
+                  {event.preview && event.preview !== event.message ? <pre className="trace-preview">{event.preview}</pre> : null}
+                </div>
+              </article>
+            ))}
           </div>
         ) : null}
         {live ? (

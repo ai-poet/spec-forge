@@ -1,7 +1,7 @@
 import type { IterationDetail } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
-import { cliPhaseLabel, cliProviderLabel, isAgentActivity, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
+import { isAgentActivity, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
 
 interface Props {
   detail: IterationDetail | null
@@ -10,7 +10,7 @@ interface Props {
 
 export function AgentActivityPanel({ detail, stepKey = null }: Props) {
   const nodes = stepKey ? new Set(nodesForStep(stepKey)) : null
-  const activities = (detail?.events.filter(isAgentActivity).map(presentEvent) ?? []).filter((event) => {
+  const activities = (detail?.events.filter(isAgentActivity).filter((event) => event.type !== 'cli.display').map(presentEvent) ?? []).filter((event) => {
     if (!nodes) return true
     return nodes.has(event.node)
   })
@@ -24,11 +24,10 @@ export function AgentActivityPanel({ detail, stepKey = null }: Props) {
       </div>
       <div className="activity-list">
         {visible.map((event) => (
-          <article key={event.id} className={`activity-item ${event.severity} ${event.type === 'cli.display' ? 'cli-activity' : ''}`}>
+          <article key={event.id} className={`activity-item ${event.severity}`}>
             <div>
               <div className="activity-title-row">
                 <strong>{event.title}</strong>
-                {event.type === 'cli.display' ? <span className="mini-pill">{cliProviderLabel(event.provider)} · {cliPhaseLabel(event.phase)}</span> : null}
               </div>
               <p>{event.message}</p>
               {event.command ? <code className="inline-code">{event.command}</code> : null}

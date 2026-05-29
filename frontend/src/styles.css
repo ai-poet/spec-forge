@@ -1679,10 +1679,6 @@ button.artifact-chip:disabled {
   flex-wrap: wrap;
 }
 
-.activity-item.cli-activity {
-  border-left: 3px solid rgba(117, 208, 179, 0.65);
-}
-
 .activity-item p {
   margin: 4px 0 0;
   color: #b8c4d6;
@@ -1780,8 +1776,7 @@ button.artifact-chip:disabled {
   overflow-wrap: anywhere;
 }
 
-.cli-trace-list,
-.cli-summary-list {
+.cli-trace-list {
   display: grid;
   gap: 8px;
 }
@@ -1834,7 +1829,7 @@ button.artifact-chip:disabled {
 }
 
 .cli-trace-item p,
-.cli-summary-row p {
+.cli-log-row p {
   margin: 0;
   color: #b8c4d6;
 }
@@ -1860,31 +1855,76 @@ button.artifact-chip:disabled {
   white-space: pre-wrap;
 }
 
-.cli-summary-row {
-  border: 1px solid #253047;
+.cli-log-stream {
+  border: 1px solid #202838;
   border-radius: 8px;
-  padding: 8px;
-  background: #111827;
+  background: #090f19;
+  display: grid;
+  overflow: hidden;
 }
 
-.cli-summary-row span {
+.cli-log-row {
+  border-bottom: 1px solid #1a2434;
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 10px;
+}
+
+.cli-log-row:last-child {
+  border-bottom: 0;
+}
+
+.cli-log-row.command {
+  border-left: 3px solid #5f9bff;
+}
+
+.cli-log-row.file_change {
+  border-left: 3px solid #8bdc8d;
+}
+
+.cli-log-row.mcp,
+.cli-log-row.tool {
+  border-left: 3px solid #75d0b3;
+}
+
+.cli-log-row.todo {
+  border-left: 3px solid #f0c56b;
+}
+
+.cli-log-row.error {
+  background: #21161a;
+}
+
+.cli-log-row.warning {
+  background: #211c12;
+}
+
+.cli-log-meta {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+}
+
+.cli-log-meta span {
   color: #9facbf;
   font-size: 11px;
 }
 
-.cli-summary-row strong {
-  display: block;
-  margin: 2px 0;
+.cli-log-body {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
 }
 
-.cli-summary-row.error {
-  border-color: #a74949;
-  background: #21161a;
+.cli-log-body strong {
+  color: #edf2f8;
+  font-size: 13px;
 }
 
-.cli-summary-row.warning {
-  border-color: #a17d2d;
-  background: #211c12;
+.cli-log-detail {
+  color: #9facbf;
+  font-size: 12px;
 }
 
 .live-cli-stream {
