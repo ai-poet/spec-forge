@@ -1883,6 +1883,7 @@ button.artifact-chip:disabled {
   padding: 10px 12px;
   position: relative;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .cli-log-row.is-new {

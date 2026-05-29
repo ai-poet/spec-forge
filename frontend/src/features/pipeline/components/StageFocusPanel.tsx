@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { IterationDetail } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../lib/pipelineSteps'
 import { inferFocusStep, PIPELINE_STEPS } from '../lib/pipelineSteps'
@@ -8,7 +7,6 @@ import { IterationSummaryPanel } from '../../iteration/components/IterationSumma
 import { StepExecutionPanel } from './StepExecutionPanel'
 import { TimelinePanel } from '../../iteration/components/TimelinePanel'
 import { UIVerificationPanel } from '../../iteration/components/UIVerificationPanel'
-import { WorkbenchPanel } from '../../iteration/components/WorkbenchPanel'
 
 interface Props {
   detail: IterationDetail | null
@@ -31,7 +29,6 @@ export function StageFocusPanel({
   onStop,
   onResume,
 }: Props) {
-  const [showAllDetails, setShowAllDetails] = useState(false)
   const focusStep = reviewStepKey ?? (detail ? inferFocusStep(detail) : null)
   const stepMeta = PIPELINE_STEPS.find((step) => step.key === focusStep)
 
@@ -129,16 +126,6 @@ export function StageFocusPanel({
           ) : null}
         </div>
         {renderStepContent()}
-      </section>
-
-      <section className="stage-section stack stage-focus-details">
-        <div className="section-row">
-          <h2 className="section-title">全部详情</h2>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setShowAllDetails((value) => !value)}>
-            {showAllDetails ? '收起' : '展开'}
-          </button>
-        </div>
-        {showAllDetails ? <WorkbenchPanel detail={detail} docText={docText} onLoadDocument={onLoadDocument} /> : null}
       </section>
     </div>
   )
