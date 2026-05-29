@@ -1,5 +1,6 @@
 import type { EpicSummary, IterationSummary, ProjectSummary } from '../../../shared/lib/types'
 import { iterationStatusLabel } from '../../../shared/lib/labels'
+import styles from './ContextHeader.module.less'
 
 interface Props {
   project: ProjectSummary | null
@@ -9,27 +10,33 @@ interface Props {
   onOpenSettings: () => void
 }
 
+function statusPillClass(status: string): string {
+  if (status === 'delivered') return styles.delivered
+  if (status.includes('blocked')) return styles.blocked
+  return styles.active
+}
+
 export function ContextHeader({ project, selectedEpic, selectedIteration, onCreatePipeline, onOpenSettings }: Props) {
   return (
-    <header className="context-header">
-      <div className="context-header-row">
-        <span className="context-project-name">{project?.name ?? '项目'}</span>
+    <header className={styles.header}>
+      <div className={styles.row}>
+        <span className={styles.projectName}>{project?.name ?? '项目'}</span>
         {selectedEpic ? (
           <>
-            <span className="context-sep">·</span>
-            <span className="context-project-name">{selectedEpic.title}</span>
+            <span className={styles.sep}>·</span>
+            <span className={styles.projectName}>{selectedEpic.title}</span>
           </>
         ) : null}
         {selectedIteration ? (
           <>
-            <span className="context-sep">·</span>
-            <span className={`status-pill ${selectedIteration.status === 'delivered' ? 'delivered' : selectedIteration.status.includes('blocked') ? 'blocked' : 'active'}`}>
+            <span className={styles.sep}>·</span>
+            <span className={`${styles.statusPill} ${statusPillClass(selectedIteration.status)}`}>
               {iterationStatusLabel[selectedIteration.status]}
             </span>
           </>
         ) : null}
       </div>
-      <div className="context-header-actions">
+      <div className={styles.actions}>
         <button type="button" className="btn btn-ghost btn-sm" onClick={onCreatePipeline} disabled={!project}>
           新建流水线
         </button>

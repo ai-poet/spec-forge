@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { CreatePipelinePanel } from '../../pipeline/CreatePipelinePanel'
 import { EmptyWorkspace } from '../EmptyWorkspace'
 import type { EpicSummary, ProjectSummary } from '../../../shared/lib/types'
+import styles from './WorkspaceShell.module.less'
 
 interface Props {
   project: ProjectSummary | null
@@ -17,8 +18,8 @@ interface Props {
 
 function StageContent({ children }: { children: ReactNode }) {
   return (
-    <div className="workspace-stage">
-      <div className="workspace-stage-inner stack">{children}</div>
+    <div className={styles.stage}>
+      <div className={`${styles.stageInner} stack`}>{children}</div>
     </div>
   )
 }
@@ -65,5 +66,5 @@ export function WorkspaceShell({
     )
   }
 
-  return <div className="workspace-flow">{children}</div>
+  return <div className={styles.flow}>{children}</div>
 }

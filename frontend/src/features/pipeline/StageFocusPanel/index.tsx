@@ -7,6 +7,7 @@ import { IterationSummaryPanel } from '../../iteration/IterationSummaryPanel'
 import { StepExecutionPanel } from '../StepExecutionPanel'
 import { TimelinePanel } from '../../iteration/TimelinePanel'
 import { UIVerificationPanel } from '../../iteration/UIVerificationPanel'
+import styles from './StageFocusPanel.module.less'
 
 interface Props {
   detail: IterationDetail | null
@@ -79,7 +80,7 @@ export function StageFocusPanel({
 
   if (!detail) {
     return (
-      <section className="stage-section">
+      <section className={styles.section}>
         <p className="muted">请选择一条流水线查看当前阶段。</p>
       </section>
     )
@@ -88,15 +89,15 @@ export function StageFocusPanel({
   const isBlocked = ['blocked', 'blocked_user', 'stopped', 'failed'].includes(detail.status)
 
   return (
-    <div className="stage-focus">
+    <div className={styles.focus}>
       {reviewStepKey ? (
-        <div className="stage-focus-banner">
+        <div className={styles.banner}>
           <strong>回顾：{stepMeta?.label}</strong>
           <span className="muted">只读查看该阶段产物与 Agent 执行详情</span>
         </div>
       ) : null}
 
-      <div className="action-bar-sticky">
+      <div className={styles.stickyBar}>
         <ActionPanel
           detail={detail}
           busy={busy}
@@ -107,12 +108,12 @@ export function StageFocusPanel({
       </div>
 
       {isBlocked && !reviewStepKey ? (
-        <section className="surface stack stage-section">
+        <section className={`surface stack ${styles.section}`}>
           <TimelinePanel detail={detail} filter="failures" />
         </section>
       ) : null}
 
-      <section className="stage-section stack stage-focus-content">
+      <section className={`${styles.section} stack ${styles.content}`}>
         <div className="section-row">
           <div>
             <p className="eyebrow">{reviewStepKey ? '阶段回顾' : '当前阶段'}</p>

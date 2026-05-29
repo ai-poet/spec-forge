@@ -5,6 +5,13 @@ import { iterationForEpic, pipelineStatusForEpic } from '../lib/epicPipeline'
 import sidebar from '../../../shared/ui/sidebar.module.less'
 import styles from './EpicPipelineSidebar.module.less'
 
+const STATUS_CLASS: Record<string, string> = {
+  running: sidebar.statusRunning,
+  delivered: sidebar.statusDelivered,
+  attention: sidebar.statusAttention,
+  idle: sidebar.statusIdle,
+}
+
 interface Props {
   epics: EpicSummary[]
   selectedEpicId: string | null
@@ -53,15 +60,15 @@ export function EpicPipelineSidebar({
               const pipelineStatus = pipelineStatusForEpic(epic, iteration)
               const kind = statusKind(pipelineStatus)
               return (
-                <div key={epic.id} className={`${sidebar.rowWrap} ${selectedEpicId === epic.id ? sidebar.active : ''}`}>
+                <div key={epic.id} className={`${sidebar.rowWrap} ${selectedEpicId === epic.id ? sidebar.rowWrapActive : ''}`}>
                   <button
                     type="button"
-                    className={`${sidebar.row} ${selectedEpicId === epic.id ? sidebar.active : ''}`}
+                    className={`${sidebar.row} ${selectedEpicId === epic.id ? sidebar.rowActive : ''}`}
                     onClick={() => onSelectPipeline(epic.id)}
                   >
                     <div className={sidebar.rowHead}>
                       <strong className={styles.pipelineTitle}>{epic.title}</strong>
-                      <span className={`${sidebar.status} ${sidebar[kind]}`}>
+                      <span className={`${sidebar.status} ${STATUS_CLASS[kind]}`}>
                         {iteration ? iterationStatusLabel[pipelineStatus as IterationSummary['status']] : '未启动'}
                       </span>
                     </div>

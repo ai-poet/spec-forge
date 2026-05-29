@@ -1,3 +1,6 @@
+import compose from '../../../shared/ui/compose.module.less'
+import styles from './EmptyWorkspace.module.less'
+
 interface Props {
   variant: 'no-project' | 'ready'
   projectName?: string
@@ -19,13 +22,13 @@ const copy: Record<Props['variant'], { title: string; body: string }> = {
 export function EmptyWorkspace({ variant, projectName, epicTitle, onStartPipeline }: Props) {
   const content = copy[variant]
   return (
-    <div className="workspace-empty">
+    <div className={styles.root}>
       <h2>{content.title}</h2>
       <p className="muted">{content.body}</p>
-      {projectName ? <p className="workspace-empty-context">{projectName}</p> : null}
-      {epicTitle ? <p className="workspace-empty-context">{epicTitle}</p> : null}
+      {projectName ? <p className={styles.context}>{projectName}</p> : null}
+      {epicTitle ? <p className={styles.context}>{epicTitle}</p> : null}
       {onStartPipeline ? (
-        <button type="button" className="btn btn-ghost btn-sm pipeline-entry-btn" onClick={onStartPipeline}>
+        <button type="button" className={`btn btn-ghost btn-sm ${compose.entryBtn}`} onClick={onStartPipeline}>
           新建流水线
         </button>
       ) : null}

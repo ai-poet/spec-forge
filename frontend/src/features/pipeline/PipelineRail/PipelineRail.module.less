@@ -34,24 +34,28 @@
   &:hover:not(:disabled) {
     background: var(--bg-surface-hover);
   }
+}
 
-  &.active,
-  &.live {
-    background: var(--accent-soft);
-  }
+.rowIdle {
+  /* default row appearance */
+}
 
-  &.complete .progressIcon {
-    color: var(--success);
-  }
+.rowActive,
+.rowLive {
+  background: var(--accent-soft);
+}
 
-  &.waiting .progressIcon {
-    color: var(--warning);
-  }
+.rowComplete .progressIcon {
+  color: var(--success);
+}
 
-  &.reviewing {
-    background: var(--accent-soft);
-    outline: 1px solid rgba(59, 130, 246, 0.35);
-  }
+.rowWaiting .progressIcon {
+  color: var(--warning);
+}
+
+.rowReviewing {
+  background: var(--accent-soft);
+  outline: 1px solid rgba(59, 130, 246, 0.35);
 }
 
 .progressIcon {

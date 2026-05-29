@@ -1,6 +1,7 @@
 import { connectionLabel, graphNodeLabel, iterationStatusLabel, retryLabel } from '../../../shared/lib/labels'
 import { PIPELINE_STEPS, pipelineStepState, stepStateLabel, type PipelineStepKey } from '../lib/pipelineSteps'
 import type { EpicSummary, IterationDetail, LiveConnectionStatus } from '../../../shared/lib/types'
+import styles from './PipelineRail.module.less'
 
 interface Props {
   detail: IterationDetail | null
@@ -10,6 +11,13 @@ interface Props {
   lastMessageAt: string | null
   reviewStepKey: PipelineStepKey | null
   onSelectStep: (key: PipelineStepKey | null) => void
+}
+
+const ROW_STATE_CLASS: Record<string, string | undefined> = {
+  active: styles.rowActive,
+  waiting: styles.rowWaiting,
+  complete: styles.rowComplete,
+  idle: styles.rowIdle,
 }
 
 function stepIcon(state: string, isLive: boolean) {
@@ -32,23 +40,23 @@ export function PipelineRail({
   const connected = connectionStatus === 'connected'
 
   return (
-    <aside className="pipeline-rail">
-      <div className="pipeline-rail-top">
-        <h2 className="rail-title">进度</h2>
-        <div className="rail-meta">
-          <span className={`connection-dot ${connected ? 'online' : ''}`} />
+    <aside className={styles.rail}>
+      <div className={styles.top}>
+        <h2 className={styles.railTitle}>进度</h2>
+        <div className={styles.railMeta}>
+          <span className={`${styles.connectionDot} ${connected ? styles.online : ''}`} />
           <span className="muted">{connectionLabel[connectionStatus]}</span>
           {epic ? <span className="muted">· {epic.title}</span> : null}
         </div>
         {detail ? (
-          <p className="muted rail-status">
+          <p className={`muted ${styles.railStatus}`}>
             {iterationStatusLabel[detail.status]}
             {detail.graph_next.length ? ` · ${detail.graph_next.map(graphNodeLabel).join(', ')}` : ''}
           </p>
         ) : null}
       </div>
 
-      <div className="progress-checklist">
+      <div className={styles.checklist}>
         {PIPELINE_STEPS.map((step) => {
           const state = pipelineStepState(step.key, detail)
           const isReviewing = reviewStepKey === step.key
@@ -57,24 +65,24 @@ export function PipelineRail({
             <button
               key={step.key}
               type="button"
-              className={`progress-row ${state} ${isReviewing ? 'reviewing' : ''} ${isLive ? 'live' : ''}`}
+              className={[styles.progressRow, ROW_STATE_CLASS[state], isReviewing ? styles.rowReviewing : '', isLive ? styles.rowLive : ''].filter(Boolean).join(' ')}
               onClick={() => onSelectStep(isReviewing ? null : step.key)}
               disabled={!detail}
             >
-              <span className="progress-icon">{stepIcon(state, isLive)}</span>
-              <span className="progress-label">{step.label}</span>
-              <span className="progress-state">{stepStateLabel[state]}</span>
+              <span className={styles.progressIcon}>{stepIcon(state, isLive)}</span>
+              <span className={styles.progressLabel}>{step.label}</span>
+              <span className={styles.progressState}>{stepStateLabel[state]}</span>
             </button>
           )
         })}
       </div>
 
       {(detail?.last_error || liveError) ? (
-        <div className="rail-banner error">{detail?.last_error ?? liveError}</div>
+        <div className={`${styles.railBanner} ${styles.error}`}>{detail?.last_error ?? liveError}</div>
       ) : null}
 
       {detail?.retry_counts && Object.keys(detail.retry_counts).length ? (
-        <div className="rail-banner">
+        <div className={styles.railBanner}>
           {Object.entries(detail.retry_counts).map(([key, value]) => (
             <span key={key}>{retryLabel(key)}: {value}</span>
           ))}
@@ -82,18 +90,18 @@ export function PipelineRail({
       ) : null}
 
       {uiEvents.length ? (
-        <div className={`rail-banner ${lastUiEvent?.type.includes('failed') ? 'error' : lastUiEvent?.type.includes('warning') ? 'warning' : ''}`}>
+        <div className={`${styles.railBanner} ${lastUiEvent?.type.includes('failed') ? styles.error : lastUiEvent?.type.includes('warning') ? styles.warning : ''}`}>
           UI Driver · {lastUiEvent?.type === 'ui_driver.completed' ? '已完成' : lastUiEvent?.type === 'ui_driver.failed' ? '失败' : '运行中'}
         </div>
       ) : null}
 
       {reviewStepKey ? (
-        <button type="button" className="btn btn-ghost btn-sm pipeline-rail-back" onClick={() => onSelectStep(null)}>
+        <button type="button" className={`btn btn-ghost btn-sm ${styles.railBack}`} onClick={() => onSelectStep(null)}>
           返回当前阶段
         </button>
       ) : null}
 
-      {lastMessageAt ? <p className="muted rail-footnote">更新 {new Date(lastMessageAt).toLocaleTimeString()}</p> : null}
+      {lastMessageAt ? <p className={`muted ${styles.railFootnote}`}>更新 {new Date(lastMessageAt).toLocaleTimeString()}</p> : null}
     </aside>
   )
 }

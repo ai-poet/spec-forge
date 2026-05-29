@@ -1,6 +1,7 @@
 import type { IterationDetail } from '../../../shared/lib/types'
-import { nodeLabel, retryLabel } from '../../../shared/lib/labels'
-import { classifyIterationProblem, documentSummary, presentNodeName } from '../../../shared/lib/presentation'
+import { retryLabel } from '../../../shared/lib/labels'
+import { classifyIterationProblem, presentNodeName } from '../../../shared/lib/presentation'
+import styles from './ActionPanel.module.less'
 
 interface Props {
   detail: IterationDetail | null
@@ -24,44 +25,52 @@ const readable: Record<string, { title: string; body: string }> = {
   stopped: { title: '已停止', body: '流水线已在当前步骤暂停，可从该步骤继续执行。' },
 }
 
+const BAR_STATUS_CLASS: Record<string, string> = {
+  awaiting_design_approval: styles.barAwaitingApproval,
+  awaiting_verify_approval: styles.barAwaitingApproval,
+  blocked: styles.barBlocked,
+  blocked_user: styles.barBlocked,
+  failed: styles.barBlocked,
+}
+
 export function ActionPanel({ detail, busy, onApproveVerify, onStop, onResume }: Props) {
   const state = detail ? readable[detail.status] ?? { title: detail.status, body: '查看事件流了解当前状态。' } : null
   const stoppedStep = detail?.stopped_at_node ? presentNodeName(detail.stopped_at_node) : null
   const problem = classifyIterationProblem(detail)
-  const docs = documentSummary(detail)
   const verifyReady = detail?.documents.some((doc) => doc.name === 'verify_report') ?? false
+  const statusClass = detail?.status ? BAR_STATUS_CLASS[detail.status] : ''
 
   return (
-    <section className={`action-bar ${detail?.status ?? 'empty'}`}>
-      <div className="action-bar-main">
+    <section className={`${styles.bar} ${statusClass}`.trim()}>
+      <div className={styles.main}>
         <div>
           <strong>{state?.title ?? '请选择迭代'}</strong>
-          <p className="muted action-bar-body">
+          <p className={`muted ${styles.body}`}>
             {detail?.status === 'stopped' && stoppedStep
               ? `停止于「${stoppedStep}」步骤，点击继续执行将从该步骤恢复。`
               : (state?.body ?? '选中一条流水线后，这里会显示下一步动作。')}
           </p>
         </div>
         {problem ? (
-          <div className={`action-bar-alert ${problem.severity === 'warning' ? 'warning' : 'error'}`}>
+          <div className={`${styles.alert} ${problem.severity === 'warning' ? styles.alertWarning : styles.alertError}`}>
             <strong>{problem.title}</strong>
             <span>{problem.message}</span>
           </div>
         ) : null}
         {detail?.status === 'awaiting_verify_approval' ? (
-          <div className="approval-checklist compact-checklist">
+          <div className={styles.approvalChecklist}>
             <span className={verifyReady ? 'ok-text' : 'muted'}>{verifyReady ? '✓' : '○'} 验证报告</span>
           </div>
         ) : null}
         {detail?.retry_counts && Object.keys(detail.retry_counts).length ? (
-          <div className="retry-row compact-retry">
+          <div className={styles.retryRow}>
             {Object.entries(detail.retry_counts).map(([key, value]) => (
               <span className="pill" key={key}>{retryLabel(key)}: {value}</span>
             ))}
           </div>
         ) : null}
       </div>
-      <div className="action-bar-actions">
+      <div className={styles.actions}>
         <button type="button" className="btn primary" onClick={onApproveVerify} disabled={busy || detail?.status !== 'awaiting_verify_approval'}>
           确认交付
         </button>

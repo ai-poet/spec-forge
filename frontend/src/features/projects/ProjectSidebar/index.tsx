@@ -3,6 +3,13 @@ import { formatProjectPath } from '../lib/formatPath'
 import { deriveProjectStatus } from '../lib/projectStatus'
 import sidebar from '../../../shared/ui/sidebar.module.less'
 
+const STATUS_CLASS: Record<string, string> = {
+  running: sidebar.statusRunning,
+  delivered: sidebar.statusDelivered,
+  attention: sidebar.statusAttention,
+  idle: sidebar.statusIdle,
+}
+
 interface Props {
   projects: ProjectSummary[]
   selectedProjectId: string | null
@@ -40,12 +47,12 @@ export function ProjectSidebar({
                 <button
                   key={project.id}
                   type="button"
-                  className={`${sidebar.row} ${selectedProjectId === project.id ? sidebar.active : ''}`}
+                  className={`${sidebar.row} ${selectedProjectId === project.id ? sidebar.rowActive : ''}`}
                   onClick={() => onSelectProject(project.id)}
                 >
                   <div className={sidebar.rowHead}>
                     <strong>{project.name}</strong>
-                    <span className={`${sidebar.status} ${sidebar[status.kind]}`}>
+                    <span className={`${sidebar.status} ${STATUS_CLASS[status.kind]}`}>
                       {status.kind === 'running' ? <span className={sidebar.statusDot} aria-hidden="true" /> : null}
                       {status.label}
                     </span>
@@ -63,7 +70,7 @@ export function ProjectSidebar({
       <div className={sidebar.footer}>
         <button
           type="button"
-          className={`${sidebar.link} ${settingsOpen ? sidebar.active : ''}`}
+          className={`${sidebar.link} ${settingsOpen ? sidebar.linkActive : ''}`}
           onClick={onToggleSettings}
           disabled={!selectedProjectId}
         >

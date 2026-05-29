@@ -7,17 +7,14 @@
   border-radius: var(--radius-md);
   background: var(--bg-surface);
   border-left: 3px solid var(--border-subtle);
+}
 
-  &.awaiting_design_approval,
-  &.awaiting_verify_approval {
-    border-left-color: var(--warning);
-  }
+.barAwaitingApproval {
+  border-left-color: var(--warning);
+}
 
-  &.blocked,
-  &.blocked_user,
-  &.failed {
-    border-left-color: var(--danger);
-  }
+.barBlocked {
+  border-left-color: var(--danger);
 }
 
 .main {
@@ -42,14 +39,14 @@
   font-size: 13px;
   display: grid;
   gap: 2px;
+}
 
-  &.error {
-    color: #fca5a5;
-  }
+.alertError {
+  color: #fca5a5;
+}
 
-  &.warning {
-    color: #fde68a;
-  }
+.alertWarning {
+  color: #fde68a;
 }
 
 .approvalChecklist {
