@@ -777,12 +777,15 @@ class LangGraphPipeline:
             elif ui_result.results:
                 self._add_event(iteration_id, event_type="ui_driver.completed", payload={"count": len(ui_result.results)})
             if any(result.status == "failed" for result in ui_result.results):
-                artifact.passed = False
-                artifact.failure_notes = artifact.failure_notes or "UI verification failed"
+                failed_results = [result for result in ui_result.results if result.status == "failed"]
+                failed_summary = "; ".join(f"{result.title or result.id}: {result.error or 'failed'}" for result in failed_results)
+                warning = f"UI 自动化测试失败，已降级为警告: {failed_summary}"
+                artifact.ui_warnings.append(warning)
+                artifact.delivery_recommendations.append("UI 自动化存在失败项；本轮是否通过以 Tester 代码审查未发现 P0/P1 缺陷为准，交付前建议人工复核失败 UI 场景。")
                 self._add_event(
                     iteration_id,
                     event_type="ui_driver.failed",
-                    payload={"failed": [result.model_dump() for result in ui_result.results if result.status == "failed"]},
+                    payload={"failed": [result.model_dump() for result in failed_results], "blocking": False},
                 )
             self._write_tester_artifact(iteration_id, docs, artifact)
             problems = self._integrity_problems(iteration_id)
@@ -1143,9 +1146,12 @@ class LangGraphPipeline:
             "ux_notes:[string], delivery_recommendations:[string], "
             "ui_results?:[], ui_warnings?:[], adversarial_tests:[{path:string, content:string}]}. "
             "Only propose adversarial tests under tests/adversarial. "
+            "You must complete a code review of the Coder implementation. Set passed=true only when the code review finds no P0 or P1 bugs. "
+            "Set passed=false when you find any P0/P1 bug, and put the defects in failure_notes. "
             "Do not mark the implementation failed solely because Playwright, CUA Driver, browser binaries, accessibility permissions, "
             "screen recording permissions, or native UI automation are unavailable; record those as ui_warnings or delivery recommendations "
-            "and continue with static inspection/code review. "
+            "and continue with static inspection/code review. UI automation assertion failures are warnings unless your code review shows "
+            "the same issue is a P0/P1 implementation bug. "
         )
         if test_command:
             common += f"Configured test command: {test_command}. Run it when practical and report the result. "
@@ -1157,14 +1163,15 @@ class LangGraphPipeline:
                 + "This is a review-only fallback after the primary Tester run failed before producing a valid artifact. "
                 + "Do not invoke Playwright, CUA Driver, browsers, native GUI automation, or screen recording tools. "
                 + "Base the verdict on code review, static inspection, available logs, and non-UI checks only. "
+                + "The pass/fail verdict must represent whether the code review found P0/P1 bugs. "
                 + "If UI automation was skipped because of the primary failure, include that in ui_warnings and delivery_recommendations. "
                 + f"Primary failure notes: {fallback_reason}"
             )
         return (
             common
             + "Run verification and inspect user-facing behavior where possible. "
-            + "UI automation is best-effort evidence; actual UI assertion failures should fail the artifact, "
-            + "but missing automation tooling should be a warning with a review-based fallback. "
+            + "UI automation is best-effort evidence; UI automation failures should be reported as warnings, "
+            + "not as passed=false, unless your code review identifies a P0/P1 implementation bug behind them. "
             + "Include practical post-delivery recommendations."
         )
 

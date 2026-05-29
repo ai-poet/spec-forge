@@ -90,8 +90,8 @@ export function PipelineRail({
       ) : null}
 
       {uiEvents.length ? (
-        <div className={`${styles.railBanner} ${lastUiEvent?.type.includes('failed') ? styles.error : lastUiEvent?.type.includes('warning') ? styles.warning : ''}`}>
-          UI Driver · {lastUiEvent?.type === 'ui_driver.completed' ? '已完成' : lastUiEvent?.type === 'ui_driver.failed' ? '失败' : '运行中'}
+        <div className={`${styles.railBanner} ${lastUiEvent?.type.includes('failed') || lastUiEvent?.type.includes('warning') ? styles.warning : ''}`}>
+          UI Driver · {lastUiEvent?.type === 'ui_driver.completed' ? '已完成' : lastUiEvent?.type === 'ui_driver.failed' ? '需复核' : '运行中'}
         </div>
       ) : null}
 

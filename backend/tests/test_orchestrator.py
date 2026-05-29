@@ -1046,7 +1046,7 @@ def test_ui_driver_pass_writes_results_and_artifacts():
     assert client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").status_code == 200
 
 
-def test_ui_driver_failure_retries_until_blocked(tmp_path):
+def test_ui_driver_failure_warns_without_retry(tmp_path):
     original_planner = pipeline._planner_artifact
     original_ui_driver = pipeline.ui_driver
     pipeline._planner_artifact = planner_with_ui_spec  # type: ignore[method-assign]
@@ -1065,9 +1065,13 @@ def test_ui_driver_failure_retries_until_blocked(tmp_path):
         pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
         pipeline.ui_driver = original_ui_driver
 
-    assert detail["status"] == "blocked"
-    assert detail["retry_counts"]["coder_tester"] == 2
-    assert any(event["type"] == "ui_driver.failed" for event in detail["events"])
+    assert detail["status"] == "awaiting_verify_approval"
+    assert detail["retry_counts"] == {}
+    failed_event = next(event for event in detail["events"] if event["type"] == "ui_driver.failed")
+    assert failed_event["payload"]["blocking"] is False
+    assert detail["ui_results"][0]["status"] == "failed"
+    ui_payload = client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").json()
+    assert "UI 自动化测试失败" in ui_payload["warnings"][0]
 
 
 def planner_with_ui_spec(state, run_result):

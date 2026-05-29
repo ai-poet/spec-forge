@@ -83,7 +83,7 @@ export function eventLabel(value: string) {
     'ui_driver.completed': 'UI Driver 已完成',
     'ui_driver.fallback': 'Playwright 回退执行',
     'ui_driver.warning': '部分 UI 未执行',
-    'ui_driver.failed': 'UI Driver 验证失败',
+    'ui_driver.failed': 'UI Driver 需复核',
     'planner_verify.accepted': '规格复核通过',
     'planner_verify.rejected': '规格复核驳回',
     'verify.approved': '验证结果已确认',

@@ -97,7 +97,7 @@ v0.6 将 Node 4 落地为 Tester 内部调用的 Cua UI Driver 工具层，而�
 - 覆盖目标：Web 应用（Cua 或 Playwright）和 macOS 原生应用（仅 Cua）。
 - 回退策略：Cua 不可用时 Web spec 由 Playwright 真实执行，发 `ui_driver.fallback`；native spec 记为 `warning`（未执行）。
 - 双后端不可用：Web spec 也记为 `warning`，写入 `ui_driver.warning`。
-- 失败策略：UI assertion 失败时，Tester artifact 标记失败，进入 Coder/Tester retry（与 transport 无关）。
+- 失败策略：UI assertion 失败时写入 `ui_driver.failed` 和 `ui_warnings`，作为非阻断警告；本轮是否通过以 Tester 代码审查是否发现 P0/P1 缺陷为准。
 
 Planner 可写入 `docs/tests/ui/*.json`，每个文件是一个 UI trajectory：
 
