@@ -686,13 +686,71 @@ class LangGraphPipeline:
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.tester.value, run_result)
-        if run_result.returncode:
-            self._node_event(iteration_id, "node.failed", NodeName.tester.value, "验证命令失败", "Tester CLI 执行失败，系统将尝试回到实现节点修复。", severity="error", run_id=run_id, action_hint="查看 Tester 原始日志和失败信息。")
-            return self._tester_retry_or_block(state, run_id, run_result.stderr)
-
         try:
-            self._node_event(iteration_id, "node.progress", NodeName.tester.value, "正在解析验证结果", "已收到 Tester 输出，正在校验验证报告、交付建议和对抗测试。", run_id=run_id)
-            artifact = self._tester_artifact(state, run_result)
+            artifact: TesterArtifact | None = None
+            if run_result.returncode:
+                artifact = self._try_tester_artifact(state, run_result)
+                if artifact is not None:
+                    self._node_event(
+                        iteration_id,
+                        "tester.nonzero_artifact.accepted",
+                        NodeName.tester.value,
+                        "验证命令异常但产物可用",
+                        "Tester CLI 非零退出，但输出了合法验证产物；系统将继续处理报告并把异常记录为警告。",
+                        severity="warning",
+                        run_id=run_id,
+                        action_hint="检查 Tester 原始日志，确认非零退出是否只来自自动化工具环境问题。",
+                    )
+                else:
+                    primary_notes = self._tester_failure_notes(run_result)
+                    self._node_event(
+                        iteration_id,
+                        "tester.review_fallback.started",
+                        NodeName.tester.value,
+                        "启动代码审查兜底",
+                        "Tester 自动化验证未能产出合法报告，正在改用禁止 UI 自动化的独立审查。",
+                        severity="warning",
+                        run_id=run_id,
+                        action_hint="Playwright/CUA 等工具不可用不会直接阻断；兜底报告会记录未执行项。",
+                    )
+                    review_result = self._execute(
+                        state,
+                        self._tester_command(state, review_only=True, fallback_reason=primary_notes),
+                        node=NodeName.tester.value,
+                    )
+                    if self._is_iteration_gone(iteration_id):
+                        return self._abort_state()
+                    review_run_id = self._record_run(iteration_id, NodeName.tester.value, review_result)
+                    run_id = review_run_id
+                    if review_result.returncode:
+                        notes = self._tester_failure_notes(run_result, review_result)
+                        self._node_event(
+                            iteration_id,
+                            "tester.review_fallback.failed",
+                            NodeName.tester.value,
+                            "代码审查兜底失败",
+                            notes,
+                            severity="error",
+                            run_id=review_run_id,
+                            action_hint="查看 Tester 两次运行日志；若是实现问题将进入自动修复回环。",
+                        )
+                        return self._tester_retry_or_block(state, review_run_id, notes)
+                    artifact = self._tester_artifact(state, review_result)
+                    self._augment_review_fallback_artifact(artifact, primary_notes)
+                    self._node_event(
+                        iteration_id,
+                        "tester.review_fallback.completed",
+                        NodeName.tester.value,
+                        "代码审查兜底完成",
+                        "Tester 已在不调用浏览器或原生自动化工具的前提下完成独立审查。",
+                        severity="success",
+                        run_id=review_run_id,
+                    )
+            else:
+                self._node_event(iteration_id, "node.progress", NodeName.tester.value, "正在解析验证结果", "已收到 Tester 输出，正在校验验证报告、交付建议和对抗测试。", run_id=run_id)
+                artifact = self._tester_artifact(state, run_result)
+            if artifact is None:
+                raise ValueError("tester artifact was not resolved")
             problems = self._integrity_problems(iteration_id)
             if problems:
                 self._node_event(iteration_id, "node.failed", NodeName.tester.value, "验证前测试完整性失败", "; ".join(problems), severity="error", run_id=run_id, action_hint="检查测试目录是否被实现节点修改。")
@@ -1058,17 +1116,10 @@ class LangGraphPipeline:
             )
         return ["specforge", "coder", iteration_id]
 
-    def _tester_command(self, state: PipelineState) -> list[str]:
+    def _tester_command(self, state: PipelineState, *, review_only: bool = False, fallback_reason: str = "") -> list[str]:
         iteration_id = state["iteration_id"]
         if self._is_real_cli(state.get("mode")):
-            prompt = (
-                "You are Tester and independent delivery reviewer for SpecForge. Run verification, inspect user-facing behavior where possible, "
-                "and include practical post-delivery recommendations. Return only final JSON matching "
-                "{verify_report:string, passed:boolean, failure_notes?:string, "
-                "ux_notes:[string], delivery_recommendations:[string], "
-                "ui_results?:[], ui_warnings?:[], adversarial_tests:[{path:string, content:string}]}. "
-                "Only propose adversarial tests under tests/adversarial."
-            )
+            prompt = self._tester_prompt(state, review_only=review_only, fallback_reason=fallback_reason)
             provider = self._cli_provider(state, "tester")
             return build_tester_command(
                 provider=provider,
@@ -1077,6 +1128,45 @@ class LangGraphPipeline:
                 schema_file=self._artifact_schema_file(iteration_id, "tester_artifact", TesterArtifact),
             )
         return ["specforge", "tester", iteration_id]
+
+    def _tester_prompt(self, state: PipelineState, *, review_only: bool, fallback_reason: str = "") -> str:
+        iteration_id = state["iteration_id"]
+        row = self._require_iteration(iteration_id)
+        docs_root = self.docs_root(iteration_id)
+        repo_root = self.project_repo_root(iteration_id)
+        test_command = row["test_command"] if "test_command" in row.keys() else None
+        common = (
+            "You are Tester and independent delivery reviewer for SpecForge. "
+            f"Project root: {repo_root}. Iteration docs root: {docs_root}. "
+            "Read the approved planning documents, implementation changes, and project tests before judging delivery readiness. "
+            "Return only final JSON matching {verify_report:string, passed:boolean, failure_notes?:string, "
+            "ux_notes:[string], delivery_recommendations:[string], "
+            "ui_results?:[], ui_warnings?:[], adversarial_tests:[{path:string, content:string}]}. "
+            "Only propose adversarial tests under tests/adversarial. "
+            "Do not mark the implementation failed solely because Playwright, CUA Driver, browser binaries, accessibility permissions, "
+            "screen recording permissions, or native UI automation are unavailable; record those as ui_warnings or delivery recommendations "
+            "and continue with static inspection/code review. "
+        )
+        if test_command:
+            common += f"Configured test command: {test_command}. Run it when practical and report the result. "
+        else:
+            common += "No configured test command is set; choose lightweight verification from the repo when practical. "
+        if review_only:
+            return (
+                common
+                + "This is a review-only fallback after the primary Tester run failed before producing a valid artifact. "
+                + "Do not invoke Playwright, CUA Driver, browsers, native GUI automation, or screen recording tools. "
+                + "Base the verdict on code review, static inspection, available logs, and non-UI checks only. "
+                + "If UI automation was skipped because of the primary failure, include that in ui_warnings and delivery_recommendations. "
+                + f"Primary failure notes: {fallback_reason}"
+            )
+        return (
+            common
+            + "Run verification and inspect user-facing behavior where possible. "
+            + "UI automation is best-effort evidence; actual UI assertion failures should fail the artifact, "
+            + "but missing automation tooling should be a warning with a review-based fallback. "
+            + "Include practical post-delivery recommendations."
+        )
 
     def _artifact_schema_inline(self, model: type[BaseModel]) -> str:
         return json.dumps(model.model_json_schema(), ensure_ascii=False)
@@ -1223,6 +1313,40 @@ class LangGraphPipeline:
             ux_notes=["核心流程状态清晰，可被人工审批节点接住。"],
             delivery_recommendations=["本轮可以交付；下一步建议补充真实 CLI smoke test。"],
         )
+
+    def _try_tester_artifact(self, state: PipelineState, run_result: CLIResult) -> TesterArtifact | None:
+        try:
+            return self._tester_artifact(state, run_result)
+        except Exception:
+            return None
+
+    def _augment_review_fallback_artifact(self, artifact: TesterArtifact, primary_notes: str) -> None:
+        compact_notes = self._compact_failure_notes(primary_notes)
+        warning = f"主 Tester 自动化未完成，已改用代码审查兜底: {compact_notes}"
+        if warning not in artifact.ui_warnings:
+            artifact.ui_warnings.append(warning)
+        recommendation = "自动化 UI 验证未完整执行；交付前建议在具备 Playwright/CUA 环境时补跑 UI trajectory。"
+        if recommendation not in artifact.delivery_recommendations:
+            artifact.delivery_recommendations.append(recommendation)
+
+    def _tester_failure_notes(self, *results: CLIResult) -> str:
+        notes: list[str] = []
+        for index, result in enumerate(results, start=1):
+            text = merge_cli_artifact_output(result.stdout, result.stderr)
+            label = "primary" if index == 1 else f"fallback {index - 1}"
+            if text.strip():
+                notes.append(f"{label}: {self._compact_failure_notes(text)}")
+            else:
+                notes.append(f"{label}: exit code {result.returncode}")
+        return "; ".join(notes)
+
+    def _compact_failure_notes(self, text: str, limit: int = 600) -> str:
+        compact = " ".join(text.split())
+        if not compact:
+            return "no diagnostic output"
+        if len(compact) <= limit:
+            return compact
+        return compact[: limit - 3] + "..."
 
     def _write_planner_artifact(self, iteration_id: str, docs: IterationDocs, artifact: PlannerArtifact) -> None:
         paths = {

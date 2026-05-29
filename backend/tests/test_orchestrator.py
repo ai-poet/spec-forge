@@ -1,3 +1,4 @@
+import json
 import sys
 import time
 import pytest
@@ -7,6 +8,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from specforge import contracts as contract_models
+from specforge.cli_runner import CLIResult
 from specforge.contracts import ArtifactFile, PlannerArtifact, UIDriverRunResult, UITestResult, UITestSpec, parse_json_artifact, validate_ui_spec_content
 from specforge.docs_io import IterationDocs, compare_test_integrity, test_integrity_manifest as build_test_integrity_manifest
 from specforge.main import app, job_queue, pipeline
@@ -35,6 +37,37 @@ def create_manual_iteration(project_name: str, *, mode: str = "real-cli") -> str
     )
     pipeline.project_root(iteration_id).mkdir(parents=True, exist_ok=True)
     return iteration_id
+
+
+class SequenceRunner:
+    def __init__(self, results: list[CLIResult]) -> None:
+        self.results = list(results)
+        self.commands: list[list[str]] = []
+
+    def run(self, command, cwd=None, on_output=None, *, iteration_id=None):
+        self.commands.append(command)
+        result = self.results.pop(0)
+        if on_output and result.stdout:
+            on_output("stdout", result.stdout)
+        if on_output and result.stderr:
+            on_output("stderr", result.stderr)
+        return CLIResult(command=command, returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
+
+    def cancel(self, iteration_id: str) -> bool:
+        return False
+
+
+def make_tester_json(*, passed: bool = True, failure_notes: str | None = None) -> str:
+    payload = {
+        "verify_report": "# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+        "passed": passed,
+        "ux_notes": ["代码审查未发现阻断性交付问题。"],
+        "delivery_recommendations": ["交付前可补跑完整自动化。"],
+        "adversarial_tests": [],
+    }
+    if failure_notes:
+        payload["failure_notes"] = failure_notes
+    return json.dumps(payload)
 
 
 def test_delete_epic_and_iterations(tmp_path):
@@ -503,6 +536,89 @@ def test_tester_command_uses_project_cli_bindings(tmp_path):
     state = {"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id}
     command = pipeline._tester_command(state)
     assert command[0] == "claude"
+
+
+def test_tester_review_fallback_succeeds_without_retry(monkeypatch):
+    iteration_id = create_manual_iteration("tester-review-fallback", mode="real-cli")
+    runner = SequenceRunner(
+        [
+            CLIResult(command=[], returncode=1, stdout="", stderr="Playwright browser is not installed"),
+            CLIResult(command=[], returncode=0, stdout=make_tester_json(), stderr=""),
+        ]
+    )
+    monkeypatch.setattr(pipeline, "real_runner", runner)
+
+    result = pipeline._tester_node(
+        {
+            "iteration_id": iteration_id,
+            "mode": "real-cli",
+            "retry_counts": {},
+            "max_coder_tester_retries": 5,
+        }
+    )
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert result["status"] == "tester_passed"
+    assert detail["status"] == "awaiting_verify_approval"
+    assert detail["retry_counts"] == {}
+    assert len(runner.commands) == 2
+    assert any("Do not invoke Playwright" in part for part in runner.commands[1])
+    event_types = [event["type"] for event in detail["events"]]
+    assert "tester.review_fallback.started" in event_types
+    assert "tester.review_fallback.completed" in event_types
+    ui_payload = client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").json()
+    assert "代码审查兜底" in ui_payload["warnings"][0]
+
+
+def test_tester_accepts_valid_artifact_from_nonzero_exit(monkeypatch):
+    iteration_id = create_manual_iteration("tester-nonzero-artifact", mode="real-cli")
+    runner = SequenceRunner([CLIResult(command=[], returncode=1, stdout=make_tester_json(), stderr="cua-driver exited 1")])
+    monkeypatch.setattr(pipeline, "real_runner", runner)
+
+    result = pipeline._tester_node(
+        {
+            "iteration_id": iteration_id,
+            "mode": "real-cli",
+            "retry_counts": {},
+            "max_coder_tester_retries": 5,
+        }
+    )
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert result["status"] == "tester_passed"
+    assert detail["status"] == "awaiting_verify_approval"
+    assert detail["retry_counts"] == {}
+    assert len(runner.commands) == 1
+    assert any(event["type"] == "tester.nonzero_artifact.accepted" for event in detail["events"])
+
+
+def test_tester_review_fallback_failure_uses_existing_retry_path(monkeypatch):
+    iteration_id = create_manual_iteration("tester-review-fallback-fails", mode="real-cli")
+    runner = SequenceRunner(
+        [
+            CLIResult(command=[], returncode=1, stdout="", stderr="CuaDriver permission denied"),
+            CLIResult(command=[], returncode=2, stdout="", stderr="review fallback failed"),
+        ]
+    )
+    monkeypatch.setattr(pipeline, "real_runner", runner)
+
+    result = pipeline._tester_node(
+        {
+            "iteration_id": iteration_id,
+            "mode": "real-cli",
+            "retry_counts": {},
+            "max_coder_tester_retries": 0,
+        }
+    )
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert result["status"] == "blocked"
+    assert detail["status"] == "blocked"
+    assert detail["retry_counts"]["coder_tester"] == 1
+    event_types = [event["type"] for event in detail["events"]]
+    assert "tester.review_fallback.started" in event_types
+    assert "tester.review_fallback.failed" in event_types
+    assert "tester.max_retries" in event_types
 
 
 def test_execute_live_cli_node_from_db_current_node():
