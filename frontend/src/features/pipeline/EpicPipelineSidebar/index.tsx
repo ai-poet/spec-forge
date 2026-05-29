@@ -2,6 +2,8 @@ import type { MouseEvent } from 'react'
 import type { EpicSummary, IterationSummary } from '../../../shared/lib/types'
 import { iterationStatusLabel } from '../../../shared/lib/labels'
 import { iterationForEpic, pipelineStatusForEpic } from '../lib/epicPipeline'
+import sidebar from '../../../shared/ui/sidebar.module.less'
+import styles from './EpicPipelineSidebar.module.less'
 
 interface Props {
   epics: EpicSummary[]
@@ -37,36 +39,37 @@ export function EpicPipelineSidebar({
   }
 
   return (
-    <aside className="sidebar epic-pipeline-sidebar sidebar-layout">
-      <div className="sidebar-top">
-        <button type="button" className="btn btn-ghost sidebar-new-btn" onClick={onCreatePipeline}>
+    <aside className={`${sidebar.sidebar} ${sidebar.layout} ${styles.root}`}>
+      <div className={`${sidebar.top} ${styles.top}`}>
+        <button type="button" className="btn btn-ghost" onClick={onCreatePipeline}>
           + 新建流水线
         </button>
 
-        <section className="sidebar-projects">
-          <h2 className="sidebar-section-title">流水线</h2>
-          <div className="sidebar-project-list">
+        <section>
+          <h2 className={sidebar.sectionTitle}>流水线</h2>
+          <div className={sidebar.projectList}>
             {epics.map((epic) => {
               const iteration = iterationForEpic(iterations, epic.id)
               const pipelineStatus = pipelineStatusForEpic(epic, iteration)
+              const kind = statusKind(pipelineStatus)
               return (
-                <div key={epic.id} className={`sidebar-row-wrap ${selectedEpicId === epic.id ? 'active' : ''}`}>
+                <div key={epic.id} className={`${sidebar.rowWrap} ${selectedEpicId === epic.id ? sidebar.active : ''}`}>
                   <button
                     type="button"
-                    className={`sidebar-row ${selectedEpicId === epic.id ? 'active' : ''}`}
+                    className={`${sidebar.row} ${selectedEpicId === epic.id ? sidebar.active : ''}`}
                     onClick={() => onSelectPipeline(epic.id)}
                   >
-                    <div className="sidebar-row-head">
-                      <strong className="pipeline-row-title">{epic.title}</strong>
-                      <span className={`sidebar-status ${statusKind(pipelineStatus)}`}>
+                    <div className={sidebar.rowHead}>
+                      <strong className={styles.pipelineTitle}>{epic.title}</strong>
+                      <span className={`${sidebar.status} ${sidebar[kind]}`}>
                         {iteration ? iterationStatusLabel[pipelineStatus as IterationSummary['status']] : '未启动'}
                       </span>
                     </div>
-                    {epic.description ? <span className="sidebar-row-meta">{epic.description.split('\n')[0]}</span> : null}
+                    {epic.description ? <span className={sidebar.rowMeta}>{epic.description.split('\n')[0]}</span> : null}
                   </button>
                   <button
                     type="button"
-                    className="sidebar-row-delete"
+                    className={sidebar.rowDelete}
                     aria-label={`删除 ${epic.title}`}
                     onClick={(event) => handleDelete(event, epic)}
                   >
@@ -75,7 +78,7 @@ export function EpicPipelineSidebar({
                 </div>
               )
             })}
-            {!epics.length ? <div className="empty sidebar-empty">暂无流水线，点击上方新建</div> : null}
+            {!epics.length ? <div className={`empty ${sidebar.empty}`}>暂无流水线，点击上方新建</div> : null}
           </div>
         </section>
       </div>

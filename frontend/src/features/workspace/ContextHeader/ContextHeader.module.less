@@ -1,0 +1,64 @@
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  position: sticky;
+  top: 0;
+  background: var(--bg-main);
+  z-index: 3;
+  flex-shrink: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.projectName {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.sep {
+  color: var(--text-muted);
+}
+
+.statusPill {
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+
+  &.delivered {
+    color: var(--success);
+  }
+
+  &.blocked {
+    color: var(--danger);
+  }
+
+  &.active {
+    color: var(--accent);
+  }
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1080px) {
+  .header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

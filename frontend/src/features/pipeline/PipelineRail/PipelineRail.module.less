@@ -1,0 +1,134 @@
+.rail {
+  border-left: 1px solid var(--border-subtle);
+  padding: 14px 12px;
+  background: var(--bg-sidebar);
+  height: 100vh;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.top {
+  /* rail header block */
+}
+
+.checklist {
+  display: grid;
+  gap: 2px;
+  margin-top: 12px;
+}
+
+.progressRow {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 7px 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+
+  &:hover:not(:disabled) {
+    background: var(--bg-surface-hover);
+  }
+
+  &.active,
+  &.live {
+    background: var(--accent-soft);
+  }
+
+  &.complete .progressIcon {
+    color: var(--success);
+  }
+
+  &.waiting .progressIcon {
+    color: var(--warning);
+  }
+
+  &.reviewing {
+    background: var(--accent-soft);
+    outline: 1px solid rgba(59, 130, 246, 0.35);
+  }
+}
+
+.progressIcon {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.progressLabel {
+  font-weight: 500;
+}
+
+.progressState {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.railTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.railMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.connectionDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--text-muted);
+
+  &.online {
+    background: var(--success);
+  }
+}
+
+.railStatus {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.railBanner {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-size: 12px;
+  color: var(--text-secondary);
+
+  &.error {
+    color: #fca5a5;
+  }
+
+  &.warning {
+    color: #fde68a;
+  }
+}
+
+.railFootnote {
+  margin: 12px 0 0;
+  font-size: 11px;
+}
+
+.railBack {
+  width: 100%;
+  margin-top: 10px;
+}
+
+@media (max-width: 1080px) {
+  .rail {
+    height: auto;
+    border-left: 0;
+    border-top: 1px solid var(--border-subtle);
+  }
+}

@@ -1,6 +1,7 @@
 import type { ProjectSummary } from '../../../shared/lib/types'
 import { formatProjectPath } from '../lib/formatPath'
 import { deriveProjectStatus } from '../lib/projectStatus'
+import sidebar from '../../../shared/ui/sidebar.module.less'
 
 interface Props {
   projects: ProjectSummary[]
@@ -20,49 +21,49 @@ export function ProjectSidebar({
   onToggleSettings,
 }: Props) {
   return (
-    <aside className="sidebar sidebar-layout">
-      <div className="sidebar-top">
-        <div className="brand compact-brand">
+    <aside className={`${sidebar.sidebar} ${sidebar.layout}`}>
+      <div className={sidebar.top}>
+        <div className={sidebar.brand}>
           <h1>SpecForge</h1>
         </div>
 
-        <button type="button" className="btn btn-ghost sidebar-new-btn" onClick={onOpenCreateModal}>
+        <button type="button" className="btn btn-ghost" onClick={onOpenCreateModal}>
           + 打开 / 新建项目
         </button>
 
-        <section className="sidebar-projects">
-          <h2 className="sidebar-section-title">项目</h2>
-          <div className="sidebar-project-list">
+        <section>
+          <h2 className={sidebar.sectionTitle}>项目</h2>
+          <div className={sidebar.projectList}>
             {projects.map((project) => {
               const status = deriveProjectStatus(project)
               return (
-              <button
-                key={project.id}
-                type="button"
-                className={`sidebar-row ${selectedProjectId === project.id ? 'active' : ''}`}
-                onClick={() => onSelectProject(project.id)}
-              >
-                <div className="sidebar-row-head">
-                  <strong>{project.name}</strong>
-                  <span className={`sidebar-status ${status.kind}`}>
-                    {status.kind === 'running' ? <span className="sidebar-status-dot" aria-hidden="true" /> : null}
-                    {status.label}
-                  </span>
-                </div>
-                <span className="project-path">{formatProjectPath(project.root_path)}</span>
-                {status.detail ? <span className="sidebar-row-meta">{status.detail}</span> : null}
-              </button>
+                <button
+                  key={project.id}
+                  type="button"
+                  className={`${sidebar.row} ${selectedProjectId === project.id ? sidebar.active : ''}`}
+                  onClick={() => onSelectProject(project.id)}
+                >
+                  <div className={sidebar.rowHead}>
+                    <strong>{project.name}</strong>
+                    <span className={`${sidebar.status} ${sidebar[status.kind]}`}>
+                      {status.kind === 'running' ? <span className={sidebar.statusDot} aria-hidden="true" /> : null}
+                      {status.label}
+                    </span>
+                  </div>
+                  <span className={sidebar.projectPath}>{formatProjectPath(project.root_path)}</span>
+                  {status.detail ? <span className={sidebar.rowMeta}>{status.detail}</span> : null}
+                </button>
               )
             })}
-            {!projects.length ? <div className="empty sidebar-empty">暂无项目</div> : null}
+            {!projects.length ? <div className={`empty ${sidebar.empty}`}>暂无项目</div> : null}
           </div>
         </section>
       </div>
 
-      <div className="sidebar-footer">
+      <div className={sidebar.footer}>
         <button
           type="button"
-          className={`sidebar-link ${settingsOpen ? 'active' : ''}`}
+          className={`${sidebar.link} ${settingsOpen ? sidebar.active : ''}`}
           onClick={onToggleSettings}
           disabled={!selectedProjectId}
         >

@@ -1,0 +1,53 @@
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 18px 18px 16px;
+
+  :global(.section-title) {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+}
+
+.subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 280px;
+  resize: vertical;
+  line-height: 1.55;
+  padding: 12px 14px;
+  background: var(--bg-inset);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+
+  &:focus {
+    outline: 2px solid var(--accent-soft);
+    border-color: rgba(59, 130, 246, 0.45);
+  }
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.entryBtn {
+  margin-top: 0;
+}

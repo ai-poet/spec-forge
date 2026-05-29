@@ -1,0 +1,54 @@
+.root {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  padding: 12px;
+}
+
+.metrics {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.resultList {
+  display: grid;
+  gap: 8px;
+}
+
+.result {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  padding: 11px;
+  display: grid;
+  gap: 8px;
+
+  &.failed {
+    border-color: rgba(239, 68, 68, 0.45);
+    background: rgba(239, 68, 68, 0.08);
+  }
+
+  &.warning,
+  &.skipped {
+    border-color: rgba(234, 179, 8, 0.45);
+    background: rgba(234, 179, 8, 0.08);
+  }
+}
+
+.compactList {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+}
+
+.artifactLink {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  text-decoration: none;
+  font-size: 13px;
+}
