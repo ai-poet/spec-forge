@@ -86,6 +86,26 @@ function isActionableWarning(event: ReturnType<typeof presentEvent>): boolean {
   return event.severity === 'warning'
 }
 
+const PIPELINE_RUNNING_STATUSES = new Set([
+  'queued',
+  'planning',
+  'awaiting_design_approval',
+  'coding',
+  'retrying',
+  'testing',
+])
+
+function isPipelineRunning(detail: IterationDetail): boolean {
+  return PIPELINE_RUNNING_STATUSES.has(detail.status)
+}
+
+function isStalePlannerVerifyWarning(event: ReturnType<typeof presentEvent>, detail: IterationDetail): boolean {
+  if (event.node !== 'planner_verify' && !event.type.startsWith('planner_verify')) return false
+  if (!isPipelineRunning(detail)) return false
+  if (detail.current_node === 'planner_verify') return false
+  return event.type === 'node.progress' || event.type === 'planner_verify.rejected'
+}
+
 export function classifyIterationProblem(detail: IterationDetail | null): ReadableError | null {
   if (!detail) return null
   const semanticError = [...detail.events].reverse().map(presentEvent).find((event) => event.severity === 'error')
@@ -97,7 +117,7 @@ export function classifyIterationProblem(detail: IterationDetail | null): Readab
       severity: 'error',
     }
   }
-  const warning = [...detail.events].reverse().map(presentEvent).find(isActionableWarning)
+  const warning = [...detail.events].reverse().map(presentEvent).find((event) => isActionableWarning(event) && !isStalePlannerVerifyWarning(event, detail))
   if (warning) {
     return {
       title: warning.title,
@@ -137,6 +157,8 @@ export function documentSummary(detail: IterationDetail | null) {
 }
 
 function inferNode(type: string) {
+  if (type.startsWith('planner_verify')) return 'planner_verify'
+  if (type.includes('planner_clarification')) return 'planner_clarification'
   if (type.includes('planner')) return 'planner'
   if (type.includes('coder')) return 'coder'
   if (type.includes('tester')) return 'tester'

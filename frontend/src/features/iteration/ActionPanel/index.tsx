@@ -1,12 +1,19 @@
 import type { IterationDetail } from '../../../shared/lib/types'
 import { retryLabel } from '../../../shared/lib/labels'
 import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
-import { isPipelineRunning, latestNodeProgress, runningNodeLabel } from '../../pipeline/lib/pipelineLive'
+import {
+  isPipelineRunning,
+  isPlannerVerifyRejectRetry,
+  isVerifyRejectRetest,
+  latestNodeProgress,
+  runningNodeLabel,
+} from '../../pipeline/lib/pipelineLive'
 import { classifyIterationProblem, presentNodeName } from '../../../shared/lib/presentation'
 import styles from './ActionPanel.module.less'
 
 interface Props {
   detail: IterationDetail | null
+  reviewMode?: boolean
   busy: boolean
   onApproveVerify: () => Promise<void>
   onStop: () => Promise<void>
@@ -44,19 +51,50 @@ const RUNNING_BAR_CLASS: Record<string, string> = {
   testing: styles.barRunning,
 }
 
-export function ActionPanel({ detail, busy, onApproveVerify, onStop, onResume }: Props) {
-  const state = detail ? readable[detail.status] ?? { title: detail.status, body: '查看事件流了解当前状态。' } : null
+function resolveStatusCopy(detail: IterationDetail) {
+  const base = readable[detail.status] ?? { title: detail.status, body: '查看事件流了解当前状态。' }
+  if (isVerifyRejectRetest(detail)) {
+    return {
+      title: '正在重新验证（规格复核驳回后）',
+      body: '上一轮 verify_report 格式不合格，Tester 正在重写报告，无需 Coder 改代码。',
+    }
+  }
+  if (isPlannerVerifyRejectRetry(detail)) {
+    return {
+      title: '规格复核驳回，准备重新验证',
+      body: 'verify_report 格式不合格，系统将回到 Tester 重写验证报告。',
+    }
+  }
+  if (detail.status === 'retrying' && (detail.retry_counts?.coder_tester ?? 0) > 0) {
+    return {
+      title: '正在自动修复',
+      body: '上一轮验证失败，系统正在带着失败信息回到实现节点。',
+    }
+  }
+  if (detail.status === 'retrying') {
+    return base
+  }
+  return base
+}
+
+export function ActionPanel({ detail, reviewMode = false, busy, onApproveVerify, onStop, onResume }: Props) {
+  const state = detail ? resolveStatusCopy(detail) : null
   const stoppedStep = detail?.stopped_at_node ? presentNodeName(detail.stopped_at_node) : null
-  const problem = classifyIterationProblem(detail)
+  const problem = reviewMode ? null : classifyIterationProblem(detail)
   const verifyReady = detail?.documents.some((doc) => doc.name === 'verify_report') ?? false
-  const running = isPipelineRunning(detail)
+  const running = !reviewMode && isPipelineRunning(detail)
   const progress = latestNodeProgress(detail)
   const currentNode = runningNodeLabel(detail)
   const statusClass = detail?.status ? BAR_STATUS_CLASS[detail.status] ?? RUNNING_BAR_CLASS[detail.status] ?? '' : ''
 
   return (
-    <section className={`${styles.bar} ${statusClass} ${running ? styles.barRunning : ''}`.trim()}>
+    <section className={`${styles.bar} ${statusClass} ${running ? styles.barRunning : ''} ${reviewMode ? styles.barReview : ''}`.trim()}>
       <div className={styles.main}>
+        {reviewMode && isPipelineRunning(detail) ? (
+          <div className={styles.reviewNote}>
+            流水线仍在运行{currentNode ? `（当前：${currentNode}）` : ''}，上方为实时状态；下方为阶段回顾。
+          </div>
+        ) : null}
         <div>
           <div className={styles.titleRow}>
             {running ? <RunningIndicator size="sm" mode="spinner" /> : null}

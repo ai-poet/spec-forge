@@ -3,6 +3,7 @@ import type { IterationDetail, SemanticEvent } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
 import { isStepLive, latestNodeProgress } from '../../pipeline/lib/pipelineLive'
+import { defaultExpandedRunIds, groupAgentActivities } from '../../pipeline/lib/groupAgentRuns'
 import { cliPhaseLabel, cliProviderLabel, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
 import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
 import styles from './RunLogPanel.module.less'
@@ -10,11 +11,13 @@ import styles from './RunLogPanel.module.less'
 interface Props {
   detail: IterationDetail | null
   stepKey?: PipelineStepKey | null
+  reviewMode?: boolean
 }
 
 const CLI_ACTIVE_STATUSES = new Set(['planning', 'coding', 'testing', 'retrying'])
 
-function isCliActive(detail: IterationDetail | null, stepKey: PipelineStepKey | null): boolean {
+function isCliActive(detail: IterationDetail | null, stepKey: PipelineStepKey | null, reviewMode: boolean): boolean {
+  if (reviewMode) return false
   if (stepKey) return isStepLive(detail, stepKey)
   if (!detail || !detail.current_node) return false
   if (!CLI_ACTIVE_STATUSES.has(detail.status)) return false
@@ -72,36 +75,53 @@ function rowClassName(event: ReturnType<typeof presentEvent>, animatedIds: Set<s
     .join(' ')
 }
 
-export function RunLogPanel({ detail, stepKey = null }: Props) {
+export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Props) {
   const initializedRef = useRef(false)
   const previousEventIdsRef = useRef<Set<string>>(new Set())
   const timersRef = useRef<Map<string, number>>(new Map())
   const scrollRef = useRef<HTMLDivElement>(null)
   const [animatedEventIds, setAnimatedEventIds] = useState<Set<string>>(new Set())
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const nodes = stepKey ? new Set(nodesForStep(stepKey)) : null
-  const cliActive = isCliActive(detail, stepKey)
+  const cliActive = isCliActive(detail, stepKey, reviewMode)
   const progress = latestNodeProgress(detail, stepKey)
   const cliDisplays = useMemo(
     () => (detail?.events ?? [])
       .filter((event) => event.type === 'cli.display')
       .map(presentEvent)
-      .filter((event) => !nodes || nodes.has(event.node))
-      .slice(-30)
-      .reverse(),
+      .filter((event) => !nodes || nodes.has(event.node)),
     [detail?.events, stepKey],
   )
-  const cliDisplayKey = cliDisplays.map((event) => event.id).join('|')
+  const hasVerifyReject = Boolean((detail?.retry_counts?.planner_verify_reject ?? 0) > 0)
+  const grouped = useMemo(
+    () => groupAgentActivities(cliDisplays, stepKey, { reviewMode, stepLive: cliActive, hasVerifyReject }),
+    [cliDisplays, stepKey, reviewMode, cliActive, hasVerifyReject],
+  )
+  const visibleCliDisplays = useMemo(() => {
+    if (grouped.roundCount <= 1) {
+      return [...cliDisplays].slice(-30).reverse()
+    }
+    const openGroups = grouped.groups.filter((group) => expanded.has(group.id))
+    const source = openGroups.length ? openGroups : grouped.groups.filter((group) => group.isCurrent)
+    return source.flatMap((group) => [...group.events].reverse())
+  }, [cliDisplays, grouped, expanded])
+  const cliDisplayKey = visibleCliDisplays.map((event) => event.id).join('|')
+  const groupKey = grouped.groups.map((group) => group.id).join('|')
   const pendingNode = detail?.current_node ?? 'agent'
 
   useEffect(() => {
-    const nextIds = new Set(cliDisplays.map((event) => event.id))
+    setExpanded(defaultExpandedRunIds(grouped.groups, reviewMode))
+  }, [groupKey, reviewMode])
+
+  useEffect(() => {
+    const nextIds = new Set(visibleCliDisplays.map((event) => event.id))
     if (!initializedRef.current) {
       initializedRef.current = true
       previousEventIdsRef.current = nextIds
       return
     }
 
-    const newIds = cliDisplays.map((event) => event.id).filter((id) => !previousEventIdsRef.current.has(id))
+    const newIds = visibleCliDisplays.map((event) => event.id).filter((id) => !previousEventIdsRef.current.has(id))
     previousEventIdsRef.current = nextIds
     if (!newIds.length) return
 
@@ -136,6 +156,40 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
     timersRef.current.clear()
   }, [])
 
+  function toggleGroup(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function renderCliRow(event: ReturnType<typeof presentEvent>) {
+    const message = cliLogMessage(event)
+    const preview = formatCliText(event.preview)
+    return (
+      <article key={event.id} className={rowClassName(event, animatedEventIds)}>
+        <div className={styles.meta}>
+          <span>{cliProviderLabel(event.provider)}</span>
+          <span>{cliPhaseLabel(event.phase)}</span>
+          <span>{presentNodeName(event.node)}</span>
+        </div>
+        <div className={styles.body}>
+          <strong>{event.title}</strong>
+          {message ? <p>{message}</p> : null}
+          {event.tool ? <span className={styles.detail}>工具: {event.tool}</span> : null}
+          {event.paths?.length ? (
+            <div className={styles.paths}>
+              {event.paths.map((path) => <span key={path}>{path}</span>)}
+            </div>
+          ) : null}
+          {preview && preview !== message ? <pre className={styles.preview}>{preview}</pre> : null}
+        </div>
+      </article>
+    )
+  }
+
   return (
     <section className={`panel ${styles.root}`}>
       <div className="section-row">
@@ -148,33 +202,24 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
           {progress?.message ? <span>{progress.message}</span> : null}
         </div>
       ) : null}
+      {grouped.roundCount > 1 ? (
+        <div className={styles.runToggles}>
+          {grouped.groups.map((group) => (
+            <button
+              key={group.id}
+              type="button"
+              className={`${styles.runToggle} ${expanded.has(group.id) ? styles.runToggleOpen : ''}`}
+              onClick={() => toggleGroup(group.id)}
+            >
+              {group.label} · {group.events.length} 条 {expanded.has(group.id) ? '▾' : '▸'}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className={styles.scrollArea} ref={scrollRef}>
-        {cliDisplays.length ? (
+        {visibleCliDisplays.length ? (
           <div className={styles.stream} aria-label="CLI 操作流">
-            {cliDisplays.map((event) => {
-              const message = cliLogMessage(event)
-              const preview = formatCliText(event.preview)
-              return (
-                <article key={event.id} className={rowClassName(event, animatedEventIds)}>
-                  <div className={styles.meta}>
-                    <span>{cliProviderLabel(event.provider)}</span>
-                    <span>{cliPhaseLabel(event.phase)}</span>
-                    <span>{presentNodeName(event.node)}</span>
-                  </div>
-                  <div className={styles.body}>
-                    <strong>{event.title}</strong>
-                    {message ? <p>{message}</p> : null}
-                    {event.tool ? <span className={styles.detail}>工具: {event.tool}</span> : null}
-                    {event.paths?.length ? (
-                      <div className={styles.paths}>
-                        {event.paths.map((path) => <span key={path}>{path}</span>)}
-                      </div>
-                    ) : null}
-                    {preview && preview !== message ? <pre className={styles.preview}>{preview}</pre> : null}
-                  </div>
-                </article>
-              )
-            })}
+            {visibleCliDisplays.map((event) => renderCliRow(event))}
           </div>
         ) : (
           <div className="empty">

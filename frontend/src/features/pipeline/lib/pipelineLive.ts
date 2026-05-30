@@ -64,3 +64,21 @@ export function runningNodeLabel(detail: IterationDetail | null): string | null 
   if (!detail?.current_node) return null
   return presentNodeName(detail.current_node)
 }
+
+export function hasVerifyRejectRetry(detail: IterationDetail | null): boolean {
+  return Boolean(detail && (detail.retry_counts?.planner_verify_reject ?? 0) > 0)
+}
+
+export function isVerifyRejectRetest(detail: IterationDetail | null): boolean {
+  return Boolean(
+    detail
+    && hasVerifyRejectRetry(detail)
+    && detail.current_node === 'tester'
+    && (detail.status === 'testing' || detail.status === 'retrying'),
+  )
+}
+
+export function isPlannerVerifyRejectRetry(detail: IterationDetail | null): boolean {
+  if (!detail || detail.status !== 'retrying') return false
+  return detail.events.some((event) => event.type === 'planner_verify.rejected')
+}

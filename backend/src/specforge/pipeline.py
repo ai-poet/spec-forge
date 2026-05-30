@@ -1158,6 +1158,8 @@ class LangGraphPipeline:
             "Return only final JSON matching {verify_report:string, passed:boolean, failure_notes?:string, "
             "ux_notes:[string], delivery_recommendations:[string], "
             "ui_results?:[], ui_warnings?:[], adversarial_tests:[{path:string, content:string}]}. "
+            "verify_report must be Markdown with a # title, a ## Summary section, and explicit Pass/Fail counts "
+            "(example: '- Pass: 3\\n- Fail: 0'). "
             "Only propose adversarial tests under tests/adversarial. "
             "You must complete a code review of the Coder implementation. Set passed=true only when the code review finds no P0 or P1 bugs. "
             "Set passed=false when you find any P0/P1 bug, and put the defects in failure_notes. "
@@ -1394,8 +1396,21 @@ class LangGraphPipeline:
             self._record_document(iteration_id, relative.as_posix(), path)
             self._node_event(iteration_id, "artifact.created", NodeName.planner.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix())
 
+    def _ensure_verify_report_markers(self, text: str) -> str:
+        result = text if text.strip() else "# Verify Report\n\n"
+        if "# " not in result:
+            result = f"# Verify Report\n\n{result.lstrip()}"
+        if "Pass" not in result:
+            if "## Summary" in result:
+                suffix = "" if result.endswith("\n") else "\n"
+                result = f"{result}{suffix}- Pass: 0\n- Fail: 0\n"
+            else:
+                result = f"{result.rstrip()}\n\n## Summary\n- Pass: 0\n- Fail: 0\n"
+        return result
+
     def _write_tester_artifact(self, iteration_id: str, docs: IterationDocs, artifact: TesterArtifact) -> None:
-        verify = docs.write_text("verify_report.md", artifact.verify_report)
+        verify_report = self._ensure_verify_report_markers(artifact.verify_report)
+        verify = docs.write_text("verify_report.md", verify_report)
         self._record_document(iteration_id, "verify_report", verify)
         self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "验证报告已生成", "verify_report 已写入 iteration 文档目录。", severity="success", document="verify_report")
         if artifact.ui_results or artifact.ui_warnings:

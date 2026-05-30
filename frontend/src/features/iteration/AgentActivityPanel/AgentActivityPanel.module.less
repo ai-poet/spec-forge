@@ -34,6 +34,40 @@
   }
 }
 
+.runEvents {
+  display: grid;
+  gap: 8px;
+}
+
+.runBlock {
+  display: grid;
+  gap: 6px;
+}
+
+.runSeparator {
+  font-size: 11px;
+  color: var(--warning);
+  padding: 4px 2px;
+}
+
+.runToggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--bg-surface-hover);
+  }
+}
+
 .list {
   display: grid;
   gap: 8px;

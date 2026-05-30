@@ -6,13 +6,14 @@ import { RunLogPanel } from '../../iteration/RunLogPanel'
 interface Props {
   detail: IterationDetail | null
   stepKey: PipelineStepKey
+  reviewMode?: boolean
 }
 
-export function StepExecutionPanel({ detail, stepKey }: Props) {
+export function StepExecutionPanel({ detail, stepKey, reviewMode = false }: Props) {
   return (
     <div className="stack">
-      <AgentActivityPanel detail={detail} stepKey={stepKey} />
-      <RunLogPanel detail={detail} stepKey={stepKey} />
+      <AgentActivityPanel detail={detail} stepKey={stepKey} reviewMode={reviewMode} />
+      <RunLogPanel detail={detail} stepKey={stepKey} reviewMode={reviewMode} />
     </div>
   )
 }

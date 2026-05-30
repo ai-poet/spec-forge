@@ -584,6 +584,18 @@ def test_planner_verify_reject_routes_back_to_tester():
     assert pipeline._route_after_planner_verify(state) == "tester"
 
 
+def test_ensure_verify_report_markers_adds_title_and_pass_summary():
+    normalized = pipeline._ensure_verify_report_markers("plain report without markers")
+    assert "# " in normalized
+    assert "Pass" in normalized
+    assert "## Summary" in normalized
+
+
+def test_ensure_verify_report_markers_preserves_existing_structure():
+    original = "# Verify Report\n\n## Summary\n- Pass: 2\n- Fail: 1\n"
+    assert pipeline._ensure_verify_report_markers(original) == original
+
+
 def test_tester_retry_prompt_handles_verify_report_rejection(tmp_path):
     project = post_project(tmp_path, "tester-verify-retry")
     project_id = project.json()["id"]

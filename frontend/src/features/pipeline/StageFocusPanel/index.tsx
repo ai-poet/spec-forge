@@ -2,7 +2,7 @@ import type { IterationDetail } from '../../../shared/lib/types'
 import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
 import type { PipelineStepKey } from '../lib/pipelineSteps'
 import { inferFocusStep, PIPELINE_STEPS } from '../lib/pipelineSteps'
-import { isStepLive, latestNodeProgress } from '../lib/pipelineLive'
+import { isPipelineRunning, isStepLive, latestNodeProgress, runningNodeLabel } from '../lib/pipelineLive'
 import { ActionPanel } from '../../iteration/ActionPanel'
 import { DocumentPanel } from '../../iteration/DocumentPanel'
 import { IterationSummaryPanel } from '../../iteration/IterationSummaryPanel'
@@ -34,10 +34,13 @@ export function StageFocusPanel({
   onStop,
   onResume,
 }: Props) {
+  const reviewMode = Boolean(reviewStepKey)
   const focusStep = reviewStepKey ?? (detail ? inferFocusStep(detail) : null)
   const stepMeta = PIPELINE_STEPS.find((step) => step.key === focusStep)
-  const stepLive = isStepLive(detail, focusStep)
+  const stepLive = !reviewMode && isStepLive(detail, focusStep)
   const progress = latestNodeProgress(detail, focusStep)
+  const pipelineRunning = isPipelineRunning(detail)
+  const liveNode = runningNodeLabel(detail)
 
   async function loadFirstDoc(names: string[]) {
     if (!detail) return
@@ -78,7 +81,7 @@ export function StageFocusPanel({
     if (!detail || !focusStep) return null
     return (
       <div className="stack">
-        <StepExecutionPanel detail={detail} stepKey={focusStep} />
+        <StepExecutionPanel detail={detail} stepKey={focusStep} reviewMode={reviewMode} />
         {renderStepExtras(focusStep)}
       </div>
     )
@@ -109,16 +112,21 @@ export function StageFocusPanel({
 
   return (
     <div className={styles.focus}>
-      {reviewStepKey ? (
+      {reviewMode ? (
         <div className={styles.banner}>
           <strong>回顾：{stepMeta?.label}</strong>
-          <span className="muted">只读查看该阶段产物与 Agent 执行详情</span>
+          <span className="muted">
+            {pipelineRunning
+              ? `只读查看该阶段历史；流水线仍在运行${liveNode ? `（当前：${liveNode}）` : ''}。`
+              : '只读查看该阶段产物与 Agent 执行详情。'}
+          </span>
         </div>
       ) : null}
 
       <div className={styles.stickyBar}>
         <ActionPanel
           detail={detail}
+          reviewMode={reviewMode}
           busy={busy}
           onApproveVerify={onApproveVerify}
           onStop={onStop}
@@ -126,7 +134,7 @@ export function StageFocusPanel({
         />
       </div>
 
-      {isBlocked && !reviewStepKey ? (
+      {isBlocked && !reviewMode ? (
         <section className={`surface stack ${styles.section}`}>
           <TimelinePanel detail={detail} filter="failures" />
         </section>
@@ -135,14 +143,14 @@ export function StageFocusPanel({
       <section className={`${styles.section} stack ${styles.content}`}>
         <div className="section-row">
           <div>
-            <p className="eyebrow">{reviewStepKey ? '阶段回顾' : '当前阶段'}</p>
+            <p className="eyebrow">{reviewMode ? '阶段回顾' : '当前阶段'}</p>
             <div className={styles.stageTitleRow}>
               <h2 className="section-title">{stepMeta?.label ?? '流转中'}</h2>
-              {stepLive && !reviewStepKey ? <RunningIndicator size="sm" mode="dot" label="执行中" /> : null}
+              {stepLive ? <RunningIndicator size="sm" mode="dot" label="执行中" /> : null}
             </div>
             <p className="muted">{stepLive && progress?.message ? progress.message : stepMeta?.hint}</p>
           </div>
-          {!reviewStepKey && focusStep === 'verify_approval' ? (
+          {!reviewMode && focusStep === 'verify_approval' ? (
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => loadFirstDoc(['verify_report', 'delivery_advice'])}>
               打开验证报告
             </button>

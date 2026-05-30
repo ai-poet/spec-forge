@@ -122,7 +122,7 @@ flowchart TB
   tester -->|"失败且超重试上限"| endBlocked
 
   plannerVerify -->|"报告合格"| verifyApproval
-  plannerVerify -->|"驳回且未超上限\n→ 回环 ③"| coder
+  plannerVerify -->|"驳回且未超上限\n→ 回环 ③"| tester
   plannerVerify -->|"驳回且超上限"| endBlocked
 
   verifyApproval --> doneNode
@@ -175,9 +175,7 @@ flowchart LR
 
   subgraph loop3 ["回环 ③ 规格复核（默认 ≤ 2 次）"]
     direction TB
-    pv3["planner_verify 驳回\nverify_report 格式不合格"] --> c3["Coder 修复报告相关实现"]
-    c3 --> ic3["integrity_check"]
-    ic3 --> t3["Tester"]
+    pv3["planner_verify 驳回\nverify_report 格式不合格"] --> t3["Tester 重写 verify_report"]
     t3 --> pv3b["planner_verify 再审"]
     pv3b --> pv3
     pv3 -->|"planner_verify_reject > max"| b3["blocked"]
@@ -190,7 +188,7 @@ flowchart LR
 |------|----------------------|----------|----------|----------|----------|
 | **① 澄清** | `coder_planner_clarify` | 3 | Coder artifact 含 `clarification_request` | `coder → planner_clarification → coder` | `blocked_user` |
 | **② 实现/验证** | `coder_tester` | 5 | Tester artifact `passed=false`，或 CLI 无合法产物且代码审查兜底也失败 | `tester → coder → integrity_check → tester` | `blocked` |
-| **③ 规格复核** | `planner_verify_reject` | 2 | `verify_report.md` 缺少标题或 Pass 摘要 | `planner_verify → coder → integrity_check → tester → planner_verify` | `blocked` |
+| **③ 规格复核** | `planner_verify_reject` | 2 | `verify_report.md` 缺少标题或 Pass 摘要 | `planner_verify → tester → planner_verify` | `blocked` |
 
 回环 ② 中 **UI Driver** 在 `tester` 节点内执行（扫描 `docs/.../tests/ui/*.json`）：含 CSS `selector` 的 **Web** trajectory 走 Playwright；无 selector 的 Web/native trajectory 优先走 CuaDriver；Cua 不可用时 Web 可回退 Playwright，native 记为未执行（`warning`），不单独占一条 LangGraph 边。**UI 断言失败不会触发回环 ②**，只写入 `ui_warnings` 和交付建议，界面显示「需复核」。
 
@@ -228,7 +226,7 @@ sequenceDiagram
   end
 ```
 
-**与主流程图的关系：** 回环 ① 只发生在 `coder` 与 `planner_clarification` 之间；回环 ②③ 都从 `coder` 重新进入，且**必须经过** `integrity_check → tester`（③ 还要多一次 `planner_verify`）。
+**与主流程图的关系：** 回环 ① 只发生在 `coder` 与 `planner_clarification` 之间；回环 ② 从 `coder` 重新进入且必须经过 `integrity_check → tester`；回环 ③ 在 `planner_verify` 与 `tester` 之间（Tester 重写 `verify_report`，不改 `src/**`）。
 
 下面把三条回环叠在同一条主骨架上（边上标注 ①②③ 与默认上限）：
 
@@ -245,7 +243,7 @@ flowchart TD
   tester -->|"② passed=false\n或审查兜底失败 ≤5"| coder
   tester -->|"通过"| pverify["planner_verify"]
 
-  pverify -->|"③ 驳回\n≤2"| coder
+  pverify -->|"③ 驳回\n≤2"| tester
   pverify -->|"通过"| approval["verify_approval\n你确认交付"]
   approval --> delivered["delivered"]
 
