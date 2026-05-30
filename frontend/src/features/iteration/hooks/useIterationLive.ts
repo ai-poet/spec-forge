@@ -16,6 +16,7 @@ export function useIterationLive(iterationId: string | null) {
   const [detail, setDetail] = useState<IterationDetail | null>(null)
   const [docName, setDocName] = useState('system_design')
   const [docText, setDocText] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
   const [liveError, setLiveError] = useState<string | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<LiveConnectionStatus>('idle')
   const [lastMessageAt, setLastMessageAt] = useState<string | null>(null)
@@ -43,18 +44,31 @@ export function useIterationLive(iterationId: string | null) {
       setDetail(null)
       setDocText('')
       documentsMetaRef.current = ''
+      setIsLoading(false)
       return
     }
-    const data = await getIteration(iterationId)
-    setDetail(data)
-    documentsMetaRef.current = documentsMetaKey(data.documents)
-    const doc = data.documents.find((item) => item.name === docNameRef.current) ?? data.documents[0]
-    if (doc) {
-      await loadDocument(doc.name)
-    } else {
-      setDocText('')
+    setIsLoading(true)
+    try {
+      const data = await getIteration(iterationId)
+      setDetail(data)
+      documentsMetaRef.current = documentsMetaKey(data.documents)
+      const doc = data.documents.find((item) => item.name === docNameRef.current) ?? data.documents[0]
+      if (doc) {
+        await loadDocument(doc.name)
+      } else {
+        setDocText('')
+      }
+    } finally {
+      setIsLoading(false)
     }
   }, [iterationId, loadDocument])
+
+  useEffect(() => {
+    if (!iterationId) return
+    setDetail(null)
+    setDocText('')
+    setIsLoading(true)
+  }, [iterationId])
 
   useEffect(() => {
     loadDetail().catch(console.error)
@@ -146,6 +160,7 @@ export function useIterationLive(iterationId: string | null) {
     detail,
     docName,
     docText,
+    isLoading,
     liveError,
     connectionStatus,
     lastMessageAt,

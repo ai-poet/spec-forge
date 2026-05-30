@@ -1,6 +1,8 @@
 import { artifactUrl } from '../../../shared/lib/api'
 import { uiDriverLabel, uiStatusLabel } from '../../../shared/lib/labels'
 import type { IterationDetail, UITestResult } from '../../../shared/lib/types'
+import { isUiDriverRunning } from '../../pipeline/lib/pipelineLive'
+import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
 import styles from './UIVerificationPanel.module.less'
 
 interface Props {
@@ -21,6 +23,7 @@ export function UIVerificationPanel({ detail }: Props) {
   const results = detail?.ui_results ?? []
   const warnings = results.filter((result) => result.status === 'warning')
   const failed = count(results, 'failed')
+  const uiDriverRunning = isUiDriverRunning(detail)
 
   return (
     <section className={`${styles.root} stack`}>
@@ -30,6 +33,7 @@ export function UIVerificationPanel({ detail }: Props) {
           <div className="muted">Node 4 作为 Tester 的工具调用，不改变 LangGraph 主节点。</div>
         </div>
         <div className={styles.metrics}>
+          {uiDriverRunning ? <RunningIndicator size="sm" mode="dot" label="运行中" /> : null}
           <span className="pill">总数: {results.length}</span>
           <span className="pill good">通过: {count(results, 'passed')}</span>
           <span className={`pill ${failed ? 'danger-pill' : ''}`}>失败: {failed}</span>
@@ -37,7 +41,14 @@ export function UIVerificationPanel({ detail }: Props) {
         </div>
       </div>
 
-      {!results.length ? <div className="empty">本轮没有 Planner 定义的 UI trajectory，或尚未执行到 Tester。</div> : null}
+      {uiDriverRunning ? (
+        <div className={styles.runningBanner}>
+          <RunningIndicator label="UI Driver 正在执行 trajectory…" />
+          <span className="muted">完成后会在此展示每条 UI 测试结果。</span>
+        </div>
+      ) : null}
+
+      {!results.length && !uiDriverRunning ? <div className="empty">本轮没有 Planner 定义的 UI trajectory，或尚未执行到 Tester。</div> : null}
       <div className={styles.resultList}>
         {results.map((result) => (
           <article key={result.id} className={`${styles.result} ${RESULT_STATUS_CLASS[result.status] ?? ''}`}>

@@ -30,6 +30,9 @@
 }
 
 .statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border-radius: 999px;
   padding: 3px 8px;
   font-size: 12px;
@@ -46,6 +49,29 @@
 
   &.active {
     color: var(--accent);
+  }
+
+  &.running {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: headerPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes headerPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
   }
 }
 

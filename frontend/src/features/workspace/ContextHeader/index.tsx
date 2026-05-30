@@ -1,11 +1,15 @@
-import type { EpicSummary, IterationSummary, ProjectSummary } from '../../../shared/lib/types'
+import type { EpicSummary, IterationDetail, IterationSummary, ProjectSummary } from '../../../shared/lib/types'
 import { iterationStatusLabel } from '../../../shared/lib/labels'
+import { isRunningStatus } from '../../pipeline/lib/pipelineLive'
+import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
 import styles from './ContextHeader.module.less'
 
 interface Props {
   project: ProjectSummary | null
   selectedEpic: EpicSummary | null
   selectedIteration: IterationSummary | null
+  liveDetail?: IterationDetail | null
+  isLoading?: boolean
   onCreatePipeline: () => void
   onOpenSettings: () => void
 }
@@ -13,10 +17,22 @@ interface Props {
 function statusPillClass(status: string): string {
   if (status === 'delivered') return styles.delivered
   if (status.includes('blocked')) return styles.blocked
+  if (['planning', 'coding', 'testing', 'retrying', 'queued', 'awaiting_design_approval'].includes(status)) return styles.running
   return styles.active
 }
 
-export function ContextHeader({ project, selectedEpic, selectedIteration, onCreatePipeline, onOpenSettings }: Props) {
+export function ContextHeader({
+  project,
+  selectedEpic,
+  selectedIteration,
+  liveDetail,
+  isLoading,
+  onCreatePipeline,
+  onOpenSettings,
+}: Props) {
+  const status = liveDetail?.status ?? selectedIteration?.status
+  const running = isRunningStatus(status)
+
   return (
     <header className={styles.header}>
       <div className={styles.row}>
@@ -27,11 +43,17 @@ export function ContextHeader({ project, selectedEpic, selectedIteration, onCrea
             <span className={styles.projectName}>{selectedEpic.title}</span>
           </>
         ) : null}
-        {selectedIteration ? (
+        {isLoading ? (
           <>
             <span className={styles.sep}>·</span>
-            <span className={`${styles.statusPill} ${statusPillClass(selectedIteration.status)}`}>
-              {iterationStatusLabel[selectedIteration.status]}
+            <RunningIndicator size="sm" mode="spinner" label="加载中" />
+          </>
+        ) : status ? (
+          <>
+            <span className={styles.sep}>·</span>
+            <span className={`${styles.statusPill} ${statusPillClass(status)}`}>
+              {running ? <span className={styles.statusDot} aria-hidden="true" /> : null}
+              {iterationStatusLabel[status]}
             </span>
           </>
         ) : null}

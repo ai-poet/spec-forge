@@ -17,6 +17,45 @@
   border-left-color: var(--danger);
 }
 
+.barRunning {
+  border-left-color: var(--accent);
+  background: linear-gradient(90deg, var(--accent-soft) 0%, var(--bg-surface) 42%);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nodeBadge {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.progressBox {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+
+  strong {
+    color: var(--text-primary);
+  }
+
+  span {
+    color: var(--text-secondary);
+  }
+}
+
 .main {
   display: grid;
   gap: 8px;

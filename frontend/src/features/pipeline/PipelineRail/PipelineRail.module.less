@@ -45,6 +45,46 @@
   background: var(--accent-soft);
 }
 
+.rowLive {
+  animation: rowLivePulse 2.4s ease-in-out infinite;
+}
+
+.progressIconLive {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.liveDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: liveDotPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rowLivePulse {
+  0%,
+  100% {
+    background: var(--accent-soft);
+  }
+  50% {
+    background: rgba(59, 130, 246, 0.18);
+  }
+}
+
+@keyframes liveDotPulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
+}
+
 .rowComplete .progressIcon {
   color: var(--success);
 }
@@ -95,11 +135,32 @@
   &.online {
     background: var(--success);
   }
+
+  &.connecting {
+    background: var(--accent);
+    animation: liveDotPulse 1.4s ease-in-out infinite;
+  }
 }
 
 .railStatus {
   margin: 6px 0 0;
   font-size: 12px;
+}
+
+.railProgress {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  display: grid;
+  gap: 4px;
+}
+
+.railProgressMessage {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .railBanner {
@@ -117,6 +178,10 @@
   &.warning {
     color: #fde68a;
   }
+
+  &.running {
+    background: var(--accent-soft);
+  }
 }
 
 .railFootnote {
@@ -127,6 +192,14 @@
 .railBack {
   width: 100%;
   margin-top: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rowLive,
+  .liveDot,
+  .connectionDot.connecting {
+    animation: none;
+  }
 }
 
 @media (max-width: 1080px) {

@@ -29,3 +29,53 @@
 .content {
   min-height: 200px;
 }
+
+.loading {
+  display: grid;
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.stageTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.skeletonStack {
+  display: grid;
+  gap: 12px;
+}
+
+.skeletonBar,
+.skeletonPanel {
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, var(--bg-surface) 0%, var(--bg-surface-hover) 50%, var(--bg-surface) 100%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.4s ease-in-out infinite;
+}
+
+.skeletonBar {
+  height: 72px;
+}
+
+.skeletonPanel {
+  height: 180px;
+}
+
+@keyframes skeletonShimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonBar,
+  .skeletonPanel {
+    animation: none;
+  }
+}

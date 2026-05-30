@@ -1,6 +1,8 @@
 import type { IterationDetail } from '../../../shared/lib/types'
+import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
 import type { PipelineStepKey } from '../lib/pipelineSteps'
 import { inferFocusStep, PIPELINE_STEPS } from '../lib/pipelineSteps'
+import { isStepLive, latestNodeProgress } from '../lib/pipelineLive'
 import { ActionPanel } from '../../iteration/ActionPanel'
 import { DocumentPanel } from '../../iteration/DocumentPanel'
 import { IterationSummaryPanel } from '../../iteration/IterationSummaryPanel'
@@ -13,6 +15,7 @@ interface Props {
   detail: IterationDetail | null
   docText: string
   reviewStepKey: PipelineStepKey | null
+  isLoading: boolean
   busy: boolean
   onLoadDocument: (name: string) => Promise<void>
   onApproveVerify: () => Promise<void>
@@ -24,6 +27,7 @@ export function StageFocusPanel({
   detail,
   docText,
   reviewStepKey,
+  isLoading,
   busy,
   onLoadDocument,
   onApproveVerify,
@@ -32,6 +36,8 @@ export function StageFocusPanel({
 }: Props) {
   const focusStep = reviewStepKey ?? (detail ? inferFocusStep(detail) : null)
   const stepMeta = PIPELINE_STEPS.find((step) => step.key === focusStep)
+  const stepLive = isStepLive(detail, focusStep)
+  const progress = latestNodeProgress(detail, focusStep)
 
   async function loadFirstDoc(names: string[]) {
     if (!detail) return
@@ -78,6 +84,19 @@ export function StageFocusPanel({
     )
   }
 
+  if (isLoading && !detail) {
+    return (
+      <section className={`${styles.section} ${styles.loading}`}>
+        <RunningIndicator label="正在加载流水线状态…" />
+        <div className={styles.skeletonStack}>
+          <div className={styles.skeletonBar} />
+          <div className={styles.skeletonPanel} />
+          <div className={styles.skeletonPanel} />
+        </div>
+      </section>
+    )
+  }
+
   if (!detail) {
     return (
       <section className={styles.section}>
@@ -117,8 +136,11 @@ export function StageFocusPanel({
         <div className="section-row">
           <div>
             <p className="eyebrow">{reviewStepKey ? '阶段回顾' : '当前阶段'}</p>
-            <h2 className="section-title">{stepMeta?.label ?? '流转中'}</h2>
-            <p className="muted">{stepMeta?.hint}</p>
+            <div className={styles.stageTitleRow}>
+              <h2 className="section-title">{stepMeta?.label ?? '流转中'}</h2>
+              {stepLive && !reviewStepKey ? <RunningIndicator size="sm" mode="dot" label="执行中" /> : null}
+            </div>
+            <p className="muted">{stepLive && progress?.message ? progress.message : stepMeta?.hint}</p>
           </div>
           {!reviewStepKey && focusStep === 'verify_approval' ? (
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => loadFirstDoc(['verify_report', 'delivery_advice'])}>

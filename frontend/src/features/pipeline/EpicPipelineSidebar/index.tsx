@@ -69,6 +69,7 @@ export function EpicPipelineSidebar({
                     <div className={sidebar.rowHead}>
                       <strong className={styles.pipelineTitle}>{epic.title}</strong>
                       <span className={`${sidebar.status} ${STATUS_CLASS[kind]}`}>
+                        {kind === 'running' ? <span className={sidebar.statusDot} aria-hidden="true" /> : null}
                         {iteration ? iterationStatusLabel[pipelineStatus as IterationSummary['status']] : '未启动'}
                       </span>
                     </div>

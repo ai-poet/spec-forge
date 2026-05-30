@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { IterationDetail, SemanticEvent } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
+import { isStepLive, latestNodeProgress } from '../../pipeline/lib/pipelineLive'
 import { cliPhaseLabel, cliProviderLabel, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
+import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
 import styles from './RunLogPanel.module.less'
 
 interface Props {
@@ -13,9 +15,10 @@ interface Props {
 const CLI_ACTIVE_STATUSES = new Set(['planning', 'coding', 'testing', 'retrying'])
 
 function isCliActive(detail: IterationDetail | null, stepKey: PipelineStepKey | null): boolean {
-  if (!detail || !stepKey || !detail.current_node) return false
+  if (stepKey) return isStepLive(detail, stepKey)
+  if (!detail || !detail.current_node) return false
   if (!CLI_ACTIVE_STATUSES.has(detail.status)) return false
-  return nodesForStep(stepKey).includes(detail.current_node)
+  return true
 }
 
 function formatStructuredValue(value: unknown): string {
@@ -73,9 +76,11 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
   const initializedRef = useRef(false)
   const previousEventIdsRef = useRef<Set<string>>(new Set())
   const timersRef = useRef<Map<string, number>>(new Map())
+  const scrollRef = useRef<HTMLDivElement>(null)
   const [animatedEventIds, setAnimatedEventIds] = useState<Set<string>>(new Set())
   const nodes = stepKey ? new Set(nodesForStep(stepKey)) : null
   const cliActive = isCliActive(detail, stepKey)
+  const progress = latestNodeProgress(detail, stepKey)
   const cliDisplays = useMemo(
     () => (detail?.events ?? [])
       .filter((event) => event.type === 'cli.display')
@@ -121,6 +126,11 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
     })
   }, [cliDisplayKey])
 
+  useEffect(() => {
+    if (!cliActive || !scrollRef.current) return
+    scrollRef.current.scrollTop = 0
+  }, [cliActive, cliDisplayKey])
+
   useEffect(() => () => {
     timersRef.current.forEach((timer) => window.clearTimeout(timer))
     timersRef.current.clear()
@@ -128,8 +138,17 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
 
   return (
     <section className={`panel ${styles.root}`}>
-      <h2 className="section-title">{stepKey ? '本阶段 CLI 日志' : '运行日志'}</h2>
-      <div className={styles.scrollArea}>
+      <div className="section-row">
+        <h2 className="section-title">{stepKey ? '本阶段 CLI 日志' : '运行日志'}</h2>
+        {cliActive ? <RunningIndicator size="sm" mode="dot" label="实时输出" /> : null}
+      </div>
+      {cliActive ? (
+        <div className={styles.liveBanner}>
+          <RunningIndicator mode="both" label={progress?.title ?? `${presentNodeName(pendingNode)} 正在运行…`} />
+          {progress?.message ? <span>{progress.message}</span> : null}
+        </div>
+      ) : null}
+      <div className={styles.scrollArea} ref={scrollRef}>
         {cliDisplays.length ? (
           <div className={styles.stream} aria-label="CLI 操作流">
             {cliDisplays.map((event) => {
@@ -159,7 +178,9 @@ export function RunLogPanel({ detail, stepKey = null }: Props) {
           </div>
         ) : (
           <div className="empty">
-            {cliActive ? `${presentNodeName(pendingNode)} 正在运行，等待格式化 CLI 事件…` : stepKey ? '本阶段暂无格式化 CLI 日志' : '暂无格式化 CLI 日志'}
+            {cliActive ? (
+              <RunningIndicator label={`${presentNodeName(pendingNode)} 正在运行，等待格式化 CLI 事件…`} />
+            ) : stepKey ? '本阶段暂无格式化 CLI 日志' : '暂无格式化 CLI 日志'}
           </div>
         )}
       </div>

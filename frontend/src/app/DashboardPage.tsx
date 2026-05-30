@@ -284,6 +284,8 @@ export function DashboardPage() {
                 project={projects.selectedProject}
                 selectedEpic={epics.selectedEpic}
                 selectedIteration={selectedIteration}
+                liveDetail={live.detail}
+                isLoading={live.isLoading}
                 onCreatePipeline={() => setShowCreatePipeline(true)}
                 onOpenSettings={() => setSettingsOpen(true)}
               />
@@ -304,6 +306,7 @@ export function DashboardPage() {
                   detail={live.detail}
                   docText={live.docText}
                   reviewStepKey={reviewStepKey}
+                  isLoading={live.isLoading}
                   busy={busy}
                   onLoadDocument={live.loadDocument}
                   onApproveVerify={handleApproveVerify}

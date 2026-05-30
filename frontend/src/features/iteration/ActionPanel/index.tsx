@@ -1,5 +1,7 @@
 import type { IterationDetail } from '../../../shared/lib/types'
 import { retryLabel } from '../../../shared/lib/labels'
+import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
+import { isPipelineRunning, latestNodeProgress, runningNodeLabel } from '../../pipeline/lib/pipelineLive'
 import { classifyIterationProblem, presentNodeName } from '../../../shared/lib/presentation'
 import styles from './ActionPanel.module.less'
 
@@ -33,23 +35,45 @@ const BAR_STATUS_CLASS: Record<string, string> = {
   failed: styles.barBlocked,
 }
 
+const RUNNING_BAR_CLASS: Record<string, string> = {
+  queued: styles.barRunning,
+  planning: styles.barRunning,
+  awaiting_design_approval: styles.barRunning,
+  coding: styles.barRunning,
+  retrying: styles.barRunning,
+  testing: styles.barRunning,
+}
+
 export function ActionPanel({ detail, busy, onApproveVerify, onStop, onResume }: Props) {
   const state = detail ? readable[detail.status] ?? { title: detail.status, body: '查看事件流了解当前状态。' } : null
   const stoppedStep = detail?.stopped_at_node ? presentNodeName(detail.stopped_at_node) : null
   const problem = classifyIterationProblem(detail)
   const verifyReady = detail?.documents.some((doc) => doc.name === 'verify_report') ?? false
-  const statusClass = detail?.status ? BAR_STATUS_CLASS[detail.status] : ''
+  const running = isPipelineRunning(detail)
+  const progress = latestNodeProgress(detail)
+  const currentNode = runningNodeLabel(detail)
+  const statusClass = detail?.status ? BAR_STATUS_CLASS[detail.status] ?? RUNNING_BAR_CLASS[detail.status] ?? '' : ''
 
   return (
-    <section className={`${styles.bar} ${statusClass}`.trim()}>
+    <section className={`${styles.bar} ${statusClass} ${running ? styles.barRunning : ''}`.trim()}>
       <div className={styles.main}>
         <div>
-          <strong>{state?.title ?? '请选择迭代'}</strong>
+          <div className={styles.titleRow}>
+            {running ? <RunningIndicator size="sm" mode="spinner" /> : null}
+            <strong>{state?.title ?? '请选择迭代'}</strong>
+            {running && currentNode ? <span className={styles.nodeBadge}>{currentNode}</span> : null}
+          </div>
           <p className={`muted ${styles.body}`}>
             {detail?.status === 'stopped' && stoppedStep
               ? `停止于「${stoppedStep}」步骤，点击继续执行将从该步骤恢复。`
               : (state?.body ?? '选中一条流水线后，这里会显示下一步动作。')}
           </p>
+          {running && progress ? (
+            <div className={styles.progressBox}>
+              <strong>{progress.title}</strong>
+              <span>{progress.message}</span>
+            </div>
+          ) : null}
         </div>
         {problem ? (
           <div className={`${styles.alert} ${problem.severity === 'warning' ? styles.alertWarning : styles.alertError}`}>
