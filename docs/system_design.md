@@ -92,10 +92,10 @@ Tester 失败会回到 Coder，受 `max_coder_tester_retries` 限制。Coder 可
 
 v0.6 将 Node 4 落地为 Tester 内部调用的 Cua UI Driver 工具层，而不是独立 LangGraph 节点。
 
-- 接入方式：默认 `cua-driver` CLI；Cua 不可用时 Web UI 回退 Python Playwright（`pip install specforge[ui]`）。
-- 调用原则：Cua 路径遵守 `launch_app -> get_window_state -> action -> get_window_state`；Playwright 路径直接打开 `target.url` 执行 trajectory。
+- 接入方式：默认自动分流；Web trajectory 若包含 CSS `selector` 则使用 Python Playwright（`pip install specforge[ui]`），否则优先使用 `cua-driver` CLI。
+- 调用原则：Cua 路径遵守 `launch_app -> get_window_state -> action -> get_window_state`，通过 AX `tree_markdown`/`element_index` 交互；Playwright 路径直接打开 `target.url` 执行 selector/text trajectory。
 - 覆盖目标：Web 应用（Cua 或 Playwright）和 macOS 原生应用（仅 Cua）。
-- 回退策略：Cua 不可用时 Web spec 由 Playwright 真实执行，发 `ui_driver.fallback`；native spec 记为 `warning`（未执行）。
+- 回退策略：Web selector spec 或 Cua 不可用的 Web spec 由 Playwright 真实执行，发 `ui_driver.fallback`；native spec 在 Cua 不可用时记为 `warning`（未执行）。
 - 双后端不可用：Web spec 也记为 `warning`，写入 `ui_driver.warning`。
 - 失败策略：UI assertion 失败时写入 `ui_driver.failed` 和 `ui_warnings`，作为非阻断警告；本轮是否通过以 Tester 代码审查是否发现 P0/P1 缺陷为准。
 
@@ -131,7 +131,7 @@ Planner 可写入 `docs/tests/ui/*.json`，每个文件是一个 UI trajectory�
 - `wait` — 等待毫秒（`value`，如 `"1000"`）
 - `resize_window` — 调整视口（`value`: `"宽,高"`，如 `"360,420"`）
 
-可选字段：`selector`（CSS selector，如 `.titlebar-timer`）、`text`、`value`、`key`、`keys`、`direction`、`amount`。
+可选字段：`selector`（CSS selector，如 `.titlebar-timer`，仅 Web/Playwright 路径）、`text`、`value`、`key`、`keys`、`direction`、`amount`。Cua 路径不把 CSS selector 当作 AX 元素；需要 Cua 执行的 trajectory 应使用可见文本或可由 `get_window_state` 暴露的元素。
 
 Tester 产物：
 

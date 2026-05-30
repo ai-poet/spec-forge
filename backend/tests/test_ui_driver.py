@@ -35,6 +35,28 @@ class FakePlaywrightRunner:
         ]
 
 
+class AvailableCuaRunner:
+    def __init__(self) -> None:
+        self.called = False
+
+    def ensure_available(self) -> str | None:
+        return None
+
+    def run_specs(self, specs: list[UITestSpec], docs_root: Path) -> list[UITestResult]:
+        self.called = True
+        return [
+            UITestResult(
+                id=spec.id,
+                title=spec.title,
+                kind=spec.kind,
+                status="passed",
+                target=spec.target.url or spec.target.bundle_id or "",
+                driver="cua",
+            )
+            for spec in specs
+        ]
+
+
 def test_composite_falls_back_to_playwright_for_web(tmp_path: Path) -> None:
     spec = UITestSpec.model_validate(
         {
@@ -54,6 +76,27 @@ def test_composite_falls_back_to_playwright_for_web(tmp_path: Path) -> None:
     assert result.results[0].status == "passed"
     assert result.results[0].driver == "playwright"
     assert result.warning is None
+
+
+def test_composite_prefers_playwright_for_selector_web_specs(tmp_path: Path) -> None:
+    spec = UITestSpec.model_validate(
+        {
+            "id": "focus_timer_header",
+            "kind": "web",
+            "target": {"url": "http://127.0.0.1:5178"},
+            "steps": [{"action": "assert_visible", "selector": ".titlebar"}],
+        }
+    )
+    cua = AvailableCuaRunner()
+    runner = UIDriverRunner(
+        cua_runner=cua,  # type: ignore[arg-type]
+        playwright_runner=FakePlaywrightRunner(),  # type: ignore[arg-type]
+    )
+    result = runner.run_specs([spec], tmp_path)
+    assert result.fallback == "playwright"
+    assert result.results[0].status == "passed"
+    assert result.results[0].driver == "playwright"
+    assert cua.called is False
 
 
 def test_composite_native_warns_when_cua_unavailable(tmp_path: Path) -> None:
@@ -127,3 +170,49 @@ def test_cua_runner_marks_driver(tmp_path: Path) -> None:
     results = CuaUIDriverRunner(OkTransport()).run_specs([spec], tmp_path)
     assert results[0].status == "passed"
     assert results[0].driver == "cua"
+
+
+def test_cua_selector_steps_fail_before_launching(tmp_path: Path) -> None:
+    class RecordingTransport(CuaCliTransport):
+        calls: list[str]
+
+        def __init__(self) -> None:
+            self.calls = []
+
+        def run(self, tool: str, payload: dict | None = None, *, timeout: int = 30) -> tuple[int, str, str]:
+            self.calls.append(tool)
+            return 0, "{}", ""
+
+        def start_daemon(self) -> tuple[int, str, str]:
+            return 0, "", ""
+
+    transport = RecordingTransport()
+    spec = UITestSpec.model_validate(
+        {
+            "id": "selector_web",
+            "kind": "web",
+            "target": {"url": "http://127.0.0.1:5178"},
+            "steps": [{"action": "assert_visible", "selector": ".titlebar"}],
+        }
+    )
+    result = CuaUIDriverRunner(transport).run_specs([spec], tmp_path)[0]
+    assert result.status == "failed"
+    assert result.driver == "cua"
+    assert "CSS selector UI steps require a DOM-capable runner" in (result.error or "")
+    assert "launch_app" not in transport.calls
+
+
+def test_cua_permission_text_not_granted_is_unavailable() -> None:
+    class PermissionTransport(CuaCliTransport):
+        def run(self, tool: str, payload: dict | None = None, *, timeout: int = 30) -> tuple[int, str, str]:
+            if tool == "status":
+                return 0, "ok", ""
+            if tool == "check_permissions":
+                return 0, "❌ Accessibility: NOT granted\n✅ Screen Recording: granted", ""
+            return 0, "{}", ""
+
+        def start_daemon(self) -> tuple[int, str, str]:
+            return 0, "", ""
+
+    error = CuaUIDriverRunner(PermissionTransport()).ensure_available()
+    assert error == "CuaDriver permissions missing: Accessibility or Screen Recording is false"

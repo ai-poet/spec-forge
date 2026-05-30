@@ -21,6 +21,16 @@ from .ui_driver_common import (
 )
 from .ui_driver_playwright import NATIVE_UNAVAILABLE, PlaywrightUIDriverRunner
 
+CUA_SELECTOR_UNSUPPORTED = (
+    "CSS selector UI steps require a DOM-capable runner; CuaDriver trajectory steps use "
+    "get_window_state AX text/element_index data. Run this Web UI spec with Playwright "
+    "or define CuaDriver steps by visible text."
+)
+WEB_SELECTOR_REQUIRES_PLAYWRIGHT = (
+    "CSS selector Web UI steps require Playwright; CuaDriver auto mode is reserved for "
+    "AX text/element_index trajectories."
+)
+
 
 class UIDriverTransport(Protocol):
     def run(self, tool: str, payload: dict | None = None, *, timeout: int = 30) -> tuple[int, str, str]:
@@ -88,7 +98,7 @@ class CuaUIDriverRunner:
         if code:
             return f"CuaDriver permission check failed: {stderr or stdout}"
         text = f"{stdout}\n{stderr}".lower()
-        if '"accessibility": false' in text or '"screen_recording": false' in text:
+        if self._permissions_missing(text):
             return "CuaDriver permissions missing: Accessibility or Screen Recording is false"
         return None
 
@@ -112,6 +122,10 @@ class CuaUIDriverRunner:
         return results
 
     def _run_spec(self, spec: UITestSpec, docs_root: Path) -> UITestResult:
+        for step in spec.steps:
+            if step.action not in {"wait", "resize_window", "screenshot"}:
+                self._reject_selector_for_cua(step)
+
         launch_payload = self._launch_payload(spec)
         code, stdout, stderr = self.transport.run("launch_app", launch_payload, timeout=30)
         if code:
@@ -164,6 +178,9 @@ class CuaUIDriverRunner:
         observations: list[str],
         tree: str,
     ) -> str:
+        if step.action not in {"wait", "resize_window", "screenshot"}:
+            self._reject_selector_for_cua(step)
+
         if step.action == "assert_text":
             expected = step_text(step)
             if expected not in tree:
@@ -174,8 +191,7 @@ class CuaUIDriverRunner:
             pattern = (step.value or step.text or "").strip()
             if not pattern:
                 raise ValueError("assert_text_match requires value regex pattern")
-            target = self._cua_target_text(pid, window_id, tree, step)
-            if not re.search(pattern, target):
+            if not re.search(pattern, tree):
                 raise RuntimeError(f"UI text pattern not matched: {pattern}")
             observations.append(f"文本匹配: {pattern}")
             return tree
@@ -227,7 +243,7 @@ class CuaUIDriverRunner:
             script = f"window.resizeTo({width}, {height}); [window.innerWidth, window.innerHeight];"
             code, stdout, stderr = self.transport.run(
                 "page",
-                {"pid": pid, "window_id": window_id, "action": "execute_javascript", "script": script},
+                {"pid": pid, "window_id": window_id, "action": "execute_javascript", "javascript": script},
                 timeout=20,
             )
             if code:
@@ -243,35 +259,16 @@ class CuaUIDriverRunner:
             return tree
         raise RuntimeError(f"unsupported UI action: {step.action}")
 
-    def _cua_target_text(self, pid: int, window_id: int, tree: str, step: UITestStep) -> str:
-        selector = step_selector(step)
-        if selector:
-            code, stdout, stderr = self.transport.run(
-                "page",
-                {
-                    "pid": pid,
-                    "window_id": window_id,
-                    "action": "execute_javascript",
-                    "script": f"document.querySelector({json.dumps(selector)})?.innerText || ''",
-                },
-                timeout=20,
-            )
-            if code == 0:
-                payload = self._json(stdout)
-                result = payload.get("result") if isinstance(payload.get("result"), str) else stdout.strip()
-                if result:
-                    return str(result)
-        return tree
-
     def _cua_present(self, tree: str, step: UITestStep) -> bool:
-        selector = step_selector(step)
-        needle = selector or step_text(step)
+        needle = step_text(step)
         if not needle:
             raise ValueError("assert step requires selector or text")
-        if selector and selector.startswith("."):
-            class_name = selector.lstrip(".")
-            return class_name in tree or selector in tree
         return needle in tree
+
+    def _reject_selector_for_cua(self, step: UITestStep) -> None:
+        selector = step_selector(step)
+        if selector:
+            raise RuntimeError(f"{CUA_SELECTOR_UNSUPPORTED} Selector: {selector}")
 
     def _snapshot(self, pid: int, window_id: int, screenshot_path: Path) -> dict:
         screenshot_path.parent.mkdir(parents=True, exist_ok=True)
@@ -310,6 +307,19 @@ class CuaUIDriverRunner:
                     return int(match.group(1))
         return None
 
+    def _permissions_missing(self, text: str) -> bool:
+        compact = re.sub(r"\s+", "", text)
+        if '"accessibility":false' in compact or '"screen_recording":false' in compact:
+            return True
+        for line in text.splitlines():
+            if ":" not in line:
+                continue
+            if not any(label in line for label in ("accessibility", "screen recording", "screen_recording")):
+                continue
+            if any(marker in line for marker in ("not granted", "false", "denied")):
+                return True
+        return False
+
     def _json(self, stdout: str) -> dict:
         text = stdout.strip()
         if not text:
@@ -346,11 +356,52 @@ class UIDriverRunner:
         if self._force == "cua":
             return self._run_cua_only(specs, docs_root)
 
-        cua_error = self._cua.ensure_available()
-        if cua_error is None:
-            return UIDriverRunResult(available=True, results=self._cua.run_specs(specs, docs_root))
+        return self._run_auto(specs, docs_root)
 
-        return self._run_with_playwright_fallback(specs, docs_root, cua_error)
+    def _run_auto(self, specs: list[UITestSpec], docs_root: Path) -> UIDriverRunResult:
+        selector_web_specs = [spec for spec in specs if self._requires_playwright(spec)]
+        remaining_specs = [spec for spec in specs if not self._requires_playwright(spec)]
+        results: list[UITestResult] = []
+        fallback: Literal["playwright"] | None = None
+        extra_warnings: list[str] = []
+
+        if selector_web_specs:
+            pw_error = self._playwright.ensure_available()
+            if pw_error:
+                warning = f"{WEB_SELECTOR_REQUIRES_PLAYWRIGHT}; {pw_error}"
+                results.extend(skipped_result(spec, warning, driver="playwright") for spec in selector_web_specs)
+                extra_warnings.append(warning)
+            else:
+                fallback = "playwright"
+                results.extend(self._playwright.run_specs(selector_web_specs, docs_root))
+
+        if remaining_specs:
+            cua_error = self._cua.ensure_available()
+            if cua_error is None:
+                results.extend(self._cua.run_specs(remaining_specs, docs_root))
+            else:
+                web_specs = [spec for spec in remaining_specs if spec.kind == "web"]
+                native_specs = [spec for spec in remaining_specs if spec.kind == "native"]
+                if web_specs:
+                    pw_error = self._playwright.ensure_available()
+                    if pw_error:
+                        warning = f"{cua_error}; {pw_error}"
+                        results.extend(skipped_result(spec, warning, driver="playwright") for spec in web_specs)
+                        extra_warnings.append(warning)
+                    else:
+                        fallback = "playwright"
+                        results.extend(self._playwright.run_specs(web_specs, docs_root))
+                if native_specs:
+                    results.extend(skipped_result(spec, NATIVE_UNAVAILABLE, driver="cua") for spec in native_specs)
+                    extra_warnings.append(cua_error)
+
+        extra = "; ".join(dict.fromkeys(extra_warnings)) or None
+        warning = self._build_warning(results, extra)
+        available = any(result.status in {"passed", "failed"} for result in results)
+        return UIDriverRunResult(available=available, warning=warning, fallback=fallback, results=results)
+
+    def _requires_playwright(self, spec: UITestSpec) -> bool:
+        return spec.kind == "web" and any(step_selector(step) for step in spec.steps)
 
     def _run_cua_only(self, specs: list[UITestSpec], docs_root: Path) -> UIDriverRunResult:
         cua_error = self._cua.ensure_available()

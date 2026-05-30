@@ -1074,6 +1074,7 @@ class LangGraphPipeline:
                 "For UI tests, write JSON specs under tests/ui/*.json with shape "
                 "{id,title,kind:web|native,target:{url|bundle_id|app_name},steps:[{action,text,value,selector,key,keys,direction,amount}]}. "
                 f"Allowed UI actions (snake_case only): {', '.join(UI_TEST_ACTIONS)}. "
+                "Use selector only for Web specs that should run with Playwright; CuaDriver specs should be expressed by visible text/AX-visible controls. "
                 "Example step: {\"action\":\"click_text\",\"text\":\"Submit\"}. "
                 f"{brief}"
             )
@@ -1253,7 +1254,7 @@ class LangGraphPipeline:
                 "node.progress",
                 "ui_driver",
                 "已切换 Playwright 执行 Web UI 测试",
-                result.warning or "CuaDriver 不可用，Web UI trajectory 已由 Playwright 执行。",
+                result.warning or "Web selector trajectory 或 CuaDriver 不可用场景已由 Playwright 执行。",
                 severity="info",
                 action_hint="原生 UI 仍需 CuaDriver；查看 UI 验证结果与截图 artifact。",
             )
@@ -1304,7 +1305,7 @@ class LangGraphPipeline:
     def _ui_observations(self, ui_result: UIDriverRunResult) -> list[str]:
         observations: list[str] = []
         if ui_result.fallback == "playwright":
-            observations.append("Web UI 验证已由 Playwright 回退执行（CuaDriver 不可用）。")
+            observations.append("Web UI 验证已由 Playwright 执行（CSS selector trajectory 或 CuaDriver 回退）。")
         for result in ui_result.results:
             driver = f" ({result.driver})" if result.driver else ""
             if result.status == "passed":

@@ -135,7 +135,8 @@ class PlaywrightUIDriverRunner:
     ) -> None:
         if step.action == "assert_text":
             expected = step_text(step)
-            if expected not in page.content():
+            target = self._step_target_text(page, step)
+            if expected not in target:
                 raise RuntimeError(f"UI text not found: {expected}")
             observations.append(f"找到文本: {expected}")
         elif step.action == "assert_text_match":
@@ -161,7 +162,11 @@ class PlaywrightUIDriverRunner:
             artifacts.append(UIArtifactLink(label=f"步骤 {index} 截图", path=artifact_path(docs_root, screenshot_path)))
         elif step.action == "type_text":
             text = step_text(step)
-            page.keyboard.type(text)
+            selector = step_selector(step)
+            if selector:
+                page.locator(selector).first.fill(text)
+            else:
+                page.keyboard.type(text)
             page.screenshot(path=str(screenshot_path), full_page=True)
         elif step.action == "press_key":
             key = step.key or step.text or "Enter"

@@ -192,7 +192,7 @@ flowchart LR
 | **② 实现/验证** | `coder_tester` | 5 | Tester artifact `passed=false`，或 CLI 无合法产物且代码审查兜底也失败 | `tester → coder → integrity_check → tester` | `blocked` |
 | **③ 规格复核** | `planner_verify_reject` | 2 | `verify_report.md` 缺少标题或 Pass 摘要 | `planner_verify → coder → integrity_check → tester → planner_verify` | `blocked` |
 
-回环 ② 中 **UI Driver** 在 `tester` 节点内执行（扫描 `docs/.../tests/ui/*.json`）：Cua 可用则走 CuaDriver；Cua 不可用时 **Web** trajectory 由 Playwright 真实执行；**native** 仍记为未执行（`warning`），不单独占一条 LangGraph 边。**UI 断言失败不会触发回环 ②**，只写入 `ui_warnings` 和交付建议，界面显示「需复核」。
+回环 ② 中 **UI Driver** 在 `tester` 节点内执行（扫描 `docs/.../tests/ui/*.json`）：含 CSS `selector` 的 **Web** trajectory 走 Playwright；无 selector 的 Web/native trajectory 优先走 CuaDriver；Cua 不可用时 Web 可回退 Playwright，native 记为未执行（`warning`），不单独占一条 LangGraph 边。**UI 断言失败不会触发回环 ②**，只写入 `ui_warnings` 和交付建议，界面显示「需复核」。
 
 **Tester 容错（均在 `tester` 节点内，不占 LangGraph 边）：**
 
@@ -347,7 +347,7 @@ cd frontend && npm install && npm run dev:all
 
 CLI 使用 `bypassPermissions` / `--dangerously-bypass-approvals-and-sandbox` 跳过交互式权限确认。测试不可变主要靠后端 `integrity_check` 保障，而非 CLI 目录 deny。
 
-可选 UI 测试优先使用 `cua-driver`（CuaDriver）；Cua 不可用时 Web UI 自动回退 Playwright：
+可选 UI 测试自动分流：CSS selector Web trajectory 使用 Playwright；AX/text/native trajectory 优先使用 `cua-driver`（CuaDriver），Cua 不可用时 Web UI 自动回退 Playwright：
 
 ```bash
 pip install -e "backend/.[ui]" && playwright install chromium
@@ -415,7 +415,7 @@ spec-forge/
 
 - 单用户本地原型，无登录和多租户
 - CLI 权限策略为 bypass 模式，隔离强度有限
-- CuaDriver 不可用时 Web UI 由 Playwright 执行；仅 native UI 或未安装 Playwright 时记为未执行（warning）
+- CSS selector Web UI 由 Playwright 执行；CuaDriver 不可用时无 selector 的 Web UI 也可回退 Playwright；仅 native UI 或未安装 Playwright 时记为未执行（warning）
 - UI 自动化断言失败仅记为 warning，不触发自动修复回环；交付门槛以 Tester 代码审查无 P0/P1 缺陷为准
 - 渐进式 checkpoint 策略（前 N 轮强制审批）尚未实现
 - 生产部署、成本监控、量化成功标准留待后续

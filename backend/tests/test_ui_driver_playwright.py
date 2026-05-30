@@ -156,6 +156,25 @@ def test_playwright_runner_click_text(tmp_path: Path) -> None:
     assert page.clicked == ["Submit"]
 
 
+def test_playwright_runner_selector_assert_text_and_type_text(tmp_path: Path) -> None:
+    spec = UITestSpec.model_validate(
+        {
+            "id": "web_selector_form",
+            "kind": "web",
+            "target": {"url": "http://127.0.0.1:5178"},
+            "steps": [
+                {"action": "assert_text", "selector": ".titlebar-timer", "value": "05:00"},
+                {"action": "type_text", "selector": "input[placeholder='Email']", "value": "test@example.com"},
+            ],
+        }
+    )
+    page = FakePage(content='<html><div class="titlebar-timer">05:00</div></html>')
+    runner = PlaywrightUIDriverRunner(session_factory=lambda: FakeSession(page))
+    results = runner.run_specs([spec], tmp_path)
+    assert results[0].status == "passed", results[0].error
+    assert page.keyboard.typed == ["test@example.com"]
+
+
 def test_playwright_runner_wait_and_resize_window(tmp_path: Path) -> None:
     spec = UITestSpec.model_validate(
         {
