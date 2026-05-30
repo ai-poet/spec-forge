@@ -53,7 +53,7 @@ Project（项目）
 ```text
 /path/to/my-app/
 ├── docs/                              # 项目级文档（事实源）
-│   ├── 00_convention.md               # 文档约定
+│   ├── 00_convention.md               # 文档约定 + 源码/测试目录布局（Agent 读此文件）
 │   ├── 01_project_goal.md             # 项目目标
 │   ├── 02_iteration_log.md            # 迭代日志（自动追加）
 │   ├── 03_invariants/                 # 不变量（数据/安全/性能）
@@ -78,6 +78,20 @@ Project（项目）
 ```
 
 创建 Project 时会自动生成 `docs/` 骨架；每次 Iteration 启动时会在 `docs/system_design/iteration_NNN/` 下创建本轮目录。
+
+### 写权限分区（Write Zones）
+
+三个 Agent 各自只能改特定路径；后端在 `write_zones.py` 中按路径推断 **owner**，验证失败时按 owner 选择回环目标（而非一律回 Coder）。
+
+| 分区 | 路径模式 | Owner | 说明 |
+|------|----------|-------|------|
+| 源码 | `src/**`（或 convention 中的 `internal/`、`lib/` 等） | **Coder** | 实现代码 |
+| 受保护测试 | `tests/unit`、`tests/integration`、`tests/ui` | **Planner** | checksum 基线，Coder/Tester 不可改 |
+| 对抗测试 | `tests/adversarial/**` | **Tester** | Tester 可增删 |
+| 验证产物 | `verify_report.md`、`delivery_advice.md`、`ui_*` | **Tester** | 验证与交付文档 |
+| 规划文档 | 其余 `*.md` 规划类文档 | **Planner** | 设计/计划 |
+
+项目可在 `docs/00_convention.md` 中声明本仓库的源码根目录、测试布局与 import 约定；Planner/Coder/Tester 的 CLI prompt 会注入该文件摘要。
 
 ---
 
@@ -118,8 +132,9 @@ flowchart TB
   integrityCheck -->|"测试被篡改"| endBlocked
 
   tester -->|"验证通过\n（UI 失败可带警告）"| plannerVerify
-  tester -->|"passed=false 或审查兜底失败\n且未超重试上限 → 回环 ②"| coder
-  tester -->|"失败且超重试上限"| endBlocked
+  tester -->|"缺陷 owner=coder\n→ 回环 ②a"| coder
+  tester -->|"缺陷 owner=tester\n→ 回环 ②b"| tester
+  tester -->|"缺陷 owner=planner\n或超重试上限"| endBlocked
 
   plannerVerify -->|"报告合格"| verifyApproval
   plannerVerify -->|"驳回且未超上限\n→ 回环 ③"| tester
@@ -141,7 +156,7 @@ flowchart TB
 | 实现 | `coder` | Claude CLI | 只改 `src/**`，根据规划写代码 |
 | 澄清 | `planner_clarification` | Claude CLI | Coder 看不懂时，Planner 正式回答并写入 `clarifications/` |
 | 完整性 | `integrity_check` | 后端程序 | 检查 Planner 写的测试有没有被 Coder 偷偷改掉 |
-| 验证 | `tester` | Codex CLI | 独立跑验证，写 `verify_report.md`；CLI 异常时可走代码审查兜底；可选 UI 测试 |
+| 验证 | `tester` | Codex CLI | 独立跑验证，写 `verify_report.md` 与 `defects[]`；CLI 异常时可走代码审查兜底；写盘后可选跑 `build_command`/`test_command` 闸门；可选 UI 测试 |
 | 复核 | `planner_verify` | 后端程序 | 检查验证报告格式是否合格 |
 | 交付确认 | `verify_approval` | **你** | 在前端点「确认交付」，流水线才归档 |
 | 完成 | `done` | 后端 | 状态变为 `delivered`，写入 iteration_log |
@@ -150,9 +165,11 @@ flowchart TB
 
 ---
 
-## 三条自动回环（失败怎么办）
+## 自动回环（失败怎么办）
 
 系统**不会无限重试**。每条回环独立计数（存在 `iteration.retry_counts`），超限后流水线进入 `blocked` 或 `blocked_user`，需你查看事件流 / 运行日志后人工处理。
+
+验证失败时，流水线先根据 Tester 产出的 **`defects[]`（结构化缺陷）** 与各缺陷路径的 **Write Zone owner** 决定回跳目标；不再把所有 `passed=false` 一律送回 Coder。
 
 ```mermaid
 flowchart LR
@@ -164,13 +181,20 @@ flowchart LR
     pc1 -->|"count > max_clarifications"| bu1["blocked_user"]
   end
 
-  subgraph loop2 ["回环 ② 实现/验证（默认 ≤ 5 次）"]
+  subgraph loop2a ["回环 ②a 实现/验证（默认 ≤ 5 次）"]
     direction TB
-    t2["Tester 失败\npassed=false 或审查兜底失败"] --> c2["Coder 修复\nstatus=retrying"]
+    t2a["Tester 失败\nowner=coder"] --> c2["Coder 修复 src\nstatus=retrying"]
     c2 --> ic2["integrity_check"]
-    ic2 --> t2b["Tester 再验证\n含 UI Driver"]
-    t2b --> t2
-    t2 -->|"coder_tester > max"| b2["blocked"]
+    ic2 --> t2b["Tester 再验证"]
+    t2b --> t2a
+    t2a -->|"coder_tester > max"| b2["blocked"]
+  end
+
+  subgraph loop2b ["回环 ②b Tester 自修（默认 ≤ 3 次）"]
+    direction TB
+    t2s["Tester 失败\nowner=tester\n或写盘闸门失败"] --> t2s2["Tester 自修\nadversarial / 验证文档"]
+    t2s2 --> t2s
+    t2s -->|"tester_self > max"| b2s["blocked"]
   end
 
   subgraph loop3 ["回环 ③ 规格复核（默认 ≤ 2 次）"]
@@ -182,15 +206,18 @@ flowchart LR
   end
 ```
 
-三条回环的触发条件与计数键对照：
+各回环的触发条件与计数键对照：
 
 | 回环 | 计数键 `retry_counts` | 默认上限 | 入口条件 | 回跳路径 | 超限终态 |
 |------|----------------------|----------|----------|----------|----------|
 | **① 澄清** | `coder_planner_clarify` | 3 | Coder artifact 含 `clarification_request` | `coder → planner_clarification → coder` | `blocked_user` |
-| **② 实现/验证** | `coder_tester` | 5 | Tester artifact `passed=false`，或 CLI 无合法产物且代码审查兜底也失败 | `tester → coder → integrity_check → tester` | `blocked` |
+| **②a 实现/验证** | `coder_tester` | 5 | `defects` 含 `owner=coder`（如 `src/**` 实现缺陷），或审查兜底失败且推断为 Coder 责任 | `tester → coder → integrity_check → tester` | `blocked` |
+| **②b Tester 自修** | `tester_self` | 3 | `defects` 仅 `owner=tester`（如 `tests/adversarial/**`、验证文档），或写盘闸门（`build_command`/`test_command`）失败 | `tester → tester`（带 `failure_notes`） | `blocked` |
 | **③ 规格复核** | `planner_verify_reject` | 2 | `verify_report.md` 缺少标题或 Pass 摘要 | `planner_verify → tester → planner_verify` | `blocked` |
 
-回环 ② 中 **UI Driver** 在 `tester` 节点内执行（扫描 `docs/.../tests/ui/*.json`）：含 CSS `selector` 的 **Web** trajectory 走 Playwright；无 selector 的 Web/native trajectory 优先走 CuaDriver；Cua 不可用时 Web 可回退 Playwright，native 记为未执行（`warning`），不单独占一条 LangGraph 边。**UI 断言失败不会触发回环 ②**，只写入 `ui_warnings` 和交付建议，界面显示「需复核」。
+**owner=planner**（受保护测试被篡改等）不进入自动回环，直接 `blocked`，需人工或重新跑 Planner。
+
+回环 ② 中 **UI Driver** 在 `tester` 节点内执行（扫描 `docs/.../tests/ui/*.json`）：含 CSS `selector` 的 **Web** trajectory 走 Playwright；无 selector 的 Web/native trajectory 优先走 CuaDriver；Cua 不可用时 Web 可回退 Playwright，native 记为未执行（`warning`），不单独占一条 LangGraph 边。**UI 断言失败不会触发回环 ②a/②b**，只写入 `ui_warnings` 和交付建议，界面显示「需复核」。
 
 **Tester 容错（均在 `tester` 节点内，不占 LangGraph 边）：**
 
@@ -199,7 +226,8 @@ flowchart LR
 | CLI 非零退出，但 stdout 含合法 JSON 产物 | 接受产物，发 `tester.nonzero_artifact.accepted`，异常记为警告 |
 | CLI 非零退出且无合法产物 | 自动启动**代码审查兜底**（`review_only`，禁止 Playwright/CUA），发 `tester.review_fallback.*` 事件 |
 | 审查兜底成功 | 继续跑 UI Driver，进入 `planner_verify` |
-| 审查兜底也失败 | 进入回环 ② |
+| 审查兜底也失败 | 按 `defects`/路径 owner 进入 ②a 或 ②b |
+| 写盘后 `build_command` / `test_command` 失败 | 回滚本轮 adversarial 文件，以 `owner=tester` 进入 **②b** |
 | UI 自动化断言失败 | 发 `ui_driver.failed`（`blocking: false`），**不**进入回环 ②；本轮是否通过以代码审查未发现 P0/P1 为准 |
 
 ```mermaid
@@ -207,28 +235,38 @@ sequenceDiagram
   participant Coder
   participant Integrity as integrity_check
   participant Tester
+  participant Gate as 写盘闸门
   participant UI as UI Driver
   participant Verify as planner_verify
 
-  Note over Coder,Verify: 回环 ② — 仅 passed=false 或审查兜底失败时
-  Tester->>Tester: Codex 产出 verify_report
+  Note over Coder,Verify: 回环 ② — 按 Write Zone owner 分流
+  Tester->>Tester: Codex 产出 verify_report + defects[]
   alt CLI 失败且无合法产物
     Tester->>Tester: review_only 代码审查兜底
   end
-  Tester->>UI: run_specs（Cua 或 Playwright）
-  alt passed=false
-    Tester-->>Coder: status=tester_failed_retry<br/>retry_counts.coder_tester += 1
-    Coder->>Coder: 根据 failure_notes 改 src
-    Coder->>Integrity: checksum 门禁
-    Integrity->>Tester: 再跑验证
+  Tester->>Gate: 写盘后跑 build/test 命令（若已配置）
+  alt 闸门失败
+    Gate-->>Tester: 回滚 adversarial → ②b tester_self
+    Tester->>Tester: 自修 adversarial / 验证文档
+  else passed=false
+    alt owner=coder
+      Tester-->>Coder: tester.retry_to_coder<br/>coder_tester += 1
+      Coder->>Coder: 根据 failure_notes 改 src
+      Coder->>Integrity: checksum 门禁
+      Integrity->>Tester: 再跑验证
+    else owner=tester
+      Tester-->>Tester: tester.retry_to_self<br/>tester_self += 1
+      Tester->>Tester: 自修 adversarial / verify_report
+    end
   else passed=true（含 UI 失败降级为警告）
+    Tester->>UI: run_specs（Cua 或 Playwright）
     Tester->>Verify: 进入规格复核
   end
 ```
 
-**与主流程图的关系：** 回环 ① 只发生在 `coder` 与 `planner_clarification` 之间；回环 ② 从 `coder` 重新进入且必须经过 `integrity_check → tester`；回环 ③ 在 `planner_verify` 与 `tester` 之间（Tester 重写 `verify_report`，不改 `src/**`）。
+**与主流程图的关系：** 回环 ① 只发生在 `coder` 与 `planner_clarification` 之间；回环 ②a 从 `coder` 重新进入且必须经过 `integrity_check → tester`；回环 ②b 在 `tester` 自身循环（不改 `src/**`）；回环 ③ 在 `planner_verify` 与 `tester` 之间（Tester 重写 `verify_report`）。
 
-下面把三条回环叠在同一条主骨架上（边上标注 ①②③ 与默认上限）：
+下面把各回环叠在同一条主骨架上（边上标注 ①②a②b③ 与默认上限）：
 
 ```mermaid
 flowchart TD
@@ -238,9 +276,10 @@ flowchart TD
   clar -->|"回答写入 clarifications/"| coder
 
   coder --> integrity["integrity_check"]
-  integrity --> tester["Tester\n+ UI Driver"]
+  integrity --> tester["Tester\n+ UI Driver\n+ 写盘闸门"]
 
-  tester -->|"② passed=false\n或审查兜底失败 ≤5"| coder
+  tester -->|"②a owner=coder\n≤5"| coder
+  tester -->|"②b owner=tester\n或闸门失败 ≤3"| tester
   tester -->|"通过"| pverify["planner_verify"]
 
   pverify -->|"③ 驳回\n≤2"| tester
@@ -248,13 +287,13 @@ flowchart TD
   approval --> delivered["delivered"]
 
   coder -.->|"① 超限"| blockedUser["blocked_user"]
-  tester -.->|"② 超限"| blocked["blocked"]
+  tester -.->|"②a/②b 超限\n或 owner=planner"| blocked["blocked"]
   pverify -.->|"③ 超限"| blocked
   planner -.->|"规划失败"| blocked
   integrity -.->|"测试被改"| blocked
 ```
 
-> 带 ①②③ 的实线为自动回跳；虚线指向 `blocked` / `blocked_user` 为超限或硬失败。任意节点还可因你点击「停止」进入 `stopped`；点「继续执行」从 `stopped_at_node` 恢复，不消耗回环计数。
+> 带 ①②a②b③ 的实线为自动回跳；虚线指向 `blocked` / `blocked_user` 为超限或硬失败。任意节点还可因你点击「停止」进入 `stopped`；点「继续执行」从 `stopped_at_node` 恢复，不消耗回环计数。前端按 `retry_target`（`coder` / `tester`）显示不同文案（如「回到实现节点」vs「Tester 自修验证产物」）。
 
 ---
 
@@ -281,7 +320,7 @@ flowchart TD
 你在界面上能看到：
 
 - **流水线阶段条**：规划 / 实现 / 测试 / 交付确认
-- **Agent 活动**：语义化事件（「规划节点已启动」「代码审查兜底已启动」「UI Driver 需复核」…）
+- **Agent 活动**：语义化事件（「规划节点已启动」「Tester 自修验证产物」「验证失败，回到实现节点」…）
 - **本阶段 CLI 日志**：Planner/Coder/Tester 的实时终端输出（stream-json 原始流）
 - **文档面板**：`system_design.md` 等产物
 - **运行日志**：每个节点 CLI 的完整 stdout/stderr 归档
@@ -291,14 +330,14 @@ flowchart TD
 
 ## 四个 Agent 角色（对应原始设计）
 
-| 角色 | 运行时 | 职责 | 能写什么 |
-|------|--------|------|----------|
-| **Node 1 Planner** | Claude CLI | 读需求、写 spec、写 protected tests | `docs/system_design/iteration_NNN/` 下的规划和测试 |
-| **Node 2 Coder** | Claude CLI | 根据 spec 写代码 | `.specforge/iterations/{id}/src/**` |
-| **Node 3 Tester** | Claude CLI（可在项目设置改为 Codex） | 独立验证、写报告；CLI 异常时走审查兜底 | `verify_report.md`、`tests/adversarial/` |
+| 角色 | 运行时 | 职责 | 能写什么（Write Zone） |
+|------|--------|------|------------------------|
+| **Node 1 Planner** | Claude CLI | 读需求、写 spec、写 protected tests | `docs/system_design/iteration_NNN/` 下的规划和 `tests/unit|integration|ui` |
+| **Node 2 Coder** | Claude CLI | 根据 spec 写代码 | `.specforge/iterations/{id}/src/**`（及 convention 声明的源码根） |
+| **Node 3 Tester** | Claude CLI（可在项目设置改为 Codex） | 独立验证、输出 `defects[]` 与报告；CLI 异常时走审查兜底 | `verify_report.md`、`delivery_advice.md`、`tests/adversarial/`、`ui_*` |
 | **Node 4 UI Driver** | CuaDriver CLI（Web 可回退 Playwright） | 跑 UI trajectory；断言失败降级为警告 | 由 Tester 内部调用，不是独立图节点 |
 
-反串谋设计：Planner 和 Tester 用不同模型；测试文件有 checksum 保护；Tester 可以额外写 adversarial 测试。Playwright/CUA 等 UI 工具环境不可用时会自动走审查兜底，不会直接阻断流水线；UI 断言失败需人工复核，但不单独触发 Coder/Tester 回环。
+反串谋设计：Planner 和 Tester 用不同模型；受保护测试有 checksum 门禁；Tester 可写 adversarial 测试但**不能**改 protected tests。验证失败按 **Write Zone owner** 路由：实现缺陷 → Coder（②a），Tester 自身产物问题 → Tester 自修（②b），受保护测试问题 → 直接阻断。Playwright/CUA 等 UI 工具环境不可用时会自动走审查兜底；UI 断言失败需人工复核，但不单独触发 Coder/Tester 回环。
 
 ---
 
@@ -309,6 +348,9 @@ FastAPI (HTTP + WebSocket)
     │
     ├── SQLite          业务数据：projects / epics / iterations / events / runs
     ├── LangGraph       流水线状态机 + SqliteSaver checkpoint
+    │                     tester 条件边：retry→coder | self_retry→tester
+    ├── write_zones     路径 → owner 推断，决定 retry_target
+    ├── artifact_gate   写盘后 build/test 命令校验
     ├── Job Queue       单 worker 线程，避免 CLI 阻塞 HTTP
     └── EventBroker     推 snapshot 和 cli.output 到 WebSocket
 ```
@@ -359,7 +401,7 @@ pip install -e "backend/.[ui]" && playwright install chromium
 2. **创建 Epic（大需求）** — 填写描述和验收标准
 3. **启动流水线** — 系统自动创建 Iteration 并开始规划
 4. **观察执行** — 看阶段条、Agent 活动、CLI 实时日志
-5. **等待验证通过** — Coder/Tester 自动回环修复；若 UI Driver 显示「需复核」，交付前建议人工点验失败场景
+5. **等待验证通过** — 按 Write Zone 自动分流：Coder 修 `src` 或 Tester 自修 adversarial/验证文档；若 UI Driver 显示「需复核」，交付前建议人工点验失败场景
 6. **确认交付** — 验证报告就绪后，点「确认交付」（UI 警告不阻断此步骤）
 7. **查看产物** — `docs/system_design/iteration_NNN/` 和 `src/`
 
@@ -382,10 +424,13 @@ pip install -e "backend/.[ui]" && playwright install chromium
 
 每个 Project 可设置：
 
-- 默认测试命令
-- Coder↔Tester 重试上限（默认 5）
+- 默认测试命令（`default_test_command`）与构建命令（`default_build_command`，如 `npm run build`、`cargo check`）
+- Coder↔Tester 重试上限（`max_coder_tester_retries`，默认 5）
+- Tester 自修上限（`max_tester_self_retries`，默认 3）
 - Coder 澄清上限（默认 3）
 - Planner 验证驳回上限（默认 2）
+
+构建/测试命令在 Tester 写盘闸门中执行：失败则回滚 adversarial 并进入回环 ②b。
 
 ---
 
@@ -395,8 +440,10 @@ pip install -e "backend/.[ui]" && playwright install chromium
 spec-forge/
 ├── backend/              FastAPI + LangGraph + SQLite
 │   └── src/specforge/
-│       ├── pipeline.py   流水线状态机（核心）
-│       ├── docs_scaffold.py  文档树初始化
+│       ├── pipeline.py       流水线状态机（核心）
+│       ├── write_zones.py    Write Zone owner 推断与 retry_target
+│       ├── artifact_gate.py  写盘闸门（build/test 命令）
+│       ├── docs_scaffold.py  文档树初始化（含 00_convention 模板）
 │       ├── cli_runner.py     CLI 进程管理
 │       └── ...
 ├── frontend/             React 工作台
