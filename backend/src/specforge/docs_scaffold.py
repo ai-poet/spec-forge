@@ -99,6 +99,20 @@ owner: user
 - Planner writes specs and protected tests; Coder writes `src/`; Tester writes verify reports and adversarial tests.
 - Each iteration lives under `docs/system_design/iteration_NNN/`.
 
+## Source and test layout
+
+Declare your project layout here so agents use correct paths (adapt for your stack):
+
+| Zone | Path pattern | Owner |
+|------|--------------|-------|
+| Source | `src/**` (or `internal/`, `lib/`, `pkg/`) | Coder |
+| Protected tests | `tests/unit`, `tests/integration`, `tests/ui` | Planner |
+| Adversarial tests | `tests/adversarial/**` | Tester |
+| Verify docs | `verify_report.md`, `delivery_advice.md`, `ui_*` | Tester |
+
+- Use relative imports from each test file to source modules; follow your language's module conventions.
+- Recommended verification: set `test_command` and `build_command` on the SpecForge project (e.g. `npm test`, `cargo check`).
+
 ## UI test specs (`tests/ui/*.json`)
 
 Use snake_case actions only. Example:

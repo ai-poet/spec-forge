@@ -59,6 +59,7 @@ export function graphNodeLabel(value: string) {
 
 export function retryLabel(value: string) {
   if (value === 'coder_tester') return '实现/验证重试'
+  if (value === 'tester_self') return 'Tester 自修'
   if (value === 'coder_planner_clarify') return '实现澄清'
   if (value === 'planner_verify_reject') return '规格复核驳回'
   return value
@@ -75,6 +76,8 @@ export function eventLabel(value: string) {
     'tester.completed': '验证完成',
     'tester.delivery_advice': '交付建议已生成',
     'tester.failed_retry': '验证失败，准备重试',
+    'tester.retry_to_coder': '验证失败，回到实现节点',
+    'tester.retry_to_self': '验证产物不合格，Tester 自修',
     'tester.nonzero_artifact.accepted': '验证产物已保留',
     'tester.review_fallback.started': '代码审查兜底已启动',
     'tester.review_fallback.completed': '代码审查兜底完成',

@@ -27,6 +27,7 @@ from .config import settings
 from .contracts import (
     ArtifactFile,
     CoderArtifact,
+    Defect,
     PlannerArtifact,
     PlannerClarificationArtifact,
     TesterArtifact,
@@ -43,6 +44,8 @@ from .db import Database, iso, utcnow
 from .docs_io import IterationDocs, checksum, compare_test_integrity, safe_relative_path, test_integrity_manifest
 from .docs_scaffold import append_iteration_log, ensure_iteration_docs, ensure_project_docs, iteration_docs_root
 from .events import EventBroker, EventEnvelope
+from .artifact_gate import read_convention_excerpt, run_project_commands
+from .write_zones import enrich_defects, retry_target, summarize_failure_notes
 from .models import IterationStatus, Mode, NodeName
 from .ui_driver import UIDriverRunner
 
@@ -62,9 +65,11 @@ class PipelineState(TypedDict, total=False):
     verify_approval: Optional[str]
     blocked_reason: Optional[str]
     failure_notes: Optional[str]
+    retry_target: Optional[str]
     clarification_request: Optional[str]
     retry_counts: dict[str, int]
     max_coder_tester_retries: int
+    max_tester_self_retries: int
     max_clarifications: int
     max_verify_rejects: int
     planner_run_id: Optional[str]
@@ -143,6 +148,7 @@ class LangGraphPipeline:
             "current_node": row["current_node"],
             "retry_counts": retry_counts,
             "max_coder_tester_retries": int(project["max_coder_tester_retries"]) if project else 5,
+            "max_tester_self_retries": int(project["max_tester_self_retries"]) if project and "max_tester_self_retries" in project.keys() else 3,
             "max_clarifications": int(project["max_clarifications"]) if project else 3,
             "max_verify_rejects": int(project["max_verify_rejects"]) if project else 2,
         }
@@ -420,7 +426,11 @@ class LangGraphPipeline:
             {"blocked": END, "coder": "coder"},
         )
         builder.add_conditional_edges("integrity_check", self._route_after_integrity, {"blocked": END, "tester": "tester"})
-        builder.add_conditional_edges("tester", self._route_after_tester, {"blocked": END, "retry": "coder", "verify": "planner_verify"})
+        builder.add_conditional_edges(
+            "tester",
+            self._route_after_tester,
+            {"blocked": END, "retry": "coder", "self_retry": "tester", "verify": "planner_verify"},
+        )
         builder.add_conditional_edges("planner_verify", self._route_after_planner_verify, {"blocked": END, "tester": "tester", "approval": "verify_approval"})
         builder.add_edge("verify_approval", "done")
         builder.add_edge("done", END)
@@ -734,7 +744,15 @@ class LangGraphPipeline:
                             run_id=review_run_id,
                             action_hint="查看 Tester 两次运行日志；若是实现问题将进入自动修复回环。",
                         )
-                        return self._tester_retry_or_block(state, review_run_id, notes)
+                        return self._route_tester_failure(
+                            state,
+                            review_run_id,
+                            TesterArtifact(
+                                verify_report="# Verify Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
+                                passed=False,
+                                failure_notes=notes,
+                            ),
+                        )
                     artifact = self._tester_artifact(state, review_result)
                     self._augment_review_fallback_artifact(artifact, primary_notes)
                     self._node_event(
@@ -788,13 +806,38 @@ class LangGraphPipeline:
                     payload={"failed": [result.model_dump() for result in failed_results], "blocking": False},
                 )
             self._write_tester_artifact(iteration_id, docs, artifact)
+            gate_ok, gate_msg = self._run_artifact_gate(state)
+            if not gate_ok:
+                self._rollback_tester_adversarial(iteration_id, artifact.adversarial_tests)
+                artifact = self._gate_failed_artifact(artifact, gate_msg)
+                self._node_event(
+                    iteration_id,
+                    "node.failed",
+                    NodeName.tester.value,
+                    "验证产物未通过写盘闸门",
+                    gate_msg,
+                    severity="error",
+                    run_id=run_id,
+                    action_hint="Tester 将自修 adversarial 或验证产物，无需 Coder 改 src。",
+                )
+                return self._route_tester_failure(state, run_id, artifact)
             problems = self._integrity_problems(iteration_id)
             if problems:
                 self._node_event(iteration_id, "node.failed", NodeName.tester.value, "验证后测试完整性失败", "; ".join(problems), severity="error", run_id=run_id, action_hint="Tester 只能写入 adversarial 和 UI recordings；请检查异常测试文件。")
                 return self._block(iteration_id, "test_integrity.failed", run_id, "; ".join(problems))
             if not artifact.passed:
-                self._node_event(iteration_id, "node.failed", NodeName.tester.value, "验证未通过", artifact.failure_notes or "测试失败，系统将尝试回到实现节点。", severity="error", run_id=run_id, action_hint="查看失败说明，等待自动重试或处理阻断。")
-                return self._tester_retry_or_block(state, run_id, artifact.failure_notes or "tester reported failing tests")
+                notes = summarize_failure_notes(self._normalize_tester_artifact(artifact))
+                self._node_event(
+                    iteration_id,
+                    "node.failed",
+                    NodeName.tester.value,
+                    "验证未通过",
+                    notes,
+                    severity="error",
+                    run_id=run_id,
+                    action_hint="查看失败说明，等待按写权限分区自动重试或处理阻断。",
+                )
+                return self._route_tester_failure(state, run_id, artifact)
             self._update_iteration(iteration_id, status=IterationStatus.awaiting_verify_approval.value, current_node=None, last_error=None)
             self._add_event(iteration_id, event_type="tester.completed", payload={"result": "passed", "run_id": run_id})
             self._node_event(iteration_id, "node.completed", NodeName.tester.value, "验证通过", "验证报告和交付建议已生成，等待规格复核和最终确认。", severity="success", run_id=run_id)
@@ -871,9 +914,11 @@ class LangGraphPipeline:
     def _route_after_integrity(self, state: PipelineState) -> Literal["blocked", "tester"]:
         return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value} else "tester"
 
-    def _route_after_tester(self, state: PipelineState) -> Literal["blocked", "retry", "verify"]:
+    def _route_after_tester(self, state: PipelineState) -> Literal["blocked", "retry", "self_retry", "verify"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
+        if state.get("status") == "tester_self_retry":
+            return "self_retry"
         if state.get("status") == "tester_failed_retry":
             return "retry"
         return "verify"
@@ -1113,16 +1158,20 @@ class LangGraphPipeline:
         if self._is_real_cli(state.get("mode")):
             notes = state.get("failure_notes") or ""
             docs_root = self.docs_root(iteration_id)
+            repo_root = self.project_repo_root(iteration_id)
+            convention = read_convention_excerpt(repo_root)
             prompt = (
                 "You are Coder for SpecForge. Your current working directory is the project root. "
                 f"Iteration docs root: {docs_root}. "
-                "Edit only project source files under src/**. "
+                "Edit only project source files under src/** (or the source roots declared in docs/00_convention.md). "
                 "Read project docs under docs/ and the approved iteration specs under the iteration docs root. "
                 "Do not edit docs/**, tests/**, .specforge/**, verify_report.md, or protected planning documents. "
                 "Return only JSON matching "
                 "{changed_paths:[string], summary:string, clarification_request?:string}. "
                 f"Failure notes to address: {notes}"
             )
+            if convention:
+                prompt += f"\nFollow path conventions in docs/00_convention.md:\n{convention}\n"
             provider = self._cli_provider(state, "coder")
             return build_coder_command(
                 provider=provider,
@@ -1151,23 +1200,32 @@ class LangGraphPipeline:
         docs_root = self.docs_root(iteration_id)
         repo_root = self.project_repo_root(iteration_id)
         test_command = row["test_command"] if "test_command" in row.keys() else None
+        build_command = row["build_command"] if "build_command" in row.keys() else None
+        if not build_command and state.get("project_id"):
+            build_command = self._project_field(state, "default_build_command")
+        convention = read_convention_excerpt(repo_root)
         common = (
             "You are Tester and independent delivery reviewer for SpecForge. "
             f"Project root: {repo_root}. Iteration docs root: {docs_root}. "
             "Read the approved planning documents, implementation changes, and project tests before judging delivery readiness. "
             "Return only final JSON matching {verify_report:string, passed:boolean, failure_notes?:string, "
+            "defects:[{severity:'P0'|'P1'|'P2', path?:string, owner?:'coder'|'tester'|'planner', message:string}], "
             "ux_notes:[string], delivery_recommendations:[string], "
             "ui_results?:[], ui_warnings?:[], adversarial_tests:[{path:string, content:string}]}. "
             "verify_report must be Markdown with a # title, a ## Summary section, and explicit Pass/Fail counts "
             "(example: '- Pass: 3\\n- Fail: 0'). "
             "Only propose adversarial tests under tests/adversarial. "
+            "For each defect set owner=tester when the path is under tests/adversarial/** or verify/delivery docs; "
+            "owner=coder for src/** implementation bugs; owner=planner for protected tests under tests/unit, tests/integration, tests/ui. "
             "You must complete a code review of the Coder implementation. Set passed=true only when the code review finds no P0 or P1 bugs. "
-            "Set passed=false when you find any P0/P1 bug, and put the defects in failure_notes. "
+            "Set passed=false when you find any P0/P1 bug, and list them in defects[] (failure_notes is optional summary). "
             "Do not mark the implementation failed solely because Playwright, CUA Driver, browser binaries, accessibility permissions, "
             "screen recording permissions, or native UI automation are unavailable; record those as ui_warnings or delivery recommendations "
             "and continue with static inspection/code review. UI automation assertion failures are warnings unless your code review shows "
             "the same issue is a P0/P1 implementation bug. "
         )
+        if convention:
+            common += f"Follow path and import conventions in docs/00_convention.md:\n{convention}\n"
         if state.get("failure_notes"):
             common += (
                 "Retry notes to address in the Tester artifact: "
@@ -1179,6 +1237,8 @@ class LangGraphPipeline:
             common += f"Configured test command: {test_command}. Run it when practical and report the result. "
         else:
             common += "No configured test command is set; choose lightweight verification from the repo when practical. "
+        if build_command:
+            common += f"Configured build command: {build_command}. Run it when practical before marking passed=true. "
         if review_only:
             return (
                 common
@@ -1327,7 +1387,8 @@ class LangGraphPipeline:
     def _tester_artifact(self, state: PipelineState, run_result: CLIResult) -> TesterArtifact:
         if self._is_real_cli(state.get("mode")):
             raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
-            return parse_json_artifact(raw, TesterArtifact)  # type: ignore[return-value]
+            artifact = parse_json_artifact(raw, TesterArtifact)  # type: ignore[assignment]
+            return self._normalize_tester_artifact(artifact)
         if "force tester failure" in state.get("goal", ""):
             return TesterArtifact(
                 verify_report="""---\ndoc: verify_report\niteration: 1\nstatus: draft\nowner: node3\n---\n\n# Iteration 1 - Verify Report\n\n## Summary\n- Tests in plan: 3\n- Tests executed: 3\n- Pass: 0\n- Fail: 3\n""",
@@ -1501,25 +1562,135 @@ class LangGraphPipeline:
         baseline = self._json(row["test_integrity_baseline"], {})
         return compare_test_integrity(self.docs_root(iteration_id), baseline)
 
-    def _tester_retry_or_block(self, state: PipelineState, run_id: str, notes: str) -> PipelineState:
+    def _normalize_tester_artifact(self, artifact: TesterArtifact) -> TesterArtifact:
+        defects = enrich_defects(artifact)
+        failure_notes = summarize_failure_notes(artifact) if defects else artifact.failure_notes
+        return artifact.model_copy(update={"defects": defects, "failure_notes": failure_notes})
+
+    def _gate_failed_artifact(self, artifact: TesterArtifact, gate_msg: str) -> TesterArtifact:
+        defect = Defect(severity="P0", owner="tester", message=gate_msg)
+        defects = [*artifact.defects, defect] if artifact.defects else [defect]
+        return artifact.model_copy(update={"passed": False, "defects": defects, "failure_notes": gate_msg})
+
+    def _run_artifact_gate(self, state: PipelineState) -> tuple[bool, str]:
         iteration_id = state["iteration_id"]
+        row = self._require_iteration(iteration_id)
+        test_command = row["test_command"] if "test_command" in row.keys() else None
+        build_command = row["build_command"] if "build_command" in row.keys() else None
+        if not build_command:
+            build_command = self._project_field(state, "default_build_command")
+        if not test_command and not build_command:
+            return True, ""
+        return run_project_commands(
+            self.project_repo_root(iteration_id),
+            build_command=build_command,
+            test_command=test_command,
+        )
+
+    def _rollback_tester_adversarial(self, iteration_id: str, adversarial_tests: list[ArtifactFile]) -> None:
+        docs_root = self.docs_root(iteration_id)
+        for file in adversarial_tests:
+            relative = safe_relative_path(file.path)
+            path = docs_root / relative
+            if path.exists():
+                path.unlink()
+
+    def _route_tester_failure(self, state: PipelineState, run_id: str, artifact: TesterArtifact) -> PipelineState:
+        iteration_id = state["iteration_id"]
+        artifact = self._normalize_tester_artifact(artifact)
+        target = retry_target(artifact)
+        notes = artifact.failure_notes or summarize_failure_notes(artifact)
+
+        if target == "blocked":
+            self._node_event(
+                iteration_id,
+                "node.failed",
+                NodeName.tester.value,
+                "验证失败涉及受保护测试",
+                notes,
+                severity="error",
+                run_id=run_id,
+                action_hint="受保护测试只能由 Planner 修改；需要人工介入。",
+            )
+            return self._block(iteration_id, "tester.protected_test_failure", run_id, notes)
+
+        if target == "tester":
+            retry_counts = self._increment_count(state, "tester_self")
+            max_retries = state.get("max_tester_self_retries", 3)
+            if retry_counts["tester_self"] > max_retries:
+                self._update_iteration(iteration_id, retry_counts=retry_counts)
+                return self._block(iteration_id, "tester.self_max_retries", run_id, notes)
+            self._update_iteration(
+                iteration_id,
+                status=IterationStatus.retrying.value,
+                current_node=None,
+                retry_counts=retry_counts,
+                last_error=notes,
+            )
+            self._add_event(
+                iteration_id,
+                event_type="tester.retry_to_self",
+                payload={"run_id": run_id, "notes": notes, "count": retry_counts["tester_self"], "retry_target": "tester"},
+            )
+            self._node_event(
+                iteration_id,
+                "node.progress",
+                NodeName.tester.value,
+                "验证产物不合格，Tester 自修",
+                notes,
+                severity="warning",
+                run_id=run_id,
+                action_hint=f"缺陷落在 Tester 写区，无需 Coder 改 src；第 {retry_counts['tester_self']} 次 Tester 自修。",
+            )
+            return {
+                "status": "tester_self_retry",
+                "failure_notes": notes,
+                "retry_target": "tester",
+                "retry_counts": retry_counts,
+                "tester_run_id": run_id,
+            }
+
         retry_counts = self._increment_count(state, "coder_tester")
         if retry_counts["coder_tester"] > state.get("max_coder_tester_retries", 5):
             self._update_iteration(iteration_id, retry_counts=retry_counts)
             return self._block(iteration_id, "tester.max_retries", run_id, notes)
-        self._update_iteration(iteration_id, status=IterationStatus.retrying.value, current_node=None, retry_counts=retry_counts, last_error=notes)
-        self._add_event(iteration_id, event_type="tester.failed_retry", payload={"run_id": run_id, "notes": notes, "count": retry_counts["coder_tester"]})
+        self._update_iteration(
+            iteration_id,
+            status=IterationStatus.retrying.value,
+            current_node=None,
+            retry_counts=retry_counts,
+            last_error=notes,
+        )
+        self._add_event(
+            iteration_id,
+            event_type="tester.retry_to_coder",
+            payload={"run_id": run_id, "notes": notes, "count": retry_counts["coder_tester"], "retry_target": "coder"},
+        )
         self._node_event(
             iteration_id,
             "node.progress",
             NodeName.tester.value,
-            "验证失败，准备自动重试",
+            "验证失败，回到实现节点",
             notes,
             severity="warning",
             run_id=run_id,
-            action_hint=f"系统将回到实现节点修复，这是第 {retry_counts['coder_tester']} 次实现/验证重试。",
+            action_hint=f"缺陷落在 Coder 写区；第 {retry_counts['coder_tester']} 次实现/验证重试。",
         )
-        return {"status": "tester_failed_retry", "failure_notes": notes, "retry_counts": retry_counts, "tester_run_id": run_id}
+        return {
+            "status": "tester_failed_retry",
+            "failure_notes": notes,
+            "retry_target": "coder",
+            "retry_counts": retry_counts,
+            "tester_run_id": run_id,
+        }
+
+    def _tester_retry_or_block(self, state: PipelineState, run_id: str, notes: str) -> PipelineState:
+        artifact = TesterArtifact(
+            verify_report="# Verify Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
+            passed=False,
+            failure_notes=notes,
+        )
+        return self._route_tester_failure(state, run_id, artifact)
 
     def _increment_count(self, state: PipelineState, key: str) -> dict[str, int]:
         counts = dict(state.get("retry_counts") or {})

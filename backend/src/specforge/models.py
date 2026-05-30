@@ -59,6 +59,7 @@ class CreateIterationRequest(BaseModel):
     goal: str = Field(min_length=1)
     mode: Optional[Mode] = None
     test_command: Optional[str] = None
+    build_command: Optional[str] = None
 
 
 class CreateProjectRequest(BaseModel):
@@ -68,9 +69,11 @@ class CreateProjectRequest(BaseModel):
     description: Optional[str] = None
     default_mode: Mode = Mode.real_cli
     default_test_command: Optional[str] = None
+    default_build_command: Optional[str] = None
     max_coder_tester_retries: int = Field(default=5, ge=0, le=20)
     max_clarifications: int = Field(default=3, ge=0, le=20)
     max_verify_rejects: int = Field(default=2, ge=0, le=20)
+    max_tester_self_retries: int = Field(default=3, ge=0, le=20)
 
 
 class ValidateProjectPathRequest(BaseModel):
@@ -107,10 +110,12 @@ class UpdateProjectRequest(BaseModel):
     create_if_missing: Optional[bool] = False
     default_mode: Optional[Mode] = None
     default_test_command: Optional[str] = None
+    default_build_command: Optional[str] = None
     cli_bindings: Optional[CliBindings] = None
     max_coder_tester_retries: Optional[int] = Field(default=None, ge=0, le=20)
     max_clarifications: Optional[int] = Field(default=None, ge=0, le=20)
     max_verify_rejects: Optional[int] = Field(default=None, ge=0, le=20)
+    max_tester_self_retries: Optional[int] = Field(default=None, ge=0, le=20)
 
 
 class EpicStatus(str, Enum):
@@ -140,6 +145,7 @@ class ProjectSummary(BaseModel):
     description: Optional[str] = None
     default_mode: Mode = Mode.real_cli
     default_test_command: Optional[str] = None
+    default_build_command: Optional[str] = None
     cli_bindings: Optional[CliBindings] = None
     planner_model: Optional[str] = None
     coder_model: Optional[str] = None
@@ -147,6 +153,7 @@ class ProjectSummary(BaseModel):
     max_coder_tester_retries: int = 5
     max_clarifications: int = 3
     max_verify_rejects: int = 2
+    max_tester_self_retries: int = 3
     created_at: datetime
     updated_at: datetime
     iteration_count: int = 0

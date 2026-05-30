@@ -584,6 +584,75 @@ def test_planner_verify_reject_routes_back_to_tester():
     assert pipeline._route_after_planner_verify(state) == "tester"
 
 
+def test_route_after_tester_self_retry():
+    state = {"iteration_id": "iter", "status": "tester_self_retry"}
+    assert pipeline._route_after_tester(state) == "self_retry"
+
+
+def test_route_after_tester_coder_retry():
+    state = {"iteration_id": "iter", "status": "tester_failed_retry"}
+    assert pipeline._route_after_tester(state) == "retry"
+
+
+def test_route_tester_failure_routes_adversarial_to_self():
+    from specforge.contracts import Defect, TesterArtifact
+
+    iteration_id = create_manual_iteration("tester-self-retry")
+    artifact = TesterArtifact(
+        verify_report="# Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
+        passed=False,
+        defects=[
+            Defect(
+                severity="P0",
+                path="tests/adversarial/bad.test.ts",
+                owner="tester",
+                message="bad import",
+            )
+        ],
+    )
+    result = pipeline._route_tester_failure(
+        {
+            "iteration_id": iteration_id,
+            "retry_counts": {},
+            "max_tester_self_retries": 3,
+            "max_coder_tester_retries": 5,
+        },
+        "run-1",
+        artifact,
+    )
+    assert result["status"] == "tester_self_retry"
+    assert result["retry_target"] == "tester"
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["retry_counts"]["tester_self"] == 1
+    assert "tester.retry_to_self" in [event["type"] for event in detail["events"]]
+
+
+def test_route_tester_failure_routes_src_to_coder():
+    from specforge.contracts import Defect, TesterArtifact
+
+    iteration_id = create_manual_iteration("tester-coder-retry")
+    artifact = TesterArtifact(
+        verify_report="# Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
+        passed=False,
+        defects=[Defect(severity="P0", path="src/app.ts", owner="coder", message="bug")],
+    )
+    result = pipeline._route_tester_failure(
+        {
+            "iteration_id": iteration_id,
+            "retry_counts": {},
+            "max_tester_self_retries": 3,
+            "max_coder_tester_retries": 5,
+        },
+        "run-2",
+        artifact,
+    )
+    assert result["status"] == "tester_failed_retry"
+    assert result["retry_target"] == "coder"
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["retry_counts"]["coder_tester"] == 1
+    assert "tester.retry_to_coder" in [event["type"] for event in detail["events"]]
+
+
 def test_ensure_verify_report_markers_adds_title_and_pass_summary():
     normalized = pipeline._ensure_verify_report_markers("plain report without markers")
     assert "# " in normalized

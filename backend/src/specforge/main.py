@@ -143,9 +143,11 @@ def create_project(payload: CreateProjectRequest) -> ProjectSummary:
             description=payload.description,
             default_mode=payload.default_mode.value,
             default_test_command=payload.default_test_command,
+            default_build_command=payload.default_build_command,
             max_coder_tester_retries=payload.max_coder_tester_retries,
             max_clarifications=payload.max_clarifications,
             max_verify_rejects=payload.max_verify_rejects,
+            max_tester_self_retries=payload.max_tester_self_retries,
         )
     except ValueError as exc:
         message = str(exc)
@@ -518,6 +520,7 @@ def project_summary(row, counts: dict[str, int] | None = None) -> ProjectSummary
         description=row["description"],
         default_mode=row["default_mode"],
         default_test_command=row["default_test_command"],
+        default_build_command=row["default_build_command"] if "default_build_command" in row.keys() else None,
         cli_bindings=_cli_bindings_from_row(row),
         planner_model=row["planner_model"],
         coder_model=row["coder_model"],
@@ -525,6 +528,7 @@ def project_summary(row, counts: dict[str, int] | None = None) -> ProjectSummary
         max_coder_tester_retries=row["max_coder_tester_retries"],
         max_clarifications=row["max_clarifications"],
         max_verify_rejects=row["max_verify_rejects"],
+        max_tester_self_retries=row["max_tester_self_retries"] if "max_tester_self_retries" in row.keys() else 3,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         iteration_count=bucket["total"],

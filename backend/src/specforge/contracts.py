@@ -126,10 +126,18 @@ class UIDriverRunResult(BaseModel):
     results: list[UITestResult] = Field(default_factory=list)
 
 
+class Defect(BaseModel):
+    severity: Literal["P0", "P1", "P2"] = "P1"
+    path: Optional[str] = None
+    owner: Optional[Literal["coder", "tester", "planner"]] = None
+    message: str = Field(min_length=1)
+
+
 class TesterArtifact(BaseModel):
     verify_report: str
     passed: bool
     failure_notes: Optional[str] = None
+    defects: list[Defect] = Field(default_factory=list)
     ux_notes: list[str] = Field(default_factory=list)
     delivery_recommendations: list[str] = Field(default_factory=list)
     ui_results: list[UITestResult] = Field(default_factory=list)

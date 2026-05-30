@@ -134,6 +134,8 @@ class Database:
                 conn.execute("ALTER TABLE iterations ADD COLUMN stopped_at_node TEXT")
             if "docs_slug" not in iteration_columns:
                 conn.execute("ALTER TABLE iterations ADD COLUMN docs_slug TEXT")
+            if "build_command" not in iteration_columns:
+                conn.execute("ALTER TABLE iterations ADD COLUMN build_command TEXT")
 
             project_columns = {
                 row["name"]
@@ -148,6 +150,8 @@ class Database:
                 "max_coder_tester_retries": "INTEGER NOT NULL DEFAULT 5",
                 "max_clarifications": "INTEGER NOT NULL DEFAULT 3",
                 "max_verify_rejects": "INTEGER NOT NULL DEFAULT 2",
+                "default_build_command": "TEXT",
+                "max_tester_self_retries": "INTEGER NOT NULL DEFAULT 3",
             }
             for column, definition in project_defaults.items():
                 if column not in project_columns:
@@ -171,9 +175,11 @@ class Database:
         description: Optional[str] = None,
         default_mode: str = "real-cli",
         default_test_command: Optional[str] = None,
+        default_build_command: Optional[str] = None,
         max_coder_tester_retries: int = 5,
         max_clarifications: int = 3,
         max_verify_rejects: int = 2,
+        max_tester_self_retries: int = 3,
     ) -> str:
         from .project_paths import prepare_project_root
 
@@ -193,11 +199,11 @@ class Database:
                 """
                 INSERT INTO projects (
                     id, name, root_path, description, default_mode, default_test_command,
-                    planner_model, coder_model, tester_model,
+                    default_build_command, planner_model, coder_model, tester_model,
                     max_coder_tester_retries, max_clarifications, max_verify_rejects,
-                    created_at, updated_at
+                    max_tester_self_retries, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project_id,
@@ -206,12 +212,14 @@ class Database:
                     description,
                     default_mode,
                     default_test_command,
+                    default_build_command,
                     None,
                     None,
                     None,
                     max_coder_tester_retries,
                     max_clarifications,
                     max_verify_rejects,
+                    max_tester_self_retries,
                     now,
                     now,
                 ),
@@ -225,10 +233,12 @@ class Database:
             "root_path",
             "default_mode",
             "default_test_command",
+            "default_build_command",
             "cli_bindings",
             "max_coder_tester_retries",
             "max_clarifications",
             "max_verify_rejects",
+            "max_tester_self_retries",
         }
         updates = []
         values: list[Any] = []
@@ -372,6 +382,9 @@ class Database:
         resolved_test_command = test_command
         if resolved_test_command is None and project_row is not None:
             resolved_test_command = project_row["default_test_command"]
+        resolved_build_command = None
+        if project_row is not None and "default_build_command" in project_row.keys():
+            resolved_build_command = project_row["default_build_command"]
         with self.connect() as conn:
             sequence = conn.execute(
                 "SELECT COUNT(*) FROM iterations WHERE project_id = ?",
@@ -382,10 +395,10 @@ class Database:
                 """
                 INSERT INTO iterations (
                     id, project_id, project_name, goal, mode, status, current_node,
-                    test_command, retry_counts, test_integrity_baseline, last_error, epic_id,
+                    test_command, build_command, retry_counts, test_integrity_baseline, last_error, epic_id,
                     docs_slug, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     iteration_id,
@@ -396,6 +409,7 @@ class Database:
                     "created",
                     None,
                     resolved_test_command,
+                    resolved_build_command,
                     "{}",
                     "{}",
                     None,
@@ -423,6 +437,7 @@ class Database:
         status: Optional[str] = None,
         current_node: Any = _UNSET,
         test_command: Optional[str] = None,
+        build_command: Optional[str] = None,
         retry_counts: Optional[dict[str, int]] = None,
         test_integrity_baseline: Optional[dict[str, Any]] = None,
         last_error: Any = _UNSET,
@@ -439,6 +454,9 @@ class Database:
         if test_command is not None:
             fields.append("test_command = ?")
             values.append(test_command)
+        if build_command is not None:
+            fields.append("build_command = ?")
+            values.append(build_command)
         if retry_counts is not None:
             fields.append("retry_counts = ?")
             values.append(json.dumps(retry_counts))
