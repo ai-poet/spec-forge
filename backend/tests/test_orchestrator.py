@@ -9,9 +9,10 @@ from fastapi.testclient import TestClient
 
 from specforge import contracts as contract_models
 from specforge.cli_runner import CLIResult
-from specforge.contracts import ArtifactFile, PlannerArtifact, UIDriverRunResult, UITestResult, UITestSpec, parse_json_artifact, validate_ui_spec_content
+from specforge.contracts import ArtifactFile, CoderArtifact, PlannerArtifact, UIDriverRunResult, UITestResult, UITestSpec, parse_json_artifact, validate_ui_spec_content
 from specforge.docs_io import IterationDocs, compare_test_integrity, test_integrity_manifest as build_test_integrity_manifest
 from specforge.main import app, job_queue, pipeline
+from specforge.models import IterationStatus
 
 
 client = TestClient(app)
@@ -580,17 +581,17 @@ def test_tester_command_uses_project_cli_bindings(tmp_path):
 
 
 def test_planner_verify_reject_routes_back_to_tester():
-    state = {"iteration_id": "iter", "status": "verify_rejected"}
+    state = {"iteration_id": "iter", "route": "verify_rejected"}
     assert pipeline._route_after_planner_verify(state) == "tester"
 
 
 def test_route_after_tester_self_retry():
-    state = {"iteration_id": "iter", "status": "tester_self_retry"}
+    state = {"iteration_id": "iter", "route": "self_retry"}
     assert pipeline._route_after_tester(state) == "self_retry"
 
 
 def test_route_after_tester_coder_retry():
-    state = {"iteration_id": "iter", "status": "tester_failed_retry"}
+    state = {"iteration_id": "iter", "route": "retry"}
     assert pipeline._route_after_tester(state) == "retry"
 
 
@@ -620,7 +621,7 @@ def test_route_tester_failure_routes_adversarial_to_self():
         "run-1",
         artifact,
     )
-    assert result["status"] == "tester_self_retry"
+    assert result["route"] == "self_retry"
     assert result["retry_target"] == "tester"
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert detail["retry_counts"]["tester_self"] == 1
@@ -646,7 +647,7 @@ def test_route_tester_failure_routes_src_to_coder():
         "run-2",
         artifact,
     )
-    assert result["status"] == "tester_failed_retry"
+    assert result["route"] == "retry"
     assert result["retry_target"] == "coder"
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert detail["retry_counts"]["coder_tester"] == 1
@@ -709,7 +710,7 @@ def test_tester_review_fallback_succeeds_without_retry(monkeypatch):
     )
 
     detail = client.get(f"/api/iterations/{iteration_id}").json()
-    assert result["status"] == "tester_passed"
+    assert result["status"] == IterationStatus.awaiting_verify_approval.value
     assert detail["status"] == "awaiting_verify_approval"
     assert detail["retry_counts"] == {}
     assert len(runner.commands) == 2
@@ -736,7 +737,7 @@ def test_tester_accepts_valid_artifact_from_nonzero_exit(monkeypatch):
     )
 
     detail = client.get(f"/api/iterations/{iteration_id}").json()
-    assert result["status"] == "tester_passed"
+    assert result["status"] == IterationStatus.awaiting_verify_approval.value
     assert detail["status"] == "awaiting_verify_approval"
     assert detail["retry_counts"] == {}
     assert len(runner.commands) == 1
@@ -901,6 +902,104 @@ def test_planner_clarification_writes_question_and_answer(tmp_path):
     assert (docs_root / "clarifications" / "01_question.md").exists()
     assert (docs_root / "clarifications" / "01_answer.md").exists()
     assert "clarification.answered" in [event["type"] for event in pipeline.db.list_events(iteration_id)]
+
+
+class ClarificationFailRunner:
+    """Dry-run runner that fails on the Nth planner_clarification invocation."""
+
+    def __init__(self, fail_on: int) -> None:
+        self.fail_on = fail_on
+        self.clarify_calls = 0
+        self._dry = pipeline.dry_runner
+
+    def run(self, command, cwd=None, on_output=None, *, iteration_id=None):
+        if command and command[0] == "specforge" and len(command) > 1 and command[1] == "planner_clarification":
+            self.clarify_calls += 1
+            if self.clarify_calls >= self.fail_on:
+                result = CLIResult(
+                    command=command,
+                    returncode=1,
+                    stdout="",
+                    stderr="simulated planner clarification failure",
+                )
+                if on_output and result.stderr:
+                    on_output("stderr", result.stderr)
+                return result
+        return self._dry.run(command, cwd=cwd, on_output=on_output, iteration_id=iteration_id)
+
+    def cancel(self, iteration_id: str) -> bool:
+        return False
+
+
+def test_double_clarification_loop_reaches_verify_approval(monkeypatch):
+    coder_calls = {"count": 0}
+    original_coder_artifact = pipeline._coder_artifact
+
+    def clarifying_coder_artifact(state, run_result):
+        coder_calls["count"] += 1
+        if coder_calls["count"] <= 2:
+            return CoderArtifact(
+                changed_paths=[],
+                summary=f"needs clarification #{coder_calls['count']}",
+                clarification_request=f"Question {coder_calls['count']}?",
+            )
+        return original_coder_artifact(state, run_result)
+
+    monkeypatch.setattr(pipeline, "_coder_artifact", clarifying_coder_artifact)
+
+    resp = client.post(
+        "/api/iterations",
+        json={"project_name": "double-clarify-ok", "goal": "two clarification rounds", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == IterationStatus.awaiting_verify_approval.value
+    assert detail["retry_counts"]["coder_planner_clarify"] == 2
+    assert coder_calls["count"] == 3
+    answered = [event for event in detail["events"] if event["type"] == "clarification.answered"]
+    assert len(answered) == 2
+    assert not any(event["type"] == "job.failed" for event in detail["events"])
+
+
+def test_double_clarification_cli_failure_blocks_without_langgraph_error(monkeypatch):
+    coder_calls = {"count": 0}
+    original_coder_artifact = pipeline._coder_artifact
+
+    def clarifying_coder_artifact(state, run_result):
+        coder_calls["count"] += 1
+        if coder_calls["count"] <= 2:
+            return CoderArtifact(
+                changed_paths=[],
+                summary=f"needs clarification #{coder_calls['count']}",
+                clarification_request=f"Question {coder_calls['count']}?",
+            )
+        return original_coder_artifact(state, run_result)
+
+    monkeypatch.setattr(pipeline, "_coder_artifact", clarifying_coder_artifact)
+    monkeypatch.setattr(pipeline, "dry_runner", ClarificationFailRunner(fail_on=2))
+
+    resp = client.post(
+        "/api/iterations",
+        json={"project_name": "double-clarify-fail", "goal": "second clarify fails", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == IterationStatus.blocked.value
+    assert detail["retry_counts"]["coder_planner_clarify"] == 2
+    assert any(event["type"] == "planner_clarification.failed" for event in detail["events"])
+    assert not any(event["type"] == "job.failed" for event in detail["events"])
+    assert "simulated planner clarification failure" in detail["last_error"]
+    assert "INVALID_CONCURRENT_GRAPH_UPDATE" not in (detail["last_error"] or "")
+
+
+def test_format_cli_failure_uses_exit_code_when_stderr_empty():
+    result = CLIResult(command=["missing-cli"], returncode=127, stdout="", stderr="")
+    message = pipeline._format_cli_failure(result)
+    assert "127" in message or "未找到" in message
 
 
 def test_resume_stopped_iteration(tmp_path):

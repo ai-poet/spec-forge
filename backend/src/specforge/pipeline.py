@@ -4,7 +4,7 @@ import json
 import time
 from pathlib import Path
 from threading import Lock
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
@@ -50,6 +50,19 @@ from .models import IterationStatus, Mode, NodeName
 from .ui_driver import UIDriverRunner
 
 
+def _last_str(left: str | None, right: str | None) -> str | None:
+    if right == "":
+        return None
+    return right if right is not None else left
+
+
+def _merge_counts(left: dict[str, int] | None, right: dict[str, int] | None) -> dict[str, int]:
+    merged = dict(left or {})
+    if right:
+        merged.update(right)
+    return merged
+
+
 class PipelineState(TypedDict, total=False):
     iteration_id: str
     project_id: Optional[str]
@@ -59,7 +72,8 @@ class PipelineState(TypedDict, total=False):
     epic_description: Optional[str]
     epic_acceptance_criteria: Optional[str]
     mode: str
-    status: str
+    status: Annotated[str, _last_str]
+    route: Annotated[str | None, _last_str]
     current_node: Optional[str]
     design_approval: Optional[str]
     verify_approval: Optional[str]
@@ -67,7 +81,7 @@ class PipelineState(TypedDict, total=False):
     failure_notes: Optional[str]
     retry_target: Optional[str]
     clarification_request: Optional[str]
-    retry_counts: dict[str, int]
+    retry_counts: Annotated[dict[str, int], _merge_counts]
     max_coder_tester_retries: int
     max_tester_self_retries: int
     max_clarifications: int
@@ -95,6 +109,7 @@ class LangGraphPipeline:
         self._live_cli_last_publish: dict[str, float] = {}
         self._live_cli_chunk_last_publish: dict[str, float] = {}
         self._aborted_iterations: set[str] = set()
+        self._invoking: set[str] = set()
 
     def project_repo_root(self, iteration_id: str) -> Path:
         row = self._require_iteration(iteration_id)
@@ -126,8 +141,12 @@ class LangGraphPipeline:
         return ensure_iteration_docs(repo_root, docs_slug)
 
     def start(self, iteration_id: str) -> None:
-        state = self._build_state(iteration_id)
-        self.graph.invoke(state, config=self._config(iteration_id))
+        self._begin_invoke(iteration_id)
+        try:
+            state = self._build_state(iteration_id)
+            self.graph.invoke(state, config=self._config(iteration_id))
+        finally:
+            self._end_invoke(iteration_id)
         self._publish_snapshot(iteration_id)
 
     def _build_state(self, iteration_id: str) -> PipelineState:
@@ -163,7 +182,11 @@ class LangGraphPipeline:
         state = self.graph.get_state(self._config(iteration_id))
         if expected_checkpoint not in set(state.next):
             raise ValueError(f"iteration is not awaiting {expected_checkpoint}")
-        self.graph.invoke(Command(resume=note), config=self._config(iteration_id))
+        self._begin_invoke(iteration_id)
+        try:
+            self.graph.invoke(Command(resume=note), config=self._config(iteration_id))
+        finally:
+            self._end_invoke(iteration_id)
         self._publish_snapshot(iteration_id)
 
     def can_resume(self, iteration_id: str, expected_checkpoint: str) -> bool:
@@ -224,7 +247,11 @@ class LangGraphPipeline:
                 event_type="iteration.resumed",
                 payload={"node": resume_node, "note": note},
             )
-            self.graph.invoke(Command(resume=note or "resumed"), config=config)
+            self._begin_invoke(iteration_id)
+            try:
+                self.graph.invoke(Command(resume=note or "resumed"), config=config)
+            finally:
+                self._end_invoke(iteration_id)
             self._publish_snapshot(iteration_id)
             return
 
@@ -249,7 +276,11 @@ class LangGraphPipeline:
             merged.update(state)
             state = merged
         self.graph.update_state(config, state)
-        self.graph.invoke(Command(goto=resume_node), config=config)
+        self._begin_invoke(iteration_id)
+        try:
+            self.graph.invoke(Command(goto=resume_node), config=config)
+        finally:
+            self._end_invoke(iteration_id)
         self._publish_snapshot(iteration_id)
 
     def _stopped_resume_node(self, row: Any) -> Optional[str]:
@@ -292,7 +323,11 @@ class LangGraphPipeline:
 
     def dashboard_snapshot(self, iteration_id: str) -> dict[str, Any]:
         row = self._require_iteration(iteration_id)
-        graph_state = self.graph.get_state(self._config(iteration_id))
+        if iteration_id in self._invoking:
+            graph_next: list[str] = []
+        else:
+            graph_state = self.graph.get_state(self._config(iteration_id))
+            graph_next = list(graph_state.next)
         return {
             "id": row["id"],
             "project_id": row["project_id"],
@@ -308,7 +343,7 @@ class LangGraphPipeline:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "test_command": row["test_command"],
-            "graph_next": list(graph_state.next),
+            "graph_next": graph_next,
             "documents": [
                 {
                     "name": doc["name"],
@@ -553,7 +588,7 @@ class LangGraphPipeline:
 
         if artifact.clarification_request:
             self._node_event(iteration_id, "node.progress", NodeName.coder.value, "实现需要澄清", artifact.clarification_request, severity="warning", run_id=run_id, action_hint="等待 Planner 澄清或人工补充决策。")
-            return {"status": "clarification_requested", "clarification_request": artifact.clarification_request, "coder_run_id": run_id}
+            return {"route": "clarification", "clarification_request": artifact.clarification_request, "coder_run_id": run_id}
 
         if not self._is_real_cli(state.get("mode")):
             src_root = self.project_root(iteration_id) / "src"
@@ -571,7 +606,7 @@ class LangGraphPipeline:
             payload={"changed_paths": artifact.changed_paths, "summary": artifact.summary, "run_id": run_id},
         )
         self._node_event(iteration_id, "node.completed", NodeName.coder.value, "实现完成", artifact.summary or "代码实现已完成，准备进入测试完整性检查。", severity="success", run_id=run_id)
-        return {"status": IterationStatus.testing.value, "current_node": NodeName.integrity_check.value, "coder_run_id": run_id}
+        return {"status": IterationStatus.testing.value, "route": "", "current_node": NodeName.integrity_check.value, "coder_run_id": run_id}
 
     def _planner_clarification_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
@@ -628,7 +663,7 @@ class LangGraphPipeline:
                 run_id=run_id,
                 action_hint="查看 Planner 原始日志，确认 claude CLI 可用。",
             )
-            return self._block(iteration_id, "planner_clarification.failed", run_id, run_result.stderr)
+            return self._block(iteration_id, "planner_clarification.failed", run_id, self._format_cli_failure(run_result))
 
         try:
             artifact = self._planner_clarification_artifact(state, run_result)
@@ -665,6 +700,7 @@ class LangGraphPipeline:
         )
         return {
             "status": IterationStatus.coding.value,
+            "route": "",
             "failure_notes": artifact.answer,
             "clarification_request": None,
             "retry_counts": retry_counts,
@@ -841,7 +877,7 @@ class LangGraphPipeline:
             self._update_iteration(iteration_id, status=IterationStatus.awaiting_verify_approval.value, current_node=None, last_error=None)
             self._add_event(iteration_id, event_type="tester.completed", payload={"result": "passed", "run_id": run_id})
             self._node_event(iteration_id, "node.completed", NodeName.tester.value, "验证通过", "验证报告和交付建议已生成，等待规格复核和最终确认。", severity="success", run_id=run_id)
-            return {"status": "tester_passed", "current_node": None, "tester_run_id": run_id}
+            return {"status": IterationStatus.awaiting_verify_approval.value, "route": "", "current_node": None, "tester_run_id": run_id}
         except Exception as exc:
             event_type = ui_spec_error_type(str(exc))
             hint = (
@@ -872,7 +908,7 @@ class LangGraphPipeline:
             self._update_iteration(iteration_id, status=IterationStatus.retrying.value, current_node=NodeName.planner_verify.value, retry_counts=retry_counts, last_error=str(exc))
             self._add_event(iteration_id, event_type="planner_verify.rejected", payload={"reason": str(exc), "count": retry_counts["planner_verify_reject"]})
             self._node_event(iteration_id, "node.progress", NodeName.planner_verify.value, "规格复核驳回", str(exc), severity="warning", action_hint="系统将回到实现/验证回环修复验证报告。")
-            return {"status": "verify_rejected", "failure_notes": str(exc), "retry_counts": retry_counts}
+            return {"route": "verify_rejected", "failure_notes": str(exc), "retry_counts": retry_counts}
         self._update_iteration(iteration_id, status=IterationStatus.awaiting_verify_approval.value, current_node=None, last_error=None)
         self._add_event(iteration_id, event_type="planner_verify.accepted", payload={"report": "verify_report"})
         self._node_event(iteration_id, "node.completed", NodeName.planner_verify.value, "规格复核通过", "验证报告结构满足要求，可以进入最终确认。", severity="success", document="verify_report")
@@ -904,7 +940,7 @@ class LangGraphPipeline:
     def _route_after_coder(self, state: PipelineState) -> Literal["blocked", "clarification", "integrity"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.stopped.value}:
             return "blocked"
-        if state.get("status") == "clarification_requested":
+        if state.get("route") == "clarification":
             return "clarification"
         return "integrity"
 
@@ -917,21 +953,38 @@ class LangGraphPipeline:
     def _route_after_tester(self, state: PipelineState) -> Literal["blocked", "retry", "self_retry", "verify"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
-        if state.get("status") == "tester_self_retry":
+        if state.get("route") == "self_retry":
             return "self_retry"
-        if state.get("status") == "tester_failed_retry":
+        if state.get("route") == "retry":
             return "retry"
         return "verify"
 
     def _route_after_planner_verify(self, state: PipelineState) -> Literal["blocked", "tester", "approval"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
-        if state.get("status") == "verify_rejected":
+        if state.get("route") == "verify_rejected":
             return "tester"
         return "approval"
 
     def _config(self, iteration_id: str) -> dict[str, Any]:
         return {"configurable": {"thread_id": iteration_id}}
+
+    def _begin_invoke(self, iteration_id: str) -> None:
+        self._invoking.add(iteration_id)
+
+    def _end_invoke(self, iteration_id: str) -> None:
+        self._invoking.discard(iteration_id)
+
+    @staticmethod
+    def _format_cli_failure(run_result: CLIResult) -> str:
+        stderr = (run_result.stderr or "").strip()
+        if stderr:
+            return stderr
+        if run_result.returncode == 127:
+            return f"CLI 命令未找到：{' '.join(run_result.command)}"
+        if run_result.returncode != 0:
+            return f"CLI 退出码 {run_result.returncode}，未捕获 stderr 输出。"
+        return "CLI 执行失败，未返回错误详情。"
 
     def _require_iteration(self, iteration_id: str):
         row = self.db.get_iteration_row(iteration_id)
@@ -945,7 +998,7 @@ class LangGraphPipeline:
         return self.db.get_iteration_row(iteration_id) is None
 
     def _abort_state(self) -> PipelineState:
-        return {"status": IterationStatus.stopped.value, "current_node": None}
+        return {"status": IterationStatus.stopped.value, "route": "", "current_node": None}
 
     def _record_run(self, iteration_id: str, node: str, run_result: CLIResult) -> str:
         run_id = self.db.add_run(
@@ -1003,7 +1056,7 @@ class LangGraphPipeline:
             run_id=run_id,
             action_hint=self._error_action_hint(event_type),
         )
-        return {"status": status, "current_node": None, "blocked_reason": reason}
+        return {"status": status, "route": "", "current_node": None, "blocked_reason": reason}
 
     def _execute(
         self,
@@ -1643,7 +1696,7 @@ class LangGraphPipeline:
                 action_hint=f"缺陷落在 Tester 写区，无需 Coder 改 src；第 {retry_counts['tester_self']} 次 Tester 自修。",
             )
             return {
-                "status": "tester_self_retry",
+                "route": "self_retry",
                 "failure_notes": notes,
                 "retry_target": "tester",
                 "retry_counts": retry_counts,
@@ -1677,7 +1730,7 @@ class LangGraphPipeline:
             action_hint=f"缺陷落在 Coder 写区；第 {retry_counts['coder_tester']} 次实现/验证重试。",
         )
         return {
-            "status": "tester_failed_retry",
+            "route": "retry",
             "failure_notes": notes,
             "retry_target": "coder",
             "retry_counts": retry_counts,
