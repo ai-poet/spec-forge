@@ -306,6 +306,7 @@ export function DashboardPage() {
                   detail={live.detail}
                   docText={live.docText}
                   reviewStepKey={reviewStepKey}
+                  onSelectStep={setReviewStepKey}
                   isLoading={live.isLoading}
                   busy={busy}
                   onLoadDocument={live.loadDocument}

@@ -15,6 +15,7 @@ interface Props {
   detail: IterationDetail | null
   docText: string
   reviewStepKey: PipelineStepKey | null
+  onSelectStep?: (key: PipelineStepKey | null) => void
   isLoading: boolean
   busy: boolean
   onLoadDocument: (name: string) => Promise<void>
@@ -27,6 +28,7 @@ export function StageFocusPanel({
   detail,
   docText,
   reviewStepKey,
+  onSelectStep,
   isLoading,
   busy,
   onLoadDocument,
@@ -81,7 +83,13 @@ export function StageFocusPanel({
     if (!detail || !focusStep) return null
     return (
       <div className="stack">
-        <StepExecutionPanel detail={detail} stepKey={focusStep} reviewMode={reviewMode} />
+        <StepExecutionPanel
+          detail={detail}
+          stepKey={focusStep}
+          reviewMode={reviewMode}
+          reviewStepKey={reviewStepKey}
+          onSelectStep={onSelectStep}
+        />
         {renderStepExtras(focusStep)}
       </div>
     )

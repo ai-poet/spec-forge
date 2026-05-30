@@ -7,7 +7,8 @@
     "dev:all": "bash scripts/dev.sh",
     "dev": "vite --host 127.0.0.1 --port 5178",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -19,6 +20,7 @@
     "@vitejs/plugin-react": "^4.3.1",
     "less": "^4.6.4",
     "typescript": "^5.5.4",
-    "vite": "^5.4.2"
+    "vite": "^5.4.2",
+    "vitest": "^3.2.4"
   }
 }

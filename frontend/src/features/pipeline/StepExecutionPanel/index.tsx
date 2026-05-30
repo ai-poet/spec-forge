@@ -1,18 +1,26 @@
 import type { IterationDetail } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../lib/pipelineSteps'
-import { AgentActivityPanel } from '../../iteration/AgentActivityPanel'
+import { AgentExecutionFlow } from '../AgentExecutionFlow'
 import { RunLogPanel } from '../../iteration/RunLogPanel'
 
 interface Props {
   detail: IterationDetail | null
   stepKey: PipelineStepKey
   reviewMode?: boolean
+  reviewStepKey?: PipelineStepKey | null
+  onSelectStep?: (key: PipelineStepKey | null) => void
 }
 
-export function StepExecutionPanel({ detail, stepKey, reviewMode = false }: Props) {
+export function StepExecutionPanel({ detail, stepKey, reviewMode = false, reviewStepKey = null, onSelectStep }: Props) {
   return (
     <div className="stack">
-      <AgentActivityPanel detail={detail} stepKey={stepKey} reviewMode={reviewMode} />
+      <AgentExecutionFlow
+        detail={detail}
+        stepKey={stepKey}
+        reviewMode={reviewMode}
+        reviewStepKey={reviewStepKey}
+        onSelectStep={onSelectStep}
+      />
       <RunLogPanel detail={detail} stepKey={stepKey} reviewMode={reviewMode} />
     </div>
   )
