@@ -883,11 +883,13 @@ def test_stop_iteration_records_stopped_at_node():
 def test_planner_clarification_writes_question_and_answer(tmp_path):
     project = post_project(tmp_path, "clarify-flow")
     project_id = project.json()["id"]
-    resp = client.post(
-        "/api/iterations",
-        json={"project_id": project_id, "goal": "clarify path", "mode": "dry-run"},
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        goal="clarify path",
+        mode="dry-run",
+        test_command=None,
+        project_id=project_id,
     )
-    iteration_id = resp.json()["id"]
     pipeline._prepare_iteration_docs(iteration_id)
     state = {
         "iteration_id": iteration_id,
@@ -931,7 +933,9 @@ class ClarificationFailRunner:
         return False
 
 
-def test_double_clarification_loop_reaches_verify_approval(monkeypatch):
+def test_double_clarification_loop_reaches_verify_approval(tmp_path, monkeypatch):
+    project = post_project(tmp_path, "double-clarify-ok")
+    project_id = project.json()["id"]
     coder_calls = {"count": 0}
     original_coder_artifact = pipeline._coder_artifact
 
@@ -949,7 +953,7 @@ def test_double_clarification_loop_reaches_verify_approval(monkeypatch):
 
     resp = client.post(
         "/api/iterations",
-        json={"project_name": "double-clarify-ok", "goal": "two clarification rounds", "mode": "dry-run"},
+        json={"project_id": project_id, "goal": "two clarification rounds", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
     drain_jobs()
@@ -963,7 +967,9 @@ def test_double_clarification_loop_reaches_verify_approval(monkeypatch):
     assert not any(event["type"] == "job.failed" for event in detail["events"])
 
 
-def test_double_clarification_cli_failure_blocks_without_langgraph_error(monkeypatch):
+def test_double_clarification_cli_failure_blocks_without_langgraph_error(tmp_path, monkeypatch):
+    project = post_project(tmp_path, "double-clarify-fail")
+    project_id = project.json()["id"]
     coder_calls = {"count": 0}
     original_coder_artifact = pipeline._coder_artifact
 
@@ -982,7 +988,7 @@ def test_double_clarification_cli_failure_blocks_without_langgraph_error(monkeyp
 
     resp = client.post(
         "/api/iterations",
-        json={"project_name": "double-clarify-fail", "goal": "second clarify fails", "mode": "dry-run"},
+        json={"project_id": project_id, "goal": "second clarify fails", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
     drain_jobs()
