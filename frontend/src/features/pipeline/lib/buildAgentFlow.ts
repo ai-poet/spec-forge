@@ -1,6 +1,6 @@
 import type { EventSeverity, IterationDetail, SemanticEvent } from '../../../shared/lib/types'
 import { isAgentActivity, presentEvent } from '../../../shared/lib/presentation'
-import { groupAgentActivities } from './groupAgentRuns'
+import { groupRunsByCliExecution, stepRetrySummary, type LoopKind } from './groupRunsByCliExecution'
 import { PIPELINE_STEPS, pipelineStepState, type PipelineStepKey } from './pipelineSteps'
 
 export type FlowNodeState = 'complete' | 'active' | 'waiting' | 'idle' | 'failed'
@@ -13,6 +13,7 @@ export interface FlowNode {
   stepKey?: PipelineStepKey
   severity?: EventSeverity
   eventIds?: string[]
+  events?: SemanticEvent[]
   event?: SemanticEvent
   isLive?: boolean
 }
@@ -35,6 +36,13 @@ export interface MicroRunModel {
   label: string
   isCurrent: boolean
   separatorBefore?: string
+  bridgeLoop?: { kind: LoopKind; hint: string }
+  semantic?: {
+    round: number
+    loop?: LoopKind
+    loopHint?: string
+    status: 'success' | 'failed' | 'running'
+  }
   milestones: FlowNode[]
   edges: FlowEdge[]
 }
@@ -43,6 +51,7 @@ export interface MicroFlowModel {
   runs: MicroRunModel[]
   defaultRunId: string | null
   defaultMilestoneId: string | null
+  stepSummary?: string
 }
 
 function stepNodeId(stepKey: PipelineStepKey): string {
@@ -130,6 +139,14 @@ function milestoneKind(event: SemanticEvent): MilestoneKind {
   if (event.type.startsWith('artifact.')) return 'artifact'
   if (event.type.startsWith('tester.review_fallback')) return 'fallback'
   if (event.type === 'node.progress') return 'progress'
+  if (
+    event.type === 'tester.retry_to_coder'
+    || event.type === 'tester.retry_to_self'
+    || event.type === 'tester.failed_retry'
+    || event.type === 'planner_verify.rejected'
+  ) {
+    return 'progress'
+  }
   return 'terminal'
 }
 
@@ -142,7 +159,30 @@ function terminalLabel(event: SemanticEvent): string {
 
 function mergeProgressLabel(events: SemanticEvent[]): string {
   const latest = events[events.length - 1]
+  if (latest?.type === 'tester.retry_to_coder' || latest?.type === 'tester.failed_retry') {
+    return '失败 → 回到实现节点'
+  }
+  if (latest?.type === 'tester.retry_to_self') return '失败 → Tester 自修'
+  if (latest?.type === 'planner_verify.rejected') return '规格复核驳回'
   return latest?.title ?? '进行中'
+}
+
+function flushArtifactBuffer(buffer: SemanticEvent[], milestones: FlowNode[], milestoneIndex: number): number {
+  if (!buffer.length) return milestoneIndex
+  milestoneIndex += 1
+  const ids = buffer.map((event) => event.id)
+  const docs = buffer.map((event) => event.document).filter(Boolean)
+  const latest = buffer[buffer.length - 1]
+  milestones.push({
+    id: `milestone:artifact:${milestoneIndex}`,
+    label: docs.length > 1 ? `产物写入（${docs.length} 项）` : (docs[0] ? `产物：${docs[0]}` : '产物已生成'),
+    state: 'complete',
+    severity: latest.severity,
+    eventIds: ids,
+    events: [...buffer],
+    event: latest,
+  })
+  return milestoneIndex
 }
 
 export function compressToMilestones(events: SemanticEvent[]): FlowNode[] {
@@ -151,6 +191,8 @@ export function compressToMilestones(events: SemanticEvent[]): FlowNode[] {
   const sorted = [...events].sort((left, right) => left.created_at.localeCompare(right.created_at))
   const milestones: FlowNode[] = []
   let progressBuffer: SemanticEvent[] = []
+  let artifactBuffer: SemanticEvent[] = []
+  let fallbackBuffer: SemanticEvent[] = []
   let milestoneIndex = 0
 
   function flushProgress() {
@@ -164,18 +206,56 @@ export function compressToMilestones(events: SemanticEvent[]): FlowNode[] {
       state: latest.severity === 'error' ? 'failed' : latest.severity === 'success' ? 'complete' : 'active',
       severity: latest.severity,
       eventIds: ids,
+      events: [...progressBuffer],
       event: latest,
     })
     progressBuffer = []
   }
 
+  function flushFallback() {
+    if (!fallbackBuffer.length) return
+    milestoneIndex += 1
+    const ids = fallbackBuffer.map((event) => event.id)
+    const latest = fallbackBuffer[fallbackBuffer.length - 1]
+    milestones.push({
+      id: `milestone:fallback:${milestoneIndex}`,
+      label: '审查兜底',
+      state: latest.severity === 'error' ? 'failed' : latest.severity === 'success' ? 'complete' : 'active',
+      severity: latest.severity,
+      eventIds: ids,
+      events: [...fallbackBuffer],
+      event: latest,
+    })
+    fallbackBuffer = []
+  }
+
   for (const event of sorted) {
     const kind = milestoneKind(event)
     if (kind === 'progress') {
+      flushFallback()
+      milestoneIndex = flushArtifactBuffer(artifactBuffer, milestones, milestoneIndex)
+      artifactBuffer = []
       progressBuffer.push(event)
       continue
     }
+    if (kind === 'artifact') {
+      flushProgress()
+      flushFallback()
+      artifactBuffer.push(event)
+      continue
+    }
+    if (kind === 'fallback') {
+      flushProgress()
+      milestoneIndex = flushArtifactBuffer(artifactBuffer, milestones, milestoneIndex)
+      artifactBuffer = []
+      fallbackBuffer.push(event)
+      continue
+    }
+
     flushProgress()
+    flushFallback()
+    milestoneIndex = flushArtifactBuffer(artifactBuffer, milestones, milestoneIndex)
+    artifactBuffer = []
 
     milestoneIndex += 1
     if (kind === 'started') {
@@ -183,28 +263,6 @@ export function compressToMilestones(events: SemanticEvent[]): FlowNode[] {
         id: `milestone:started:${milestoneIndex}`,
         label: '已启动',
         state: 'complete',
-        severity: event.severity,
-        eventIds: [event.id],
-        event,
-      })
-      continue
-    }
-    if (kind === 'artifact') {
-      milestones.push({
-        id: `milestone:artifact:${milestoneIndex}`,
-        label: event.document ? `产物：${event.document}` : '产物已生成',
-        state: event.severity === 'error' ? 'failed' : 'complete',
-        severity: event.severity,
-        eventIds: [event.id],
-        event,
-      })
-      continue
-    }
-    if (kind === 'fallback') {
-      milestones.push({
-        id: `milestone:fallback:${milestoneIndex}`,
-        label: '审查兜底',
-        state: event.severity === 'error' ? 'failed' : event.severity === 'success' ? 'complete' : 'active',
         severity: event.severity,
         eventIds: [event.id],
         event,
@@ -220,7 +278,10 @@ export function compressToMilestones(events: SemanticEvent[]): FlowNode[] {
       event,
     })
   }
+
   flushProgress()
+  flushFallback()
+  flushArtifactBuffer(artifactBuffer, milestones, milestoneIndex)
   return milestones
 }
 
@@ -264,16 +325,17 @@ export function buildMicroFlow(
     return { runs: [], defaultRunId: null, defaultMilestoneId: null }
   }
 
-  const activities = (detail.events.filter(isAgentActivity).filter((event) => event.type !== 'cli.display').map(presentEvent))
-  const hasVerifyReject = Boolean((detail.retry_counts?.planner_verify_reject ?? 0) > 0)
-  const grouped = groupAgentActivities(activities, stepKey, {
+  const activities = detail.events
+    .filter(isAgentActivity)
+    .filter((event) => event.type !== 'cli.display')
+    .map(presentEvent)
+
+  const grouped = groupRunsByCliExecution(detail, stepKey, activities, {
     reviewMode: options.reviewMode,
     stepLive: options.stepLive,
-    hasVerifyReject,
   })
 
-  const chronologicalRuns = [...grouped.groups].reverse()
-  const runs: MicroRunModel[] = chronologicalRuns.map((group) => {
+  const runs: MicroRunModel[] = grouped.groups.map((group) => {
     const milestones = compressToMilestones(group.events)
     if (group.isCurrent && options.stepLive && !options.reviewMode && milestones.length) {
       const last = milestones[milestones.length - 1]
@@ -287,6 +349,8 @@ export function buildMicroFlow(
       label: group.label,
       isCurrent: group.isCurrent,
       separatorBefore: group.separatorBefore,
+      bridgeLoop: group.bridgeLoop,
+      semantic: group.semantic,
       milestones,
       edges: milestoneEdges(milestones),
     }
@@ -296,7 +360,12 @@ export function buildMicroFlow(
   const defaultRun = runs.find((run) => run.id === defaultRunId) ?? runs[runs.length - 1] ?? null
   const defaultMilestoneId = inferDefaultMilestoneId(defaultRun, options.stepLive && !options.reviewMode)
 
-  return { runs, defaultRunId, defaultMilestoneId }
+  return {
+    runs,
+    defaultRunId,
+    defaultMilestoneId,
+    stepSummary: stepRetrySummary(detail, stepKey),
+  }
 }
 
 export function findMilestone(
@@ -308,3 +377,5 @@ export function findMilestone(
   if (!run) return null
   return run.milestones.find((item) => item.id === milestoneId) ?? run.milestones[run.milestones.length - 1] ?? null
 }
+
+export { stepRetrySummary }

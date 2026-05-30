@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getIteration } from '../../../shared/lib/api'
+import { getIteration, getIterationDocument } from '../../../shared/lib/api'
 import type { CliOutputPayload, IterationDetail, LiveConnectionStatus, LiveMessage } from '../../../shared/lib/types'
 
-const API_BASE = 'http://127.0.0.1:8787'
+function documentsMetaKey(documents: IterationDetail['documents'] | undefined): string {
+  return (documents ?? []).map((item) => `${item.name}:${item.checksum}`).join('|')
+}
 
-function documentsMetaKey(documents: IterationDetail['documents']): string {
-  return documents.map((item) => `${item.name}:${item.checksum}`).join('|')
+async function syncDocumentText(
+  iterationId: string,
+  documents: IterationDetail['documents'] | undefined,
+  preferredName: string,
+): Promise<{ name: string; content: string } | null> {
+  const doc = (documents ?? []).find((item) => item.name === preferredName) ?? (documents ?? [])[0]
+  if (!doc) return null
+  const content = await getIterationDocument(iterationId, doc.name)
+  return { name: doc.name, content }
 }
 
 function isCliOutputEvent(event: LiveMessage['event']): event is { type: 'cli.output'; payload: CliOutputPayload } {
@@ -31,10 +40,7 @@ export function useIterationLive(iterationId: string | null) {
     async (name: string) => {
       if (!iterationId) return
       setDocName(name)
-      const response = await fetch(`${API_BASE}/api/iterations/${iterationId}/documents/${name}`)
-      if (!response.ok) throw new Error('文档读取失败，请刷新后重试。')
-      const json = await response.json()
-      setDocText(json.content)
+      setDocText(await getIterationDocument(iterationId, name))
     },
     [iterationId],
   )
@@ -122,17 +128,18 @@ export function useIterationLive(iterationId: string | null) {
           if (nextMeta === documentsMetaRef.current) return
           documentsMetaRef.current = nextMeta
 
-          const doc = snapshot.documents.find((item) => item.name === docNameRef.current) ?? snapshot.documents[0]
-          if (doc) {
-            const response = await fetch(`${API_BASE}/api/iterations/${iterationId}/documents/${doc.name}`)
-            if (!response.ok) throw new Error('文档读取失败，请刷新后重试。')
-            const json = await response.json()
-            setDocText(json.content)
-            if (doc.name !== docNameRef.current) {
-              setDocName(doc.name)
+          try {
+            const synced = await syncDocumentText(iterationId, snapshot.documents, docNameRef.current)
+            if (synced) {
+              setDocText(synced.content)
+              if (synced.name !== docNameRef.current) {
+                setDocName(synced.name)
+              }
+            } else {
+              setDocText('')
             }
-          } else {
-            setDocText('')
+          } catch (error) {
+            console.warn('文档同步失败', error)
           }
         } catch (error) {
           setLiveError(error instanceof Error ? error.message : String(error))

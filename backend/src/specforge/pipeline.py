@@ -477,7 +477,7 @@ class LangGraphPipeline:
             artifact = self._planner_artifact(state, run_result)
             docs = IterationDocs(self.docs_root(iteration_id))
             docs.ensure()
-            self._write_planner_artifact(iteration_id, docs, artifact)
+            self._write_planner_artifact(iteration_id, docs, artifact, run_id=run_id)
             baseline = test_integrity_manifest(docs.root)
             self._update_iteration(
                 iteration_id,
@@ -774,7 +774,7 @@ class LangGraphPipeline:
                 self._node_event(iteration_id, "node.failed", NodeName.tester.value, "验证前测试完整性失败", "; ".join(problems), severity="error", run_id=run_id, action_hint="检查测试目录是否被实现节点修改。")
                 return self._block(iteration_id, "test_integrity.failed", run_id, "; ".join(problems))
             docs = IterationDocs(self.docs_root(iteration_id))
-            ui_result = self._run_ui_specs(iteration_id, docs)
+            ui_result = self._run_ui_specs(iteration_id, docs, run_id=run_id)
             if ui_result.results:
                 artifact.ui_results.extend(ui_result.results)
                 artifact.ux_notes.extend(self._ui_observations(ui_result))
@@ -805,7 +805,7 @@ class LangGraphPipeline:
                     event_type="ui_driver.failed",
                     payload={"failed": [result.model_dump() for result in failed_results], "blocking": False},
                 )
-            self._write_tester_artifact(iteration_id, docs, artifact)
+            self._write_tester_artifact(iteration_id, docs, artifact, run_id=run_id)
             gate_ok, gate_msg = self._run_artifact_gate(state)
             if not gate_ok:
                 self._rollback_tester_adversarial(iteration_id, artifact.adversarial_tests)
@@ -1303,11 +1303,11 @@ class LangGraphPipeline:
             summary="Dry-run planner clarification answered the coder request.",
         )
 
-    def _run_ui_specs(self, iteration_id: str, docs: IterationDocs) -> UIDriverRunResult:
+    def _run_ui_specs(self, iteration_id: str, docs: IterationDocs, *, run_id: Optional[str] = None) -> UIDriverRunResult:
         specs = self._load_ui_specs(docs)
         if not specs:
             return UIDriverRunResult(available=True, results=[])
-        self._node_event(iteration_id, "node.started", "ui_driver", "UI Driver 已启动", f"正在执行 {len(specs)} 条 UI trajectory。")
+        self._node_event(iteration_id, "node.started", "ui_driver", "UI Driver 已启动", f"正在执行 {len(specs)} 条 UI trajectory。", run_id=run_id)
         self._add_event(iteration_id, event_type="ui_driver.started", payload={"count": len(specs)})
         result = self.ui_driver.run_specs(specs, docs.root)
         if result.fallback == "playwright":
@@ -1438,7 +1438,7 @@ class LangGraphPipeline:
             return compact
         return compact[: limit - 3] + "..."
 
-    def _write_planner_artifact(self, iteration_id: str, docs: IterationDocs, artifact: PlannerArtifact) -> None:
+    def _write_planner_artifact(self, iteration_id: str, docs: IterationDocs, artifact: PlannerArtifact, *, run_id: Optional[str] = None) -> None:
         paths = {
             "system_design": docs.write_text("system_design.md", artifact.system_design),
             "modification_plan": docs.write_text("modification_plan.md", artifact.modification_plan),
@@ -1446,7 +1446,7 @@ class LangGraphPipeline:
         }
         for name, path in paths.items():
             self._record_document(iteration_id, name, path)
-            self._node_event(iteration_id, "artifact.created", NodeName.planner.value, "规划文档已生成", f"{name} 已写入 iteration 文档目录。", severity="success", document=name)
+            self._node_event(iteration_id, "artifact.created", NodeName.planner.value, "规划文档已生成", f"{name} 已写入 iteration 文档目录。", severity="success", document=name, run_id=run_id)
         for file in artifact.tests:
             relative = safe_relative_path(file.path)
             if not relative.parts or relative.parts[0] != "tests" or (len(relative.parts) > 1 and relative.parts[1] == "adversarial"):
@@ -1455,7 +1455,7 @@ class LangGraphPipeline:
                 validate_ui_spec_content(relative.as_posix(), file.content)
             path = docs.write_text(relative.as_posix(), file.content)
             self._record_document(iteration_id, relative.as_posix(), path)
-            self._node_event(iteration_id, "artifact.created", NodeName.planner.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix())
+            self._node_event(iteration_id, "artifact.created", NodeName.planner.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
 
     def _ensure_verify_report_markers(self, text: str) -> str:
         result = text if text.strip() else "# Verify Report\n\n"
@@ -1469,11 +1469,11 @@ class LangGraphPipeline:
                 result = f"{result.rstrip()}\n\n## Summary\n- Pass: 0\n- Fail: 0\n"
         return result
 
-    def _write_tester_artifact(self, iteration_id: str, docs: IterationDocs, artifact: TesterArtifact) -> None:
+    def _write_tester_artifact(self, iteration_id: str, docs: IterationDocs, artifact: TesterArtifact, *, run_id: Optional[str] = None) -> None:
         verify_report = self._ensure_verify_report_markers(artifact.verify_report)
         verify = docs.write_text("verify_report.md", verify_report)
         self._record_document(iteration_id, "verify_report", verify)
-        self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "验证报告已生成", "verify_report 已写入 iteration 文档目录。", severity="success", document="verify_report")
+        self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "验证报告已生成", "verify_report 已写入 iteration 文档目录。", severity="success", document="verify_report", run_id=run_id)
         if artifact.ui_results or artifact.ui_warnings:
             ui_json = docs.write_text(
                 "ui_results.json",
@@ -1489,12 +1489,12 @@ class LangGraphPipeline:
             self._record_document(iteration_id, "ui_results", ui_json)
             ui_report = docs.write_text("ui_report.md", self._ui_report_markdown(artifact))
             self._record_document(iteration_id, "ui_report", ui_report)
-            self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "UI 验证产物已生成", "ui_results 和 ui_report 已写入 iteration 文档目录。", severity="success", document="ui_report")
+            self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "UI 验证产物已生成", "ui_results 和 ui_report 已写入 iteration 文档目录。", severity="success", document="ui_report", run_id=run_id)
         advice = self._delivery_advice_markdown(artifact)
         if advice:
             advice_path = docs.write_text("delivery_advice.md", advice)
             self._record_document(iteration_id, "delivery_advice", advice_path)
-            self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "交付建议已生成", "delivery_advice 已写入 iteration 文档目录。", severity="success", document="delivery_advice")
+            self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "交付建议已生成", "delivery_advice 已写入 iteration 文档目录。", severity="success", document="delivery_advice", run_id=run_id)
             self._add_event(
                 iteration_id,
                 event_type="tester.delivery_advice",
@@ -1506,7 +1506,7 @@ class LangGraphPipeline:
                 raise ValueError(f"tester adversarial path not allowed: {file.path}")
             path = docs.write_text(relative.as_posix(), file.content)
             self._record_document(iteration_id, relative.as_posix(), path)
-            self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "对抗测试已生成", relative.as_posix(), severity="success", document=relative.as_posix())
+            self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "对抗测试已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
 
     def _ui_report_markdown(self, artifact: TesterArtifact) -> str:
         total = len(artifact.ui_results)

@@ -226,3 +226,118 @@
   display: grid;
   gap: 10px;
 }
+
+.stepSummary {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.runStepper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.runSelectLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.runSelect {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.loopBridge {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.loopBridgeNode {
+  color: var(--text-secondary);
+}
+
+.loopBridgeNodeActive {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.loopBridgeEdge {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.loopBridgeHint {
+  color: var(--text-secondary);
+}
+
+.overviewLane {
+  display: grid;
+  gap: 6px;
+}
+
+.overviewToggle {
+  width: fit-content;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+
+  &:hover {
+    color: var(--text-primary);
+  }
+}
+
+.overviewList {
+  display: grid;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.overviewRow {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 12px;
+
+  &:hover {
+    background: var(--bg-surface-hover);
+  }
+}
+
+.overviewRowActive {
+  border-color: rgba(59, 130, 246, 0.55);
+  background: var(--accent-soft);
+}
+
+.detailList {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: 12px;
+
+  li {
+    margin: 4px 0;
+  }
+}

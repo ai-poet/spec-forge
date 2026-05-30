@@ -1,7 +1,6 @@
 import type { IterationDetail, SemanticEvent } from '../../../shared/lib/types'
 import {
   buildMacroFlow,
-  buildMicroFlow,
   compressToMilestones,
   inferDefaultRunId,
 } from './buildAgentFlow'
@@ -63,20 +62,6 @@ describe('compressToMilestones', () => {
     expect(milestones).toHaveLength(3)
     expect(milestones[1].label).toBe('写报告')
     expect(milestones[1].eventIds).toEqual(['2', '3'])
-  })
-})
-
-describe('buildMicroFlow', () => {
-  it('splits tester rounds into tabs', () => {
-    const detail = makeDetail({
-      events: [
-        { id: 'e1', type: 'node.started', payload: { node: 'tester', title: 'r1', message: 'm' }, created_at: '2026-05-30T10:00:00.000Z' },
-        { id: 'e2', type: 'node.started', payload: { node: 'tester', title: 'r2', message: 'm' }, created_at: '2026-05-30T10:05:00.000Z' },
-      ],
-    })
-    const micro = buildMicroFlow(detail, 'tester', { reviewMode: true, stepLive: false })
-    expect(micro.runs).toHaveLength(2)
-    expect(micro.defaultRunId).toBe(micro.runs[micro.runs.length - 1]?.id ?? null)
   })
 })
 

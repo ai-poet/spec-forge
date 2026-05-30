@@ -8,6 +8,9 @@ import { presentNodeName } from '../../../shared/lib/presentation'
 import { MacroFlowChart } from './MacroFlowChart'
 import { MicroFlowChart } from './MicroFlowChart'
 import { FlowDetailCard } from './FlowDetailCard'
+import { RunRoundSelector } from './RunRoundSelector'
+import { MicroLoopBridge } from './MicroLoopBridge'
+import { RunOverviewLane } from './RunOverviewLane'
 import styles from './AgentExecutionFlow.module.less'
 
 interface Props {
@@ -52,8 +55,14 @@ export function AgentExecutionFlow({
   const selectedMilestone = findMilestone(micro, activeRun?.id ?? null, selectedMilestoneId)
 
   const stepMeta = PIPELINE_STEPS.find((step) => step.key === selectedStepKey)
+  const execCount = detail?.runs.filter((run) => {
+    if (selectedStepKey === 'tester') return run.node === 'tester'
+    if (selectedStepKey === 'coder') return run.node === 'coder'
+    if (selectedStepKey === 'planner') return run.node === 'planner' || run.node === 'planner_clarification'
+    return false
+  }).length
   const countLabel = micro.runs.length > 1
-    ? `${micro.runs.length} 轮 · ${activeRun?.milestones.length ?? 0} 个里程碑`
+    ? `${execCount || micro.runs.length} 次执行 · ${activeRun?.milestones.length ?? 0} 个里程碑`
     : `${activeRun?.milestones.length ?? 0} 个里程碑`
 
   function handleMacroSelect(key: PipelineStepKey) {
@@ -63,6 +72,13 @@ export function AgentExecutionFlow({
       return
     }
     onSelectStep(key)
+  }
+
+  function selectRun(runId: string) {
+    setSelectedRunId(runId)
+    const run = micro.runs.find((item) => item.id === runId)
+    const defaultMilestone = run?.milestones[run.milestones.length - 1]
+    setSelectedMilestoneId(defaultMilestone?.id ?? null)
   }
 
   return (
@@ -91,28 +107,14 @@ export function AgentExecutionFlow({
       {selectedStepKey ? (
         <div className={styles.microSection}>
           <div className="section-row">
-            <h3 className="section-title">{stepMeta?.label ?? '阶段'} · 里程碑</h3>
-          </div>
-          {micro.runs.length > 1 ? (
-            <div className={styles.runTabs} role="tablist">
-              {micro.runs.map((run) => (
-                <button
-                  key={run.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeRun?.id === run.id}
-                  className={`${styles.runTab} ${activeRun?.id === run.id ? styles.runTabActive : ''}`}
-                  onClick={() => {
-                    setSelectedRunId(run.id)
-                    const defaultMilestone = run.milestones[run.milestones.length - 1]
-                    setSelectedMilestoneId(defaultMilestone?.id ?? null)
-                  }}
-                >
-                  {run.label}
-                </button>
-              ))}
+            <div>
+              <h3 className="section-title">{stepMeta?.label ?? '阶段'} · 里程碑</h3>
+              {micro.stepSummary ? <p className={`muted ${styles.stepSummary}`}>回环：{micro.stepSummary}</p> : null}
             </div>
-          ) : null}
+          </div>
+          <RunOverviewLane runs={micro.runs} activeRunId={activeRun?.id ?? null} onSelectRun={selectRun} />
+          <RunRoundSelector runs={micro.runs} activeRunId={activeRun?.id ?? null} onSelectRun={selectRun} />
+          <MicroLoopBridge runs={micro.runs} activeRun={activeRun} />
           <MicroFlowChart
             run={activeRun}
             selectedMilestoneId={selectedMilestoneId}

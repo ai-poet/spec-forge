@@ -17,17 +17,23 @@ import type {
 const API_BASE = 'http://127.0.0.1:8787'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  })
-  if (!response.ok) {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+    })
+  } catch {
+    throw new Error('无法连接后端，请确认服务已启动。')
+  }
+  if (!response?.ok) {
     throw new Error(await readableHttpError(response))
   }
   return response.json() as Promise<T>
 }
 
-async function readableHttpError(response: Response): Promise<string> {
+async function readableHttpError(response: Response | undefined): Promise<string> {
+  if (!response) return '无法连接后端，请确认服务已启动。'
   let detail: unknown
   try {
     const payload = await response.json()
@@ -147,6 +153,22 @@ export function createIteration(input: {
 
 export function getIteration(id: string): Promise<IterationDetail> {
   return request(`/api/iterations/${id}`)
+}
+
+export async function getIterationDocument(iterationId: string, name: string): Promise<string> {
+  let response: Response
+  try {
+    response = await fetch(
+      `${API_BASE}/api/iterations/${encodeURIComponent(iterationId)}/documents/${encodeURIComponent(name)}`,
+    )
+  } catch {
+    throw new Error('无法连接后端，请确认服务已启动。')
+  }
+  if (!response?.ok) {
+    throw new Error('文档读取失败，请刷新后重试。')
+  }
+  const json = (await response.json()) as { content?: string }
+  return json.content ?? ''
 }
 
 export function artifactUrl(iterationId: string, path: string): string {
