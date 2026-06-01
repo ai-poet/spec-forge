@@ -567,7 +567,7 @@ spec-forge/
 - CLI 权限策略为 bypass 模式，隔离强度有限
 - CSS selector Web UI 由 Playwright 执行；CuaDriver 不可用时无 selector 的 Web UI 也可回退 Playwright；仅 native UI 或未安装 Playwright 时记为未执行（warning）
 - UI 自动化断言失败仅记为 warning；交付门槛以 Code Tester 代码审查无 P0/P1 缺陷为准
-- 不再生成或提供 `system_design` / `modification_plan` 文档；请使用 `GET .../documents/prd`
+- 迭代产物目录为 `docs/iterations/iteration_NNN/`（旧路径 `docs/system_design/` 已废弃）；API 文档键为 `prd`、`testing_plan` 等，无 `system_design` / `modification_plan` 别名
 - 渐进式 checkpoint 策略（前 N 轮强制审批）尚未实现
 - 生产部署、成本监控、量化成功标准留待后续
 
@@ -575,5 +575,5 @@ spec-forge/
 
 ## 进一步阅读
 
-- [docs/system_design.md](docs/system_design.md) — 内部系统设计（版本化）
 - [docs/development_plan.md](docs/development_plan.md) — 开发计划
+- [docs/system_design.md](docs/system_design.md) — 本仓库早期内部设计笔记（部分内容已过时，以 README 与 `pipeline.py` 为准）
