@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TypedDict
 
+from .cua_bootstrap import CUA_INSTALL_HINT, cua_driver_installed, ensure_cua_driver
 from .ui_driver import CuaUIDriverRunner
 from .ui_driver_playwright import PLAYWRIGHT_INSTALL_HINT, PlaywrightUIDriverRunner
 
@@ -14,16 +16,29 @@ UI_DRIVER_INSTALL_HINT = PLAYWRIGHT_INSTALL_HINT
 class UIRuntimeStatus(TypedDict):
     playwright: str
     cua: str
+    playwright_install_hint: str
+    cua_install_hint: str
     install_hint: str
+
+
+def _cua_runtime_status() -> str:
+    if os.getenv("SPECFORGE_CUA_AUTO_INSTALL", "").strip() in {"1", "true", "yes"}:
+        if not cua_driver_installed():
+            install_error = ensure_cua_driver(auto_install=True)
+            if install_error:
+                return install_error
+    return CuaUIDriverRunner().ensure_available() or "ok"
 
 
 def ui_runtime_status() -> UIRuntimeStatus:
     playwright_error = PlaywrightUIDriverRunner().ensure_available()
-    cua_error = CuaUIDriverRunner().ensure_available()
+    cua_status = _cua_runtime_status()
     return {
         "playwright": "ok" if playwright_error is None else playwright_error,
-        "cua": "ok" if cua_error is None else cua_error,
-        "install_hint": UI_DRIVER_INSTALL_HINT,
+        "cua": cua_status,
+        "playwright_install_hint": PLAYWRIGHT_INSTALL_HINT,
+        "cua_install_hint": CUA_INSTALL_HINT,
+        "install_hint": PLAYWRIGHT_INSTALL_HINT,
     }
 
 
@@ -35,5 +50,7 @@ def log_ui_runtime_status() -> UIRuntimeStatus:
         status["cua"],
     )
     if status["playwright"] != "ok":
-        logger.info("Playwright install: %s", status["install_hint"])
+        logger.info("Playwright install: %s", status["playwright_install_hint"])
+    if status["cua"] != "ok":
+        logger.info("CuaDriver install: %s", status["cua_install_hint"])
     return status

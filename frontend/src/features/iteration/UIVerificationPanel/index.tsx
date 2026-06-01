@@ -1,7 +1,12 @@
 import { artifactUrl } from '../../../shared/lib/api'
 import { uiDriverLabel, uiStatusLabel } from '../../../shared/lib/labels'
 import type { IterationDetail, UITestResult } from '../../../shared/lib/types'
-import { needsPlaywrightInstall, UI_PLAYWRIGHT_INSTALL_HINT } from '../../../shared/lib/uiInstallHint'
+import {
+  showCuaInstallGuide,
+  showPlaywrightInstallGuide,
+  UI_CUA_INSTALL_HINT,
+  UI_PLAYWRIGHT_INSTALL_HINT,
+} from '../../../shared/lib/uiInstallHint'
 import { isUiDriverRunning } from '../../pipeline/lib/pipelineLive'
 import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
 import styles from './UIVerificationPanel.module.less'
@@ -20,16 +25,13 @@ function count(results: UITestResult[], status: UITestResult['status']) {
   return results.filter((result) => result.status === status).length
 }
 
-function showInstallGuide(results: UITestResult[]) {
-  return results.some((result) => result.status === 'warning' && needsPlaywrightInstall(result.error))
-}
-
 export function UIVerificationPanel({ detail }: Props) {
   const results = detail?.ui_results ?? []
   const warnings = results.filter((result) => result.status === 'warning')
   const failed = count(results, 'failed')
   const uiDriverRunning = isUiDriverRunning(detail)
-  const installGuideVisible = showInstallGuide(results)
+  const playwrightGuideVisible = showPlaywrightInstallGuide(results)
+  const cuaGuideVisible = showCuaInstallGuide(results)
 
   return (
     <section className={`${styles.root} stack`}>
@@ -55,7 +57,7 @@ export function UIVerificationPanel({ detail }: Props) {
       ) : null}
 
       {!results.length && !uiDriverRunning ? <div className="empty">本轮没有 Planner 定义的 UI trajectory，或尚未执行到 Tester。</div> : null}
-      {installGuideVisible ? (
+      {playwrightGuideVisible ? (
         <div className={styles.installGuide}>
           <strong>Web UI（CSS selector）需要 Playwright</strong>
           <p className="muted">
@@ -63,6 +65,16 @@ export function UIVerificationPanel({ detail }: Props) {
           </p>
           <pre className={styles.installCommand}>{UI_PLAYWRIGHT_INSTALL_HINT}</pre>
           <p className="muted">跳过自动安装：启动前设置 <code>SPECFORGE_SKIP_UI=1</code>（仅当你不需要 UI 自动化时）。</p>
+        </div>
+      ) : null}
+      {cuaGuideVisible ? (
+        <div className={styles.installGuide}>
+          <strong>原生 / 文案类 Web UI 需要 CuaDriver</strong>
+          <p className="muted">
+            使用仓库内 computer-use 安装器安装本机 cua-driver，并在 macOS 系统设置中授予辅助功能与屏幕录制权限。
+          </p>
+          <pre className={styles.installCommand}>{UI_CUA_INSTALL_HINT}</pre>
+          <p className="muted">跳过自动安装：启动前设置 <code>SPECFORGE_SKIP_CUA=1</code>。</p>
         </div>
       ) : null}
       <div className={styles.resultList}>

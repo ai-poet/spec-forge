@@ -25,7 +25,18 @@ if [[ "${SPECFORGE_SKIP_UI:-}" != "1" ]]; then
   pip install -q -e "$ROOT_DIR/backend"[ui]
   playwright install chromium
 else
-  echo "Skipping UI dependencies (SPECFORGE_SKIP_UI=1)." >&2
+  echo "Skipping Playwright UI dependencies (SPECFORGE_SKIP_UI=1)." >&2
+fi
+
+if [[ "${SPECFORGE_SKIP_CUA:-}" != "1" ]]; then
+  if [[ -f "$ROOT_DIR/computer-use/backend/install_cua_driver.py" ]]; then
+    python "$ROOT_DIR/computer-use/backend/install_cua_driver.py" || \
+      echo "warn: cua-driver install failed (native / text-based Web UI may be skipped)" >&2
+  else
+    echo "warn: computer-use/install_cua_driver.py not found; skipping CuaDriver install" >&2
+  fi
+else
+  echo "Skipping CuaDriver install (SPECFORGE_SKIP_CUA=1)." >&2
 fi
 
 if [[ ! -d "$ROOT_DIR/frontend/node_modules" ]]; then

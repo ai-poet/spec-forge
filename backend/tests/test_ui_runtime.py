@@ -8,7 +8,10 @@ def test_ui_runtime_status_shape() -> None:
     assert "playwright" in status
     assert "cua" in status
     assert "install_hint" in status
-    assert "pip install" in status["install_hint"]
+    assert "playwright_install_hint" in status
+    assert "cua_install_hint" in status
+    assert "pip install" in status["playwright_install_hint"]
+    assert "install_cua_driver" in status["cua_install_hint"]
 
 
 def test_log_ui_runtime_status_returns_same_payload(caplog) -> None:

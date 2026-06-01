@@ -61,6 +61,7 @@ from .prompt_loader import compose_stage_prompt
 from .write_zones import enrich_defects, retry_target, summarize_failure_notes
 from .models import IterationStatus, Mode, NodeName
 from .ui_driver import UIDriverRunner
+from .cua_bootstrap import CUA_INSTALL_HINT
 from .ui_runtime import UI_DRIVER_INSTALL_HINT
 
 
@@ -1504,7 +1505,7 @@ class LangGraphPipeline:
                 "部分 UI 未执行",
                 result.warning,
                 severity="warning",
-                action_hint="原生 UI 需要 CuaDriver；Web UI 可能已由 Playwright 执行。",
+                action_hint=f"原生 UI 需要 CuaDriver：{CUA_INSTALL_HINT}",
             )
         if any(item.status == "failed" for item in result.results):
             self._node_event(

@@ -414,15 +414,24 @@ cd frontend && npm install && npm run dev:all
 
 CLI 使用 `bypassPermissions` / `--dangerously-bypass-approvals-and-sandbox` 跳过交互式权限确认。测试不可变主要靠后端 `integrity_check` 保障，而非 CLI 目录 deny。
 
-可选 UI 测试自动分流：CSS selector Web trajectory 使用 Playwright；AX/text/native trajectory 优先使用 `cua-driver`（CuaDriver），Cua 不可用时 Web UI 自动回退 Playwright：
+可选 UI 测试自动分流（Tester 节点内 UI Driver，非 LangGraph 独立节点）：
+
+| UI spec 类型 | 驱动 |
+|--------------|------|
+| Web + CSS `selector` | **Playwright**（`pip install -e "backend/.[ui]"` + `playwright install chromium`） |
+| Web 无 selector（`assert_text` / `click_text` 等） | 优先 **CuaDriver**；Cua 不可用时回退 Playwright |
+| `native` | **CuaDriver**（本机 `cua-driver` CLI） |
+
+CuaDriver 安装器 vendored 在 [`computer-use/backend/install_cua_driver.py`](computer-use/backend/install_cua_driver.py)（与 computer-use `--host` 单机路径相同；**不需要**跑 `analyze_product.py`）。macOS 安装后请在系统设置授予 CuaDriver **辅助功能**与**屏幕录制**权限。
 
 ```bash
 pip install -e "backend/.[ui]" && playwright install chromium
+python computer-use/backend/install_cua_driver.py
 ```
 
-`./scripts/dev.sh` installs `[ui]` and Chromium by default. Set `SPECFORGE_SKIP_UI=1` to skip when you do not need UI automation.
+`./scripts/dev.sh` installs Playwright and runs the CuaDriver installer by default. Set `SPECFORGE_SKIP_UI=1` or `SPECFORGE_SKIP_CUA=1` to skip either stack.
 
-`GET /api/health` includes `ui.playwright` / `ui.cua` readiness and `ui_install_hint`.
+`GET /api/health` includes `ui.playwright`, `ui.cua`, `playwright_install_hint`, and `cua_install_hint`.
 
 ---
 

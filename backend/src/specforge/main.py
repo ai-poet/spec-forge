@@ -83,6 +83,8 @@ def health() -> dict[str, object]:
         "ui": {
             "playwright": ui["playwright"],
             "cua": ui["cua"],
+            "playwright_install_hint": ui["playwright_install_hint"],
+            "cua_install_hint": ui["cua_install_hint"],
         },
         "ui_install_hint": ui["install_hint"],
     }
