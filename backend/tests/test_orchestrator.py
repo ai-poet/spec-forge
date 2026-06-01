@@ -838,12 +838,14 @@ def test_execute_live_cli_node_from_db_current_node():
     pipeline.db.update_iteration(iteration_id, current_node="prd_planner", status="planning")
     state = {"iteration_id": iteration_id, "mode": "dry-run", "current_node": None}
 
+    pipeline._reset_live_cli(iteration_id, "prd_planner")
     pipeline._execute(state, ["echo", "prd"], node="prd_planner")
     snapshot = pipeline._live_cli_snapshot(iteration_id)
     assert snapshot is not None
     assert snapshot["node"] == "prd_planner"
 
     pipeline.db.update_iteration(iteration_id, current_node="coder")
+    pipeline._reset_live_cli(iteration_id, "coder")
     pipeline._execute(state, ["echo", "coder"])
     snapshot = pipeline._live_cli_snapshot(iteration_id)
     assert snapshot is not None
