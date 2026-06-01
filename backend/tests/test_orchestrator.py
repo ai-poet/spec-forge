@@ -1441,7 +1441,7 @@ def test_planning_session_id_in_state_after_discovery(tmp_path, monkeypatch):
     runner = SequenceRunner([CLIResult(command=[], returncode=0, stdout="ok", stderr="")])
     monkeypatch.setattr(pipeline, "real_runner", runner)
 
-    state = {"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id}
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id, "goal": "session test"}
     cmd = pipeline._planner_discovery_command(state)
     assert any(part.startswith("--session-id") or part == "--session-id" for part in cmd)
     session_id = state.get("planning_cli_session_id")
