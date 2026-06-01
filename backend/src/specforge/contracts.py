@@ -163,7 +163,7 @@ class UIDriverRunResult(BaseModel):
 class Defect(BaseModel):
     severity: Literal["P0", "P1", "P2"] = "P1"
     path: Optional[str] = None
-    owner: Optional[Literal["coder", "tester", "test_planner", "planner"]] = None
+    owner: Optional[Literal["coder", "code_tester", "test_planner", "prd_planner"]] = None
     message: str = Field(min_length=1)
 
 
@@ -177,11 +177,11 @@ class CodeTesterArtifact(BaseModel):
     adversarial_tests: list[ArtifactFile] = Field(default_factory=list)
 
 
-def code_tester_to_tester(artifact: CodeTesterArtifact) -> TesterArtifact:
-    return TesterArtifact.model_validate(artifact.model_dump())
+def verification_from_code(artifact: CodeTesterArtifact) -> "VerificationArtifact":
+    return VerificationArtifact.model_validate(artifact.model_dump())
 
 
-class TesterArtifact(BaseModel):
+class VerificationArtifact(BaseModel):
     verify_report: str
     passed: bool
     failure_notes: Optional[str] = None

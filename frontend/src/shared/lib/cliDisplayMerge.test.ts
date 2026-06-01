@@ -6,7 +6,7 @@ function event(partial: Partial<SemanticEvent>): SemanticEvent {
   return {
     id: partial.id ?? '1',
     type: 'cli.display',
-    node: 'planner',
+    node: 'prd_planner',
     title: 't',
     message: partial.message ?? 'm',
     severity: 'info',

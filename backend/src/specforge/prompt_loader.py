@@ -3,25 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-StageName = Literal["planner", "planner_discovery", "coder", "tester", "planner_clarification"]
+StageName = Literal[
+    "prd_planner",
+    "test_planner",
+    "planner_discovery",
+    "planner_clarification",
+    "coder",
+    "code_tester",
+]
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 _STAGES_DIR = _PROMPTS_DIR / "stages"
 _PROJECT_SKILLS_DIR = ".specforge/skills"
-
-
-def load_prompt_template(name: str) -> str:
-    """Load a legacy single-file prompt (deprecated after stage migration)."""
-    path = _PROMPTS_DIR / f"{name}.md"
-    if not path.exists():
-        raise FileNotFoundError(f"prompt template not found: {path}")
-    return path.read_text(encoding="utf-8").strip()
-
-
-def render_prompt(name: str, **variables: str) -> str:
-    """Format a legacy single-file prompt template."""
-    template = load_prompt_template(name)
-    return _format_template(template, name, **variables)
 
 
 def list_stage_modules(stage: StageName) -> list[str]:

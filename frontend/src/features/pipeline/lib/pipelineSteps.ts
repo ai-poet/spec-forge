@@ -33,7 +33,6 @@ const PLANNING_NODES = new Set([
   'requirements_input',
   'prd_planner',
   'test_planner',
-  'planner',
   'planner_clarification',
 ])
 
@@ -46,7 +45,7 @@ export function nodesForStep(step: PipelineStepKey): string[] {
     case 'integrity_check':
       return ['integrity_check']
     case 'code_tester':
-      return ['code_tester', 'tester']
+      return ['code_tester']
     case 'ui_tester':
       return ['ui_tester', 'ui_driver']
     case 'planner_verify':
@@ -73,7 +72,7 @@ export function pipelineStepState(key: string, detail: IterationDetail | null): 
   if (key === 'planning' && ['planning', 'queued'].includes(status)) return 'active'
   if (key === 'coder' && ['coding', 'retrying'].includes(status)) return 'active'
   if (key === 'integrity_check' && status === 'testing' && currentNode === 'integrity_check') return 'active'
-  if (key === 'code_tester' && status === 'testing' && (currentNode === 'code_tester' || currentNode === 'tester')) return 'active'
+  if (key === 'code_tester' && status === 'testing' && currentNode === 'code_tester') return 'active'
   if (key === 'ui_tester' && status === 'testing' && currentNode === 'ui_tester') return 'active'
   if (key === 'planner_verify' && currentNode === 'planner_verify') return 'active'
   const stepIndex = PIPELINE_STEPS.findIndex((step) => step.key === key)
@@ -95,7 +94,7 @@ export function inferFocusStep(detail: IterationDetail): PipelineStepKey {
     if (detail.stopped_at_node === 'planner_verify') return 'planner_verify'
     if (detail.stopped_at_node === 'verify_approval') return 'verify_approval'
     if (detail.stopped_at_node === 'ui_tester' || detail.stopped_at_node === 'ui_driver') return 'ui_tester'
-    if (detail.stopped_at_node === 'code_tester' || detail.stopped_at_node === 'tester') return 'code_tester'
+    if (detail.stopped_at_node === 'code_tester') return 'code_tester'
     if (detail.stopped_at_node === 'coder' || detail.stopped_at_node === 'coder_retry') return 'coder'
     if (PLANNING_NODES.has(detail.stopped_at_node)) return 'planning'
   }
@@ -106,14 +105,14 @@ export function inferFocusStep(detail: IterationDetail): PipelineStepKey {
     if (node === 'integrity_check') return 'integrity_check'
     if (node === 'planner_verify') return 'planner_verify'
     if (node === 'ui_tester' || node === 'ui_driver') return 'ui_tester'
-    if (node === 'code_tester' || node === 'tester') return 'code_tester'
+    if (node === 'code_tester') return 'code_tester'
     return 'code_tester'
   }
   if (status === 'awaiting_verify_approval') return 'verify_approval'
   if (status === 'delivered') return 'done'
   if (node === 'planner_verify') return 'planner_verify'
   if (node === 'ui_tester' || node === 'ui_driver') return 'ui_tester'
-  if (node === 'code_tester' || node === 'tester') return 'code_tester'
+  if (node === 'code_tester') return 'code_tester'
   if (node === 'integrity_check') return 'integrity_check'
   if (node === 'coder' || node === 'coder_retry') return 'coder'
   if (node && PLANNING_NODES.has(node)) return 'planning'

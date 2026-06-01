@@ -21,8 +21,8 @@ function matchesFilter(type: string, filter: TimelineFilter) {
   if (filter === 'all') return true
   if (filter === 'decisions') return type.includes('approved') || type.includes('queued')
   if (filter === 'failures') return type.includes('failed') || type.includes('blocked') || type.includes('max_retries')
-  if (filter === 'tests') return type.includes('test') || type.includes('integrity') || type.includes('tester') || type.includes('ui_driver')
-  if (filter === 'runs') return type === 'cli.display' || type.includes('planner') || type.includes('coder') || type.includes('tester')
+  if (filter === 'tests') return type.includes('test') || type.includes('integrity') || type.includes('code_tester') || type.includes('ui_tester') || type.includes('ui_driver')
+  if (filter === 'runs') return type === 'cli.display' || type.includes('planner') || type.includes('coder') || type.includes('code_tester')
   return true
 }
 

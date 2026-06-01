@@ -64,7 +64,8 @@ export function StageFocusPanel({
       case 'coder':
         return <IterationSummaryPanel detail={detail} />
       case 'integrity_check':
-      case 'tester':
+      case 'code_tester':
+      case 'ui_tester':
       case 'planner_verify':
         return (
           <div className="stack">

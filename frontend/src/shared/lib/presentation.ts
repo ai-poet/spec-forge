@@ -145,7 +145,7 @@ export function summarizeRun(run: NodeRunRecord) {
 
 export function documentSummary(detail: IterationDetail | null) {
   if (!detail) return []
-  const important = ['system_design', 'modification_plan', 'testing_plan', 'verify_report', 'delivery_advice', 'ui_report']
+  const important = ['prd', 'testing_plan', 'verify_report', 'delivery_advice', 'ui_report']
   return important.map((name) => {
     const doc = detail.documents.find((item) => item.name === name)
     return {
@@ -160,9 +160,12 @@ export function documentSummary(detail: IterationDetail | null) {
 function inferNode(type: string) {
   if (type.startsWith('planner_verify')) return 'planner_verify'
   if (type.includes('planner_clarification')) return 'planner_clarification'
-  if (type.includes('planner')) return 'planner'
+  if (type.includes('prd_planner')) return 'prd_planner'
+  if (type.includes('test_planner')) return 'test_planner'
+  if (type.includes('planner_discovery')) return 'planner_discovery'
+  if (type.includes('ui_tester')) return 'ui_tester'
+  if (type.includes('code_tester')) return 'code_tester'
   if (type.includes('coder')) return 'coder'
-  if (type.includes('tester')) return 'tester'
   if (type.includes('integrity')) return 'integrity_check'
   if (type.includes('ui_driver')) return 'ui_driver'
   if (type.includes('verify')) return 'planner_verify'

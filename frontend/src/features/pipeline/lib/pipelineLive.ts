@@ -72,7 +72,7 @@ export function isVerifyRejectRetest(detail: IterationDetail | null): boolean {
   return Boolean(
     detail
     && hasVerifyRejectRetry(detail)
-    && detail.current_node === 'tester'
+    && detail.current_node === 'code_tester'
     && (detail.status === 'testing' || detail.status === 'retrying'),
   )
 }
@@ -82,15 +82,14 @@ export function isPlannerVerifyRejectRetry(detail: IterationDetail | null): bool
   return detail.events.some((event) => event.type === 'planner_verify.rejected')
 }
 
-export function latestRetryTarget(detail: IterationDetail | null): 'coder' | 'tester' | null {
+export function latestRetryTarget(detail: IterationDetail | null): 'coder' | 'code_tester' | null {
   if (!detail) return null
   for (let index = detail.events.length - 1; index >= 0; index -= 1) {
     const event = detail.events[index]
-    if (event.type === 'tester.retry_to_coder') return 'coder'
-    if (event.type === 'tester.retry_to_self') return 'tester'
-    if (event.type === 'tester.failed_retry') return 'coder'
+    if (event.type === 'code_tester.retry_to_coder') return 'coder'
+    if (event.type === 'code_tester.retry_to_self') return 'code_tester'
     const payload = event.payload as { retry_target?: string } | undefined
-    if (payload?.retry_target === 'tester') return 'tester'
+    if (payload?.retry_target === 'code_tester') return 'code_tester'
     if (payload?.retry_target === 'coder') return 'coder'
   }
   return null

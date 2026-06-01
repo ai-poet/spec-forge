@@ -22,12 +22,10 @@ class CliProviderName(str, Enum):
 class CliBindings(BaseModel):
     prd_planner: CliProviderName = CliProviderName.claude
     test_planner: CliProviderName = CliProviderName.claude
-    planner: CliProviderName = CliProviderName.claude
     planner_discovery: CliProviderName = CliProviderName.claude
     planner_clarification: CliProviderName = CliProviderName.claude
     coder: CliProviderName = CliProviderName.claude
     code_tester: CliProviderName = CliProviderName.claude
-    tester: CliProviderName = CliProviderName.claude
 
 
 class IterationStatus(str, Enum):
@@ -49,14 +47,12 @@ class IterationStatus(str, Enum):
 class NodeName(str, Enum):
     prd_planner = "prd_planner"
     test_planner = "test_planner"
-    planner = "planner"
     planner_discovery = "planner_discovery"
     coder = "coder"
     coder_retry = "coder_retry"
     integrity_check = "integrity_check"
     code_tester = "code_tester"
     ui_tester = "ui_tester"
-    tester = "tester"
     planner_clarification = "planner_clarification"
     planner_verify = "planner_verify"
 
@@ -158,9 +154,7 @@ class ProjectSummary(BaseModel):
     default_test_command: Optional[str] = None
     default_build_command: Optional[str] = None
     cli_bindings: Optional[CliBindings] = None
-    planner_model: Optional[str] = None
     coder_model: Optional[str] = None
-    tester_model: Optional[str] = None
     max_coder_tester_retries: int = 5
     max_clarifications: int = 3
     max_verify_rejects: int = 2

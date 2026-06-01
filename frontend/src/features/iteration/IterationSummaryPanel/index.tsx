@@ -26,7 +26,7 @@ export function IterationSummaryPanel({ detail }: Props) {
   const verifyReport = detail?.documents.find((doc) => doc.name === 'verify_report')
   const deliveryAdvice = detail?.documents.find((doc) => doc.name === 'delivery_advice')
   const uiResults = detail?.ui_results ?? []
-  const adviceEvent = detail?.events.find((event) => event.type === 'tester.delivery_advice')
+  const adviceEvent = detail?.events.find((event) => event.type === 'code_tester.delivery_advice')
   const uxNotes = Array.isArray(adviceEvent?.payload.ux_notes) ? adviceEvent.payload.ux_notes.map(String) : []
   const recommendations = Array.isArray(adviceEvent?.payload.delivery_recommendations)
     ? adviceEvent.payload.delivery_recommendations.map(String)

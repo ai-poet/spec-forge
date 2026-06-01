@@ -23,7 +23,7 @@ function makeDetail(partial: Partial<IterationDetail>): IterationDetail {
     goal: 'test',
     mode: 'dry-run',
     status: 'testing',
-    current_node: 'tester',
+    current_node: 'code_tester',
     stopped_at_node: null,
     retry_counts: {},
     last_error: null,
@@ -45,8 +45,8 @@ describe('buildMacroFlow', () => {
     expect(model.edges.some((edge) => edge.kind === 'retry_coder')).toBe(true)
   })
 
-  it('adds tester self loop when tester_self > 0', () => {
-    const model = buildMacroFlow(makeDetail({ retry_counts: { tester_self: 1 } }))
+  it('adds code tester self loop when code_tester_self > 0', () => {
+    const model = buildMacroFlow(makeDetail({ retry_counts: { code_tester_self: 1 } }))
     expect(model.edges.some((edge) => edge.kind === 'retry_self')).toBe(true)
   })
 })
@@ -54,10 +54,10 @@ describe('buildMacroFlow', () => {
 describe('compressToMilestones', () => {
   it('merges consecutive progress events', () => {
     const milestones = compressToMilestones([
-      makeEvent({ id: '1', type: 'node.started', node: 'tester', title: '启动', message: 'a' }),
-      makeEvent({ id: '2', type: 'node.progress', node: 'tester', title: '解析中', message: 'b' }),
-      makeEvent({ id: '3', type: 'node.progress', node: 'tester', title: '写报告', message: 'c' }),
-      makeEvent({ id: '4', type: 'node.completed', node: 'tester', title: '完成', message: 'd', severity: 'success' }),
+      makeEvent({ id: '1', type: 'node.started', node: 'code_tester', title: '启动', message: 'a' }),
+      makeEvent({ id: '2', type: 'node.progress', node: 'code_tester', title: '解析中', message: 'b' }),
+      makeEvent({ id: '3', type: 'node.progress', node: 'code_tester', title: '写报告', message: 'c' }),
+      makeEvent({ id: '4', type: 'node.completed', node: 'code_tester', title: '完成', message: 'd', severity: 'success' }),
     ])
     expect(milestones).toHaveLength(3)
     expect(milestones[1].label).toBe('写报告')

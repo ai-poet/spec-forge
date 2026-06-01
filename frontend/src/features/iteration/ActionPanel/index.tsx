@@ -65,13 +65,13 @@ function resolveStatusCopy(detail: IterationDetail) {
   if (isPlannerVerifyRejectRetry(detail)) {
     return {
       title: '规格复核驳回，准备重新验证',
-      body: 'verify_report 格式不合格，系统将回到 Tester 重写验证报告。',
+      body: 'verify_report 格式不合格，系统将回到 Code Tester 重写验证报告。',
     }
   }
-  if (detail.status === 'retrying' && latestRetryTarget(detail) === 'tester') {
+  if (detail.status === 'retrying' && latestRetryTarget(detail) === 'code_tester') {
     return {
-      title: 'Tester 正在自修验证产物',
-      body: '缺陷落在 Tester 写区（adversarial / 验证文档），无需 Coder 改 src。',
+      title: 'Code Tester 正在自修验证产物',
+      body: '缺陷落在 Code Tester 写区（adversarial / 验证文档），无需 Coder 改 src。',
     }
   }
   if (detail.status === 'retrying' && (detail.retry_counts?.coder_tester ?? 0) > 0) {
@@ -80,10 +80,10 @@ function resolveStatusCopy(detail: IterationDetail) {
       body: '上一轮验证失败，系统正在带着失败信息回到实现节点。',
     }
   }
-  if (detail.status === 'testing' && latestRetryTarget(detail) === 'tester') {
+  if (detail.status === 'testing' && latestRetryTarget(detail) === 'code_tester') {
     return {
-      title: 'Tester 正在自修验证产物',
-      body: '上一轮验证产物不合格，Tester 正在修复 adversarial 或验证文档。',
+      title: 'Code Tester 正在自修验证产物',
+      body: '上一轮验证产物不合格，Code Tester 正在修复 adversarial 或验证文档。',
     }
   }
   if (detail.status === 'retrying') {

@@ -4,7 +4,7 @@ from specforge.cli_event_presenter import CliEventPresenter
 
 
 def present(payload):
-    event = CliEventPresenter().present(payload, node="tester")
+    event = CliEventPresenter().present(payload, node="code_tester")
     assert event is not None
     return event
 

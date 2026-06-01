@@ -26,14 +26,12 @@ export const epicStatusLabel: Record<EpicStatus, string> = {
 export const nodeLabel: Record<NodeName, string> = {
   prd_planner: 'PRD 规划',
   test_planner: '测试规划',
-  planner: '规划',
   planner_discovery: '需求澄清',
   coder: '实现',
   coder_retry: '实现重试',
   integrity_check: '测试完整性检查',
   code_tester: '代码验证',
   ui_tester: 'UI 验证',
-  tester: '验证',
   planner_clarification: '规划澄清',
   planner_verify: '规格复核',
 }
@@ -65,7 +63,7 @@ export function graphNodeLabel(value: string) {
 
 export function retryLabel(value: string) {
   if (value === 'coder_tester') return '实现/验证重试'
-  if (value === 'tester_self') return 'Tester 自修'
+  if (value === 'code_tester_self') return 'Code Tester 自修'
   if (value === 'coder_planner_clarify') return '实现澄清'
   if (value === 'discovery_round') return '需求澄清轮次'
   if (value === 'planner_verify_reject') return '规格复核驳回'
@@ -79,20 +77,18 @@ export function eventLabel(value: string) {
     'discovery.question': '需求澄清提问',
     'discovery.answered': '需求澄清已回答',
     'discovery.ready': '需求已足够清晰',
-    'design.pending': '等待设计审批',
-    'planner.completed': '规划完成',
-    'design.approved': '设计已审批',
+    'prd_planner.completed': 'PRD 规划完成',
+    'test_planner.completed': '测试规划完成',
     'coder.completed': '实现完成',
     'test_integrity.passed': '测试完整性通过',
-    'tester.completed': '验证完成',
-    'tester.delivery_advice': '交付建议已生成',
-    'tester.failed_retry': '验证失败，准备重试',
-    'tester.retry_to_coder': '验证失败，回到实现节点',
-    'tester.retry_to_self': '验证产物不合格，Tester 自修',
-    'tester.nonzero_artifact.accepted': '验证产物已保留',
-    'tester.review_fallback.started': '代码审查兜底已启动',
-    'tester.review_fallback.completed': '代码审查兜底完成',
-    'tester.review_fallback.failed': '代码审查兜底失败',
+    'ui_tester.completed': '验证完成',
+    'code_tester.delivery_advice': '交付建议已生成',
+    'code_tester.retry_to_coder': '验证失败，回到实现节点',
+    'code_tester.retry_to_self': '验证产物不合格，Code Tester 自修',
+    'code_tester.nonzero_artifact.accepted': '验证产物已保留',
+    'code_tester.review_fallback.started': '代码审查兜底已启动',
+    'code_tester.review_fallback.completed': '代码审查兜底完成',
+    'code_tester.review_fallback.failed': '代码审查兜底失败',
     'ui_driver.started': 'UI Driver 已开始',
     'ui_driver.completed': 'UI Driver 已完成',
     'ui_driver.fallback': 'Playwright 回退执行',
@@ -107,9 +103,9 @@ export function eventLabel(value: string) {
     'resume.queued': '继续执行已排队',
     'artifact.invalid': '产物格式无效',
     'test_integrity.failed': '测试完整性失败',
-    'planner.failed': '规划失败',
+    'prd_planner.failed': 'PRD 规划失败',
     'coder.failed': '实现失败',
-    'tester.max_retries': '验证重试已达上限',
+    'code_tester.max_retries': '验证重试已达上限',
     'clarification.answered': '澄清已处理',
     'clarification.max_retries': '澄清次数已达上限',
     'planner_verify.max_retries': '规格复核驳回已达上限',
@@ -119,8 +115,7 @@ export function eventLabel(value: string) {
 
 export function documentLabel(value: string) {
   const labels: Record<string, string> = {
-    system_design: '系统设计',
-    modification_plan: '修改计划',
+    prd: 'PRD',
     testing_plan: '测试计划',
     verify_report: '验证报告',
     delivery_advice: '交付建议',

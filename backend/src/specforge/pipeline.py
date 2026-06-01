@@ -14,11 +14,7 @@ from typing_extensions import TypedDict
 
 from .cli_commands import (
     CliStage,
-    build_coder_command,
-    build_planner_clarification_command,
-    build_planner_command,
-    build_planner_discovery_command,
-    build_tester_command,
+    build_cli_command,
     parse_cli_bindings,
     resolve_cli_provider,
 )
@@ -35,8 +31,8 @@ from .contracts import (
     PlannerDiscoveryArtifact,
     PrdPlannerArtifact,
     TestPlannerArtifact,
-    code_tester_to_tester,
-    TesterArtifact,
+    verification_from_code,
+    VerificationArtifact,
     UIDriverRunResult,
     UITestResult,
     UITestSpec,
@@ -115,10 +111,9 @@ class PipelineState(TypedDict, total=False):
     pending_discovery_assumptions: list[str]
     prd_planner_run_id: Optional[str]
     test_planner_run_id: Optional[str]
-    planner_run_id: Optional[str]
     coder_run_id: Optional[str]
     code_tester_run_id: Optional[str]
-    tester_run_id: Optional[str]
+    verification_run_id: Optional[str]
     pending_code_tester_json: Optional[str]
 
 
@@ -347,14 +342,12 @@ class LangGraphPipeline:
             NodeName.planner_discovery.value: IterationStatus.planning,
             NodeName.prd_planner.value: IterationStatus.planning,
             NodeName.test_planner.value: IterationStatus.planning,
-            NodeName.planner.value: IterationStatus.planning,
             NodeName.planner_clarification.value: IterationStatus.retrying,
             "requirements_input": IterationStatus.awaiting_requirements_input,
             NodeName.coder.value: IterationStatus.coding,
             NodeName.integrity_check.value: IterationStatus.testing,
             NodeName.code_tester.value: IterationStatus.testing,
             NodeName.ui_tester.value: IterationStatus.testing,
-            NodeName.tester.value: IterationStatus.testing,
             NodeName.planner_verify.value: IterationStatus.testing,
             "verify_approval": IterationStatus.awaiting_verify_approval,
         }
@@ -1050,7 +1043,7 @@ class LangGraphPipeline:
                         severity="warning",
                         run_id=run_id,
                     )
-                    tester_pending = code_tester_to_tester(code_artifact)
+                    tester_pending = verification_from_code(code_artifact)
                 else:
                     primary_notes = self._tester_failure_notes(run_result)
                     self._node_event(iteration_id, "code_tester.review_fallback.started", NodeName.code_tester.value, "启动代码审查兜底", primary_notes, severity="warning", run_id=run_id)
@@ -1068,7 +1061,7 @@ class LangGraphPipeline:
                         return self._route_tester_failure(
                             state,
                             review_run_id,
-                            code_tester_to_tester(
+                            verification_from_code(
                                 CodeTesterArtifact(
                                     verify_report="# Verify Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
                                     passed=False,
@@ -1077,12 +1070,12 @@ class LangGraphPipeline:
                             ),
                         )
                     code_artifact = self._code_tester_artifact(state, review_result)
-                    tester_pending = code_tester_to_tester(code_artifact)
+                    tester_pending = verification_from_code(code_artifact)
                     self._augment_review_fallback_artifact(tester_pending, primary_notes)
             else:
                 self._node_event(iteration_id, "node.progress", NodeName.code_tester.value, "正在解析验证结果", "已收到 Code Tester 输出。", run_id=run_id)
                 code_artifact = self._code_tester_artifact(state, run_result)
-                tester_pending = code_tester_to_tester(code_artifact)
+                tester_pending = verification_from_code(code_artifact)
             if code_artifact is None:
                 raise ValueError("code tester artifact was not resolved")
             problems = self._integrity_problems(iteration_id)
@@ -1107,7 +1100,7 @@ class LangGraphPipeline:
         self._node_event(iteration_id, "node.started", NodeName.ui_tester.value, "UI 验证已启动", "正在执行 tests/ui 中的 trajectory。")
         run_id = state.get("code_tester_run_id")
         try:
-            artifact = TesterArtifact.model_validate_json(pending)
+            artifact = VerificationArtifact.model_validate_json(pending)
             docs = IterationDocs(self.docs_root(iteration_id))
             ui_result = self._run_ui_specs(iteration_id, docs, run_id=run_id)
             if ui_result.results:
@@ -1174,9 +1167,9 @@ class LangGraphPipeline:
                 )
                 return self._route_tester_failure(state, run_id, artifact)
             self._update_iteration(iteration_id, status=IterationStatus.awaiting_verify_approval.value, current_node=None, last_error=None)
-            self._add_event(iteration_id, event_type="tester.completed", payload={"result": "passed", "run_id": run_id})
+            self._add_event(iteration_id, event_type="ui_tester.completed", payload={"result": "passed", "run_id": run_id})
             self._node_event(iteration_id, "node.completed", NodeName.ui_tester.value, "验证通过", "验证报告和交付建议已生成，等待规格复核和最终确认。", severity="success", run_id=run_id)
-            return {"status": IterationStatus.awaiting_verify_approval.value, "route": "", "current_node": None, "tester_run_id": run_id}
+            return {"status": IterationStatus.awaiting_verify_approval.value, "route": "", "current_node": None, "verification_run_id": run_id}
         except Exception as exc:
             event_type = ui_spec_error_type(str(exc))
             hint = "检查 tests/ui/*.json 动作名与字段是否符合 UITestSpec schema。" if event_type == "ui_spec.invalid" else "查看验证产物。"
@@ -1521,7 +1514,7 @@ class LangGraphPipeline:
             f"Project docs root: {repo_root / 'docs'}",
             f"Iteration docs root: {docs_root}",
             "Read docs/00_convention.md and docs/01_project_goal.md before planning. "
-            "If docs/00_convention.md is still the default stub, update it with this repo's source/test layout (real-cli) or record layout in system_design. "
+            "If docs/00_convention.md is still the default stub, update it with this repo's source/test layout (real-cli) or record layout in prd.md. "
             "If docs/03_invariants/ or docs/04_decisions/ exist, read relevant entries; create them only when needed. "
             "If docs/spec-index.md exists, honor it when building context manifests.",
         ]
@@ -1638,7 +1631,7 @@ class LangGraphPipeline:
                 },
             )
             provider = self._cli_provider(state, "planner_discovery")
-            return build_planner_discovery_command(
+            return build_cli_command(
                 provider=provider,
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(PlannerDiscoveryArtifact),
@@ -1671,7 +1664,7 @@ class LangGraphPipeline:
                 },
             )
             provider = self._cli_provider(state, "prd_planner")
-            return build_planner_command(
+            return build_cli_command(
                 provider=provider,
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(PrdPlannerArtifact),
@@ -1704,7 +1697,7 @@ class LangGraphPipeline:
                 },
             )
             provider = self._cli_provider(state, "test_planner")
-            return build_planner_command(
+            return build_cli_command(
                 provider=provider,
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(TestPlannerArtifact),
@@ -1733,7 +1726,7 @@ class LangGraphPipeline:
                 },
             )
             provider = self._cli_provider(state, "planner_clarification")
-            return build_planner_clarification_command(
+            return build_cli_command(
                 provider=provider,
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(PlannerClarificationArtifact),
@@ -1765,7 +1758,7 @@ class LangGraphPipeline:
                 },
             )
             provider = self._cli_provider(state, "coder")
-            return build_coder_command(
+            return build_cli_command(
                 provider=provider,
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(CoderArtifact),
@@ -1778,7 +1771,7 @@ class LangGraphPipeline:
         if self._is_real_cli(state.get("mode")):
             prompt = self._code_tester_prompt(state, review_only=review_only, fallback_reason=fallback_reason)
             provider = self._cli_provider(state, "code_tester")
-            return build_tester_command(
+            return build_cli_command(
                 provider=provider,
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(CodeTesterArtifact),
@@ -1841,7 +1834,7 @@ class LangGraphPipeline:
                 "docs_root": str(docs_root),
                 "schema_hint": (
                     "{verify_report:string, passed:boolean, failure_notes?:string, "
-                    "defects:[{severity:'P0'|'P1'|'P2', path?:string, owner?:'coder'|'tester'|'test_planner', message:string}], "
+                    "defects:[{severity:'P0'|'P1'|'P2', path?:string, owner?:'coder'|'code_tester'|'test_planner', message:string}], "
                     "ux_notes:[string], delivery_recommendations:[string], "
                     "adversarial_tests:[{path:string, content:string}]}"
                 ),
@@ -1917,7 +1910,7 @@ class LangGraphPipeline:
             raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
             return parse_json_artifact(raw, PrdPlannerArtifact)  # type: ignore[return-value]
         goal = state["goal"]
-        prd = f"""---\ndoc: prd\niteration: 1\nstatus: draft\nowner: prd_planner\n---\n\n# Iteration 1 - PRD\n\nGoal: {goal}\n\n## System design\nDry-run PRD from prd_planner.\n\n## Modification plan\n- Generate a minimal source module.\n- Satisfy protected tests from test_planner.\n"""
+        prd = f"""---\ndoc: prd\niteration: 1\nstatus: draft\nowner: prd_planner\n---\n\n# Iteration 1 - PRD\n\nGoal: {goal}\n\n## Scope\nDry-run PRD from prd_planner.\n\n## Acceptance criteria\n- Generate a minimal source module that satisfies test_planner protected tests.\n"""
         return PrdPlannerArtifact(
             prd=prd,
             context_for_coder=[
@@ -2058,16 +2051,16 @@ class LangGraphPipeline:
         tester = self._dry_run_tester_artifact(state)
         return CodeTesterArtifact.model_validate(tester.model_dump(exclude={"ui_results", "ui_warnings"}))
 
-    def _dry_run_tester_artifact(self, state: PipelineState) -> TesterArtifact:
+    def _dry_run_tester_artifact(self, state: PipelineState) -> VerificationArtifact:
         if "force tester failure" in state.get("goal", ""):
-            return TesterArtifact(
+            return VerificationArtifact(
                 verify_report="""---\ndoc: verify_report\niteration: 1\nstatus: draft\nowner: node3\n---\n\n# Iteration 1 - Verify Report\n\n## Summary\n- Tests in plan: 3\n- Tests executed: 3\n- Pass: 0\n- Fail: 3\n""",
                 passed=False,
                 failure_notes="forced tester failure",
                 ux_notes=["验证未通过，暂不建议从用户体验角度验收。"],
                 delivery_recommendations=["先修复失败测试，再重新进行交付评审。"],
             )
-        return TesterArtifact(
+        return VerificationArtifact(
             verify_report="""---\ndoc: verify_report\niteration: 1\nstatus: draft\nowner: node3\n---\n\n# Iteration 1 - Verify Report\n\n## Summary\n- Tests in plan: 3\n- Tests executed: 3\n- Pass: 3\n- Fail: 0\n\n## LangGraph\nThe tester node completed and paused for verify approval.\n\n## 用户体验观察\n- dry-run 流程可以从设计审批推进到验证审批，核心状态对用户可见。\n\n## 交付建议\n- 本轮可以交付；后续建议补充真实 CLI 和浏览器级验收。\n""",
             passed=True,
             ux_notes=["核心流程状态清晰，可被人工审批节点接住。"],
@@ -2081,10 +2074,10 @@ class LangGraphPipeline:
             return None
 
     def _normalize_code_tester_artifact(self, artifact: CodeTesterArtifact) -> CodeTesterArtifact:
-        tester = self._normalize_tester_artifact(code_tester_to_tester(artifact))
+        tester = self._normalize_tester_artifact(verification_from_code(artifact))
         return CodeTesterArtifact.model_validate(tester.model_dump(exclude={"ui_results", "ui_warnings"}))
 
-    def _augment_review_fallback_artifact(self, artifact: TesterArtifact, primary_notes: str) -> None:
+    def _augment_review_fallback_artifact(self, artifact: VerificationArtifact, primary_notes: str) -> None:
         compact_notes = self._compact_failure_notes(primary_notes)
         warning = f"主 Tester 自动化未完成，已改用代码审查兜底: {compact_notes}"
         if warning not in artifact.ui_warnings:
@@ -2155,11 +2148,11 @@ class LangGraphPipeline:
                 result = f"{result.rstrip()}\n\n## Summary\n- Pass: 0\n- Fail: 0\n"
         return result
 
-    def _write_tester_artifact(self, iteration_id: str, docs: IterationDocs, artifact: TesterArtifact, *, run_id: Optional[str] = None) -> None:
+    def _write_tester_artifact(self, iteration_id: str, docs: IterationDocs, artifact: VerificationArtifact, *, run_id: Optional[str] = None) -> None:
         verify_report = self._ensure_verify_report_markers(artifact.verify_report)
         verify = docs.write_text("verify_report.md", verify_report)
         self._record_document(iteration_id, "verify_report", verify)
-        self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "验证报告已生成", "verify_report 已写入 iteration 文档目录。", severity="success", document="verify_report", run_id=run_id)
+        self._node_event(iteration_id, "artifact.created", NodeName.code_tester.value, "验证报告已生成", "verify_report 已写入 iteration 文档目录。", severity="success", document="verify_report", run_id=run_id)
         if artifact.ui_results or artifact.ui_warnings:
             ui_json = docs.write_text(
                 "ui_results.json",
@@ -2175,15 +2168,15 @@ class LangGraphPipeline:
             self._record_document(iteration_id, "ui_results", ui_json)
             ui_report = docs.write_text("ui_report.md", self._ui_report_markdown(artifact))
             self._record_document(iteration_id, "ui_report", ui_report)
-            self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "UI 验证产物已生成", "ui_results 和 ui_report 已写入 iteration 文档目录。", severity="success", document="ui_report", run_id=run_id)
+            self._node_event(iteration_id, "artifact.created", NodeName.ui_tester.value, "UI 验证产物已生成", "ui_results 和 ui_report 已写入 iteration 文档目录。", severity="success", document="ui_report", run_id=run_id)
         advice = self._delivery_advice_markdown(artifact)
         if advice:
             advice_path = docs.write_text("delivery_advice.md", advice)
             self._record_document(iteration_id, "delivery_advice", advice_path)
-            self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "交付建议已生成", "delivery_advice 已写入 iteration 文档目录。", severity="success", document="delivery_advice", run_id=run_id)
+            self._node_event(iteration_id, "artifact.created", NodeName.code_tester.value, "交付建议已生成", "delivery_advice 已写入 iteration 文档目录。", severity="success", document="delivery_advice", run_id=run_id)
             self._add_event(
                 iteration_id,
-                event_type="tester.delivery_advice",
+                event_type="code_tester.delivery_advice",
                 payload={"ux_notes": artifact.ux_notes, "delivery_recommendations": artifact.delivery_recommendations},
             )
         for file in artifact.adversarial_tests:
@@ -2192,9 +2185,9 @@ class LangGraphPipeline:
                 raise ValueError(f"tester adversarial path not allowed: {file.path}")
             path = docs.write_text(relative.as_posix(), file.content)
             self._record_document(iteration_id, relative.as_posix(), path)
-            self._node_event(iteration_id, "artifact.created", NodeName.tester.value, "对抗测试已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
+            self._node_event(iteration_id, "artifact.created", NodeName.code_tester.value, "对抗测试已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
 
-    def _ui_report_markdown(self, artifact: TesterArtifact) -> str:
+    def _ui_report_markdown(self, artifact: VerificationArtifact) -> str:
         total = len(artifact.ui_results)
         passed = sum(1 for result in artifact.ui_results if result.status == "passed")
         failed = sum(1 for result in artifact.ui_results if result.status == "failed")
@@ -2225,7 +2218,7 @@ class LangGraphPipeline:
             f"{warning_lines}\n"
         )
 
-    def _delivery_advice_markdown(self, artifact: TesterArtifact) -> str:
+    def _delivery_advice_markdown(self, artifact: VerificationArtifact) -> str:
         if not artifact.ux_notes and not artifact.delivery_recommendations:
             return ""
         ux = "\n".join(f"- {item}" for item in artifact.ux_notes) or "- 暂无"
@@ -2248,13 +2241,13 @@ class LangGraphPipeline:
         baseline = self._json(row["test_integrity_baseline"], {})
         return compare_test_integrity(self.docs_root(iteration_id), baseline)
 
-    def _normalize_tester_artifact(self, artifact: TesterArtifact) -> TesterArtifact:
+    def _normalize_tester_artifact(self, artifact: VerificationArtifact) -> VerificationArtifact:
         defects = enrich_defects(artifact)
         failure_notes = summarize_failure_notes(artifact) if defects else artifact.failure_notes
         return artifact.model_copy(update={"defects": defects, "failure_notes": failure_notes})
 
-    def _gate_failed_artifact(self, artifact: TesterArtifact, gate_msg: str) -> TesterArtifact:
-        defect = Defect(severity="P0", owner="tester", message=gate_msg)
+    def _gate_failed_artifact(self, artifact: VerificationArtifact, gate_msg: str) -> VerificationArtifact:
+        defect = Defect(severity="P0", owner="code_tester", message=gate_msg)
         defects = [*artifact.defects, defect] if artifact.defects else [defect]
         return artifact.model_copy(update={"passed": False, "defects": defects, "failure_notes": gate_msg})
 
@@ -2281,7 +2274,7 @@ class LangGraphPipeline:
             if path.exists():
                 path.unlink()
 
-    def _route_tester_failure(self, state: PipelineState, run_id: str, artifact: TesterArtifact) -> PipelineState:
+    def _route_tester_failure(self, state: PipelineState, run_id: str, artifact: VerificationArtifact) -> PipelineState:
         iteration_id = state["iteration_id"]
         artifact = self._normalize_tester_artifact(artifact)
         target = retry_target(artifact)
@@ -2298,7 +2291,7 @@ class LangGraphPipeline:
                 run_id=run_id,
                 action_hint="PRD 范围问题需要人工介入。",
             )
-            return self._block(iteration_id, "tester.protected_test_failure", run_id, notes)
+            return self._block(iteration_id, "code_tester.protected_test_failure", run_id, notes)
 
         if target == "test_planner":
             retry_counts = self._increment_count(state, "test_planner_self")
@@ -2335,12 +2328,12 @@ class LangGraphPipeline:
                 "pending_code_tester_json": None,
             }
 
-        if target == "tester":
-            retry_counts = self._increment_count(state, "tester_self")
+        if target == "code_tester":
+            retry_counts = self._increment_count(state, "code_tester_self")
             max_retries = state.get("max_tester_self_retries", 3)
-            if retry_counts["tester_self"] > max_retries:
+            if retry_counts["code_tester_self"] > max_retries:
                 self._update_iteration(iteration_id, retry_counts=retry_counts)
-                return self._block(iteration_id, "tester.self_max_retries", run_id, notes)
+                return self._block(iteration_id, "code_tester.self_max_retries", run_id, notes)
             self._update_iteration(
                 iteration_id,
                 status=IterationStatus.retrying.value,
@@ -2351,7 +2344,7 @@ class LangGraphPipeline:
             self._add_event(
                 iteration_id,
                 event_type="code_tester.retry_to_self",
-                payload={"run_id": run_id, "notes": notes, "count": retry_counts["tester_self"], "retry_target": "code_tester"},
+                payload={"run_id": run_id, "notes": notes, "count": retry_counts["code_tester_self"], "retry_target": "code_tester"},
             )
             self._node_event(
                 iteration_id,
@@ -2374,7 +2367,7 @@ class LangGraphPipeline:
         retry_counts = self._increment_count(state, "coder_tester")
         if retry_counts["coder_tester"] > state.get("max_coder_tester_retries", 5):
             self._update_iteration(iteration_id, retry_counts=retry_counts)
-            return self._block(iteration_id, "tester.max_retries", run_id, notes)
+            return self._block(iteration_id, "code_tester.max_retries", run_id, notes)
         self._update_iteration(
             iteration_id,
             status=IterationStatus.retrying.value,
@@ -2384,7 +2377,7 @@ class LangGraphPipeline:
         )
         self._add_event(
             iteration_id,
-            event_type="tester.retry_to_coder",
+            event_type="code_tester.retry_to_coder",
             payload={"run_id": run_id, "notes": notes, "count": retry_counts["coder_tester"], "retry_target": "coder"},
         )
         self._node_event(
@@ -2407,7 +2400,7 @@ class LangGraphPipeline:
         }
 
     def _tester_retry_or_block(self, state: PipelineState, run_id: str, notes: str) -> PipelineState:
-        artifact = TesterArtifact(
+        artifact = VerificationArtifact(
             verify_report="# Verify Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
             passed=False,
             failure_notes=notes,
@@ -2470,9 +2463,9 @@ class LangGraphPipeline:
             "artifact.invalid": "Agent 产物格式无效",
             "ui_spec.invalid": "UI 测试规格无效",
             "test_integrity.failed": "测试完整性失败",
-            "planner.failed": "规划节点失败",
+            "prd_planner.failed": "PRD 规划失败",
             "coder.failed": "实现节点失败",
-            "tester.max_retries": "验证重试已达上限",
+            "code_tester.max_retries": "验证重试已达上限",
             "clarification.max_retries": "澄清次数已达上限",
             "planner_verify.max_retries": "规格复核失败",
             "job.failed": "后台任务失败",
@@ -2484,9 +2477,9 @@ class LangGraphPipeline:
             "artifact.invalid": "查看对应 agent 的原始日志，确认输出是否为合法 JSON artifact。",
             "ui_spec.invalid": "检查 tests/ui/*.json 是否使用 snake_case 动作名，并符合 UITestSpec schema。",
             "test_integrity.failed": "检查受保护测试是否被修改；必要时重新生成规划和测试基线。",
-            "planner.failed": "检查 Claude CLI、模型配置和 API 凭据。",
+            "prd_planner.failed": "检查 Claude CLI、模型配置和 API 凭据。",
             "coder.failed": "检查 Claude CLI、工作区权限和失败日志。",
-            "tester.max_retries": "查看最后一次验证失败说明，必要时人工调整需求或实现。",
+            "code_tester.max_retries": "查看最后一次验证失败说明，必要时人工调整需求或实现。",
             "clarification.max_retries": "补充需求细节或约束后重新启动迭代。",
             "planner_verify.max_retries": "检查验证报告结构，确保包含测试摘要和通过信息。",
             "job.failed": "查看后端日志，确认后台 worker 和 LangGraph checkpoint 状态。",

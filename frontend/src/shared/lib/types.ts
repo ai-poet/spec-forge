@@ -16,14 +16,12 @@ export type IterationStatus =
 export type NodeName =
   | 'prd_planner'
   | 'test_planner'
-  | 'planner'
   | 'planner_discovery'
   | 'coder'
   | 'coder_retry'
   | 'integrity_check'
   | 'code_tester'
   | 'ui_tester'
-  | 'tester'
   | 'planner_clarification'
   | 'planner_verify'
 export type Mode = 'dry-run' | 'real-cli'
@@ -70,23 +68,19 @@ export type CliBindingProvider = 'claude' | 'codex'
 export interface CliBindings {
   prd_planner: CliBindingProvider
   test_planner: CliBindingProvider
-  planner: CliBindingProvider
   planner_discovery: CliBindingProvider
   planner_clarification: CliBindingProvider
   coder: CliBindingProvider
   code_tester: CliBindingProvider
-  tester: CliBindingProvider
 }
 
 export const DEFAULT_CLI_BINDINGS: CliBindings = {
   prd_planner: 'claude',
   test_planner: 'claude',
-  planner: 'claude',
   planner_discovery: 'claude',
   planner_clarification: 'claude',
   coder: 'claude',
   code_tester: 'claude',
-  tester: 'claude',
 }
 
 export interface ProjectSummary {
@@ -97,9 +91,7 @@ export interface ProjectSummary {
   default_mode: Mode
   default_test_command: string | null
   cli_bindings: CliBindings | null
-  planner_model: string | null
   coder_model: string | null
-  tester_model: string | null
   max_coder_tester_retries: number
   max_clarifications: number
   max_verify_rejects: number

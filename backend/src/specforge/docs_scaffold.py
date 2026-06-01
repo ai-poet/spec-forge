@@ -13,13 +13,13 @@ def project_docs_root(repo_root: Path) -> Path:
 
 
 def iteration_docs_root(repo_root: Path, docs_slug: str) -> Path:
-    return project_docs_root(repo_root) / "system_design" / docs_slug
+    return project_docs_root(repo_root) / "iterations" / docs_slug
 
 
 def ensure_project_docs(repo_root: Path, *, project_name: str, description: str | None = None) -> Path:
     root = project_docs_root(repo_root)
     root.mkdir(parents=True, exist_ok=True)
-    (root / "system_design").mkdir(exist_ok=True)
+    (root / "iterations").mkdir(exist_ok=True)
 
     _write_if_missing(
         root / "00_convention.md",
@@ -44,7 +44,7 @@ def ensure_project_docs(repo_root: Path, *, project_name: str, description: str 
 def ensure_project_skills(repo_root: Path) -> Path:
     """Create empty per-stage skill override directories (content is team-maintained)."""
     skills_root = repo_root / ".specforge" / "skills"
-    for stage in ("planner", "coder", "tester"):
+    for stage in ("prd_planner", "test_planner", "coder", "code_tester"):
         (skills_root / stage).mkdir(parents=True, exist_ok=True)
     return skills_root
 
@@ -94,7 +94,7 @@ owner: user
 Replace this stub with **this repository's** layout (source roots, test directories, import style).
 Planner should update this file on the first iteration when it is still generic.
 
-Keep SpecForge write zones: Coder → source only; Planner → protected tests; Tester → verify docs and `tests/adversarial/`.
+Keep SpecForge write zones: Coder → source only; Test Planner → protected tests; Code Tester → verify docs and `tests/adversarial/`.
 """
 
 
@@ -121,5 +121,5 @@ owner: user
 
 # Iteration Log
 
-Program-appended audit trail for pipeline runs. Agent-authored docs live under `system_design/iteration_NNN/`.
+Program-appended audit trail for pipeline runs. Agent-authored docs live under `iterations/iteration_NNN/`.
 """

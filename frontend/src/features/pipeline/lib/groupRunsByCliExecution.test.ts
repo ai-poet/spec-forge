@@ -20,7 +20,7 @@ function makeDetail(partial: Partial<IterationDetail>): IterationDetail {
     goal: 'test',
     mode: 'dry-run',
     status: 'testing',
-    current_node: 'tester',
+    current_node: 'code_tester',
     stopped_at_node: null,
     retry_counts: {},
     last_error: null,
@@ -41,9 +41,9 @@ describe('groupRunsByCliExecution', () => {
     const detail = makeDetail({
       runs: [{
         id: 'run-1',
-        node: 'tester',
+        node: 'code_tester',
         status: 'success',
-        command: 'tester',
+        command: 'code_tester',
         stdout: '',
         stderr: '',
         exit_code: 0,
@@ -52,11 +52,11 @@ describe('groupRunsByCliExecution', () => {
       }],
     })
     const events = [
-      makeEvent({ id: '1', type: 'node.started', node: 'tester', title: '启动', message: 'a', created_at: '2026-05-30T10:00:00.500Z' }),
-      makeEvent({ id: '2', type: 'node.progress', node: 'tester', title: '解析', message: 'b', run_id: 'run-1', created_at: '2026-05-30T10:00:02.000Z' }),
-      makeEvent({ id: '3', type: 'node.completed', node: 'tester', title: '完成', message: 'c', run_id: 'run-1', severity: 'success', created_at: '2026-05-30T10:00:25.000Z' }),
+      makeEvent({ id: '1', type: 'node.started', node: 'code_tester', title: '启动', message: 'a', created_at: '2026-05-30T10:00:00.500Z' }),
+      makeEvent({ id: '2', type: 'node.progress', node: 'code_tester', title: '解析', message: 'b', run_id: 'run-1', created_at: '2026-05-30T10:00:02.000Z' }),
+      makeEvent({ id: '3', type: 'node.completed', node: 'code_tester', title: '完成', message: 'c', run_id: 'run-1', severity: 'success', created_at: '2026-05-30T10:00:25.000Z' }),
     ]
-    const grouped = groupRunsByCliExecution(detail, 'tester', events, { reviewMode: false, stepLive: false })
+    const grouped = groupRunsByCliExecution(detail, 'code_tester', events, { reviewMode: false, stepLive: false })
     expect(grouped.roundCount).toBe(1)
     expect(grouped.groups[0].events).toHaveLength(3)
   })
@@ -66,9 +66,9 @@ describe('groupRunsByCliExecution', () => {
       runs: [
         {
           id: 'run-1',
-          node: 'tester',
+          node: 'code_tester',
           status: 'failed',
-          command: 'tester',
+          command: 'code_tester',
           stdout: '',
           stderr: '',
           exit_code: 1,
@@ -77,9 +77,9 @@ describe('groupRunsByCliExecution', () => {
         },
         {
           id: 'run-2',
-          node: 'tester',
+          node: 'code_tester',
           status: 'success',
-          command: 'tester',
+          command: 'code_tester',
           stdout: '',
           stderr: '',
           exit_code: 0,
@@ -88,14 +88,14 @@ describe('groupRunsByCliExecution', () => {
         },
       ],
       events: [
-        { id: 'retry', type: 'tester.retry_to_self', payload: { retry_target: 'tester' }, created_at: '2026-05-30T10:04:00.000Z' },
+        { id: 'retry', type: 'tester.retry_to_self', payload: { retry_target: 'code_tester' }, created_at: '2026-05-30T10:04:00.000Z' },
       ],
     })
     const events = [
-      makeEvent({ id: '1', type: 'node.started', node: 'tester', title: 'r1', message: 'm', run_id: 'run-1', created_at: '2026-05-30T10:00:01.000Z' }),
-      makeEvent({ id: '2', type: 'node.started', node: 'tester', title: 'r2', message: 'm', run_id: 'run-2', created_at: '2026-05-30T10:05:01.000Z' }),
+      makeEvent({ id: '1', type: 'node.started', node: 'code_tester', title: 'r1', message: 'm', run_id: 'run-1', created_at: '2026-05-30T10:00:01.000Z' }),
+      makeEvent({ id: '2', type: 'node.started', node: 'code_tester', title: 'r2', message: 'm', run_id: 'run-2', created_at: '2026-05-30T10:05:01.000Z' }),
     ]
-    const grouped = groupRunsByCliExecution(detail, 'tester', events, { reviewMode: true, stepLive: false })
+    const grouped = groupRunsByCliExecution(detail, 'code_tester', events, { reviewMode: true, stepLive: false })
     expect(grouped.roundCount).toBe(2)
     expect(grouped.groups[1].bridgeLoop?.kind).toBe('②b')
   })
@@ -104,11 +104,11 @@ describe('groupRunsByCliExecution', () => {
 describe('compressToMilestones artifacts', () => {
   it('merges consecutive artifact events', () => {
     const milestones = compressToMilestones([
-      makeEvent({ id: '1', type: 'node.started', node: 'tester', title: '启动', message: 'a' }),
-      makeEvent({ id: '2', type: 'artifact.created', node: 'tester', title: 'a1', message: 'm', document: 'verify_report' }),
-      makeEvent({ id: '3', type: 'artifact.created', node: 'tester', title: 'a2', message: 'm', document: 'ui_report' }),
-      makeEvent({ id: '4', type: 'artifact.created', node: 'tester', title: 'a3', message: 'm', document: 'tests/adversarial/x.ts' }),
-      makeEvent({ id: '5', type: 'node.completed', node: 'tester', title: '完成', message: 'd', severity: 'success' }),
+      makeEvent({ id: '1', type: 'node.started', node: 'code_tester', title: '启动', message: 'a' }),
+      makeEvent({ id: '2', type: 'artifact.created', node: 'code_tester', title: 'a1', message: 'm', document: 'verify_report' }),
+      makeEvent({ id: '3', type: 'artifact.created', node: 'code_tester', title: 'a2', message: 'm', document: 'ui_report' }),
+      makeEvent({ id: '4', type: 'artifact.created', node: 'code_tester', title: 'a3', message: 'm', document: 'tests/adversarial/x.ts' }),
+      makeEvent({ id: '5', type: 'node.completed', node: 'code_tester', title: '完成', message: 'd', severity: 'success' }),
     ])
     expect(milestones).toHaveLength(3)
     expect(milestones[1].label).toBe('产物写入（3 项）')
@@ -122,9 +122,9 @@ describe('buildMicroFlow with runs', () => {
       runs: [
         {
           id: 'run-1',
-          node: 'tester',
+          node: 'code_tester',
           status: 'success',
-          command: 'tester',
+          command: 'code_tester',
           stdout: '',
           stderr: '',
           exit_code: 0,
@@ -133,9 +133,9 @@ describe('buildMicroFlow with runs', () => {
         },
         {
           id: 'run-2',
-          node: 'tester',
+          node: 'code_tester',
           status: 'success',
-          command: 'tester',
+          command: 'code_tester',
           stdout: '',
           stderr: '',
           exit_code: 0,
@@ -144,13 +144,13 @@ describe('buildMicroFlow with runs', () => {
         },
       ],
       events: [
-        { id: 'e1', type: 'node.started', payload: { node: 'tester', title: 's', message: 'm' }, created_at: '2026-05-30T10:00:00.500Z' },
-        { id: 'e2', type: 'node.progress', payload: { node: 'tester', title: 'p', message: 'm', run_id: 'run-1' }, created_at: '2026-05-30T10:00:05.000Z' },
-        { id: 'e3', type: 'node.started', payload: { node: 'tester', title: 's2', message: 'm' }, created_at: '2026-05-30T10:05:00.500Z' },
-        { id: 'e4', type: 'node.progress', payload: { node: 'tester', title: 'p2', message: 'm', run_id: 'run-2' }, created_at: '2026-05-30T10:05:05.000Z' },
+        { id: 'e1', type: 'node.started', payload: { node: 'code_tester', title: 's', message: 'm' }, created_at: '2026-05-30T10:00:00.500Z' },
+        { id: 'e2', type: 'node.progress', payload: { node: 'code_tester', title: 'p', message: 'm', run_id: 'run-1' }, created_at: '2026-05-30T10:00:05.000Z' },
+        { id: 'e3', type: 'node.started', payload: { node: 'code_tester', title: 's2', message: 'm' }, created_at: '2026-05-30T10:05:00.500Z' },
+        { id: 'e4', type: 'node.progress', payload: { node: 'code_tester', title: 'p2', message: 'm', run_id: 'run-2' }, created_at: '2026-05-30T10:05:05.000Z' },
       ],
     })
-    const micro = buildMicroFlow(detail, 'tester', { reviewMode: true, stepLive: false })
+    const micro = buildMicroFlow(detail, 'code_tester', { reviewMode: true, stepLive: false })
     expect(micro.runs).toHaveLength(2)
     expect(micro.defaultRunId).toBe('run-2')
   })

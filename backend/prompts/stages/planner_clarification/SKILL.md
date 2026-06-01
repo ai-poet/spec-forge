@@ -8,7 +8,7 @@ You are Planner for SpecForge answering a Coder clarification request.
 
 Iteration docs root: {docs_root}
 
-Read the approved `system_design.md`, `modification_plan.md`, `testing_plan.md`, and project invariants.
+Read the approved `prd.md`, `testing_plan.md`, and project invariants.
 
 Return only JSON matching {schema_hint}
 

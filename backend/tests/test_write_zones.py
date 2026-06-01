@@ -1,64 +1,67 @@
-from specforge.contracts import Defect
-from specforge.contracts import TesterArtifact as TesterArtifactModel
-from specforge.write_zones import (
-    owner_for_path,
-    owners_for_failure_notes,
-    retry_target,
-)
+from specforge.contracts import VerificationArtifact as VerificationArtifactModel
+from specforge.write_zones import owner_for_path, retry_target
 
 
 def test_owner_for_path_zones():
-    assert owner_for_path("src/app.ts") == "coder"
-    assert owner_for_path("internal/handler.go") == "coder"
-    assert owner_for_path("tests/adversarial/edge.test.ts") == "tester"
-    assert owner_for_path("tests/unit/foo.py") == "test_planner"
-    assert owner_for_path("verify_report.md") == "tester"
+    assert owner_for_path("src/main.py") == "coder"
+    assert owner_for_path("tests/unit/foo.test.ts") == "test_planner"
+    assert owner_for_path("tests/adversarial/edge.test.ts") == "code_tester"
     assert owner_for_path("prd.md") == "prd_planner"
-    assert owner_for_path("testing_plan.md") == "test_planner"
+    assert owner_for_path("verify_report.md") == "code_tester"
 
 
-def test_retry_target_tester_only_defects():
-    artifact = TesterArtifactModel(
-        verify_report="# Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
+def test_retry_target_coder():
+    artifact = VerificationArtifactModel(
+        verify_report="# report",
         passed=False,
         defects=[
-            Defect(
-                severity="P0",
-                path="tests/adversarial/bad.test.ts",
-                owner="tester",
-                message="wrong import depth",
-            )
-        ],
-    )
-    assert retry_target(artifact) == "tester"
-
-
-def test_retry_target_coder_src_defect():
-    artifact = TesterArtifactModel(
-        verify_report="# Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
-        passed=False,
-        defects=[
-            Defect(severity="P0", path="src/api.ts", owner="coder", message="null deref"),
+            {
+                "severity": "P0",
+                "path": "src/app.ts",
+                "owner": "coder",
+                "message": "bug",
+            }
         ],
     )
     assert retry_target(artifact) == "coder"
 
 
-def test_retry_target_inferred_from_failure_notes():
-    artifact = TesterArtifactModel(
-        verify_report="# Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
+def test_retry_target_code_tester():
+    artifact = VerificationArtifactModel(
+        verify_report="# report",
         passed=False,
-        failure_notes="tsc failed in tests/adversarial/foo.test.ts: cannot find module",
+        defects=[
+            {
+                "severity": "P0",
+                "path": "tests/adversarial/x.test.ts",
+                "owner": "code_tester",
+                "message": "bad adversarial",
+            }
+        ],
     )
-    assert retry_target(artifact) == "tester"
+    assert retry_target(artifact) == "code_tester"
 
 
-def test_retry_target_test_planner_for_protected_tests():
-    owners = owners_for_failure_notes("modified protected test: tests/unit/a.py")
-    assert "test_planner" in owners
-    artifact = TesterArtifactModel(
-        verify_report="# Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
+def test_retry_target_test_planner():
+    artifact = VerificationArtifactModel(
+        verify_report="# report",
         passed=False,
-        defects=[Defect(severity="P0", path="tests/unit/a.py", owner="test_planner", message="tampered")],
+        defects=[
+            {
+                "severity": "P0",
+                "path": "tests/unit/a.test.ts",
+                "owner": "test_planner",
+                "message": "protected test wrong",
+            }
+        ],
     )
     assert retry_target(artifact) == "test_planner"
+
+
+def test_retry_target_gate_failure_notes():
+    artifact = VerificationArtifactModel(
+        verify_report="# report",
+        passed=False,
+        failure_notes="build failed after writing tests/adversarial/x.test.ts",
+    )
+    assert retry_target(artifact) == "code_tester"

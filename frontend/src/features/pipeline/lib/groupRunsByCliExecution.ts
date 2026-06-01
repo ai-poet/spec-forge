@@ -29,25 +29,22 @@ export interface GroupedCliRuns {
 }
 
 const LOOP_EVENT_MAP: Record<string, { kind: LoopKind; hint: string }> = {
-  'tester.retry_to_coder': { kind: '②a', hint: '验证失败 → 回到实现节点' },
-  'tester.failed_retry': { kind: '②a', hint: '验证失败 → 回到实现节点' },
-  'tester.retry_to_self': { kind: '②b', hint: '验证产物不合格 → Tester 自修' },
+  'code_tester.retry_to_coder': { kind: '②a', hint: '验证失败 → 回到实现节点' },
+  'code_tester.retry_to_self': { kind: '②b', hint: '验证产物不合格 → Code Tester 自修' },
   'planner_verify.rejected': { kind: '③', hint: '规格复核驳回 → 重新验证' },
-  'clarification.answered': { kind: '①', hint: '实现澄清 → Planner 回答' },
+  'clarification.answered': { kind: '①', hint: '实现澄清 → PRD 规划回答' },
 }
 
 function runNodesForStep(stepKey: PipelineStepKey): string[] {
   switch (stepKey) {
     case 'planning':
-      return ['prd_planner', 'test_planner', 'planner', 'planner_clarification']
+      return ['prd_planner', 'test_planner', 'planner_discovery', 'planner_clarification']
     case 'code_tester':
-      return ['code_tester', 'tester']
+      return ['code_tester']
     case 'ui_tester':
       return ['ui_tester', 'ui_driver']
     case 'coder':
       return ['coder', 'coder_retry']
-    case 'tester':
-      return ['tester']
     case 'integrity_check':
       return ['integrity_check']
     case 'planner_verify':
@@ -67,8 +64,6 @@ function primaryNodeForStep(stepKey: PipelineStepKey): string {
       return 'ui_tester'
     case 'coder':
       return 'coder'
-    case 'tester':
-      return 'tester'
     case 'integrity_check':
       return 'integrity_check'
     case 'planner_verify':
@@ -110,11 +105,11 @@ function detectLoopBetween(
     const mapped = LOOP_EVENT_MAP[raw.type]
     if (mapped) return mapped
     const payload = typeof raw.payload === 'object' && raw.payload ? raw.payload as { retry_target?: string } : undefined
-    if (raw.type === 'tester.retry_to_coder' || payload?.retry_target === 'coder') {
-      return LOOP_EVENT_MAP['tester.retry_to_coder']
+    if (raw.type === 'code_tester.retry_to_coder' || payload?.retry_target === 'coder') {
+      return LOOP_EVENT_MAP['code_tester.retry_to_coder']
     }
-    if (raw.type === 'tester.retry_to_self' || payload?.retry_target === 'tester') {
-      return LOOP_EVENT_MAP['tester.retry_to_self']
+    if (raw.type === 'code_tester.retry_to_self' || payload?.retry_target === 'code_tester') {
+      return LOOP_EVENT_MAP['code_tester.retry_to_self']
     }
   }
   return undefined
@@ -247,10 +242,12 @@ export function stepRetrySummary(detail: IterationDetail | null, stepKey: Pipeli
     if (retry.coder_planner_clarify) parts.push(`①×${retry.coder_planner_clarify}`)
     if (retry.coder_tester) parts.push(`②a×${retry.coder_tester}`)
   }
-  if (stepKey === 'tester') {
+  if (stepKey === 'code_tester') {
     if (retry.coder_tester) parts.push(`②a×${retry.coder_tester}`)
-    if (retry.tester_self) parts.push(`②b×${retry.tester_self}`)
-    if (retry.planner_verify_reject) parts.push(`③×${retry.planner_verify_reject}`)
+    if (retry.code_tester_self) parts.push(`②b×${retry.code_tester_self}`)
+  }
+  if (stepKey === 'ui_tester' && retry.planner_verify_reject) {
+    parts.push(`③×${retry.planner_verify_reject}`)
   }
   if (stepKey === 'planning' && retry.coder_planner_clarify) {
     parts.push(`①×${retry.coder_planner_clarify}`)

@@ -8,7 +8,8 @@
 | Protected tests | `tests/unit`, `tests/integration`, `tests/ui` | Planner |
 | Adversarial tests | `tests/adversarial/**` | Tester |
 | Verify docs | `verify_report.md`, `delivery_advice.md`, `ui_*` | Tester |
-| Planning docs | iteration `system_design.md`, `modification_plan.md`, `testing_plan.md` | Planner |
+| PRD | iteration `prd.md` | PRD Planner |
+| Test plan | iteration `testing_plan.md` | Test Planner |
 
 - Coder must not edit `docs/**`, protected `tests/**`, or `.specforge/**`.
 - Downstream agents read only paths listed in `context/for_coder.jsonl` or `context/for_tester.jsonl`.

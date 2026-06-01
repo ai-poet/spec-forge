@@ -40,13 +40,13 @@ def _entries_to_lines(entries: Iterable[ContextManifestEntry | ManifestLine]) ->
 
 def resolve_coder_manifest(artifact: _ManifestSource) -> list[ManifestLine]:
     if not artifact.context_for_coder:
-        raise ValueError("planner artifact must include non-empty context_for_coder")
+        raise ValueError("PRD planner artifact must include non-empty context_for_coder")
     return _entries_to_lines(artifact.context_for_coder)
 
 
 def resolve_tester_manifest(artifact: _ManifestSource) -> list[ManifestLine]:
     if not artifact.context_for_tester:
-        raise ValueError("planner artifact must include non-empty context_for_tester")
+        raise ValueError("PRD planner artifact must include non-empty context_for_tester")
     return _entries_to_lines(artifact.context_for_tester)
 
 

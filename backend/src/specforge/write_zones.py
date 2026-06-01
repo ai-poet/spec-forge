@@ -3,10 +3,10 @@ from __future__ import annotations
 import re
 from typing import Literal, Optional
 
-from .contracts import Defect, TesterArtifact
+from .contracts import Defect, VerificationArtifact
 
-WriteZoneOwner = Literal["coder", "tester", "test_planner", "prd_planner", "planner"]
-RetryTarget = Literal["coder", "tester", "test_planner", "blocked"]
+WriteZoneOwner = Literal["coder", "code_tester", "test_planner", "prd_planner"]
+RetryTarget = Literal["coder", "code_tester", "test_planner", "blocked"]
 
 TESTER_DOC_NAMES = frozenset(
     {
@@ -17,7 +17,7 @@ TESTER_DOC_NAMES = frozenset(
     }
 )
 
-PRD_DOC_NAMES = frozenset({"prd.md", "system_design.md", "modification_plan.md"})
+PRD_DOC_NAMES = frozenset({"prd.md"})
 
 PATH_LIKE = re.compile(
     r"(?:"
@@ -32,11 +32,11 @@ def owner_for_path(relative_path: str, *, src_roots: tuple[str, ...] = ("src",))
     normalized = relative_path.replace("\\", "/").lstrip("./")
     name = normalized.split("/")[-1]
     if normalized.startswith("tests/adversarial/"):
-        return "tester"
+        return "code_tester"
     if normalized.startswith("tests/"):
         return "test_planner"
     if name in TESTER_DOC_NAMES or name.startswith("ui_"):
-        return "tester"
+        return "code_tester"
     if name == "testing_plan.md":
         return "test_planner"
     if name in PRD_DOC_NAMES:
@@ -79,14 +79,12 @@ def owners_for_failure_notes(notes: str, extra_paths: Optional[list[str]] = None
 def _normalize_owner(owner: Optional[str]) -> Optional[WriteZoneOwner]:
     if not owner:
         return None
-    if owner == "planner":
-        return "test_planner"
-    if owner in ("coder", "tester", "test_planner", "prd_planner"):
+    if owner in ("coder", "code_tester", "test_planner", "prd_planner"):
         return owner  # type: ignore[return-value]
     return None
 
 
-def collect_artifact_owners(artifact: TesterArtifact) -> set[WriteZoneOwner]:
+def collect_artifact_owners(artifact: VerificationArtifact) -> set[WriteZoneOwner]:
     owners: set[WriteZoneOwner] = set()
     for defect in artifact.defects:
         normalized = _normalize_owner(defect.owner)
@@ -101,22 +99,22 @@ def collect_artifact_owners(artifact: TesterArtifact) -> set[WriteZoneOwner]:
     return owners
 
 
-def retry_target(artifact: TesterArtifact) -> RetryTarget:
+def retry_target(artifact: VerificationArtifact) -> RetryTarget:
     owners = collect_artifact_owners(artifact)
-    if "test_planner" in owners or "prd_planner" in owners or "planner" in owners:
-        if "test_planner" in owners or "planner" in owners:
+    if "test_planner" in owners or "prd_planner" in owners:
+        if "test_planner" in owners:
             return "test_planner"
         return "blocked"
-    if owners and owners <= {"tester"}:
-        return "tester"
+    if owners and owners <= {"code_tester"}:
+        return "code_tester"
     if "coder" in owners:
         return "coder"
-    if owners == {"tester"}:
-        return "tester"
+    if owners == {"code_tester"}:
+        return "code_tester"
     return "coder"
 
 
-def enrich_defects(artifact: TesterArtifact) -> list[Defect]:
+def enrich_defects(artifact: VerificationArtifact) -> list[Defect]:
     if artifact.defects:
         enriched: list[Defect] = []
         for defect in artifact.defects:
@@ -128,11 +126,11 @@ def enrich_defects(artifact: TesterArtifact) -> list[Defect]:
         paths.extend(file.path for file in artifact.adversarial_tests)
         owner: WriteZoneOwner | None = None
         owners = owners_for_paths(paths) if paths else set()
-        if owners == {"tester"}:
-            owner = "tester"
+        if owners == {"code_tester"}:
+            owner = "code_tester"
         elif "coder" in owners:
             owner = "coder"
-        elif "test_planner" in owners or "planner" in owners:
+        elif "test_planner" in owners:
             owner = "test_planner"
         return [
             Defect(
@@ -145,8 +143,8 @@ def enrich_defects(artifact: TesterArtifact) -> list[Defect]:
     return []
 
 
-def summarize_failure_notes(artifact: TesterArtifact) -> str:
+def summarize_failure_notes(artifact: VerificationArtifact) -> str:
     defects = enrich_defects(artifact)
     if defects:
         return "; ".join(defect.message for defect in defects)
-    return artifact.failure_notes or "tester reported failing verification"
+    return artifact.failure_notes or "verification reported failing checks"

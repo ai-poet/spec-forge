@@ -19,7 +19,7 @@ from specforge.contracts import (
     UIDriverRunResult,
     UITestResult,
     UITestSpec,
-    code_tester_to_tester,
+    verification_from_code,
     parse_json_artifact,
     validate_ui_spec_content,
 )
@@ -445,7 +445,7 @@ def test_tester_writes_delivery_advice():
     detail = client.get(f"/api/iterations/{iteration_id}").json()
 
     assert any(doc["name"] == "delivery_advice" for doc in detail["documents"])
-    assert any(event["type"] == "tester.delivery_advice" for event in detail["events"])
+    assert any(event["type"] == "code_tester.delivery_advice" for event in detail["events"])
 
 
 def test_invalid_approval_returns_409():
@@ -508,15 +508,15 @@ def test_parse_artifact_from_codex_jsonl_item_message():
         '{"type":"thread.started"}\n'
         '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"verify_report\\":\\"# Verify Report\\\\nPass\\",\\"passed\\":true,\\"ux_notes\\":[],\\"delivery_recommendations\\":[],\\"adversarial_tests\\":[]}"}}\n'
     )
-    artifact = parse_json_artifact(raw, contract_models.TesterArtifact)
+    artifact = parse_json_artifact(raw, contract_models.CodeTesterArtifact)
     assert artifact.passed is True
     assert "Pass" in artifact.verify_report
 
 
 def test_execute_jsonl_output_emits_cli_display_event():
     iteration_id = create_manual_iteration("cli-display")
-    pipeline.db.update_iteration(iteration_id, current_node="tester", status="testing", last_error=None)
-    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "tester"}
+    pipeline.db.update_iteration(iteration_id, current_node="code_tester", status="testing", last_error=None)
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "code_tester"}
     code = "import json; print(json.dumps({'type':'item.started','item':{'type':'command_execution','command':['pytest','-q']}}))"
 
     pipeline._execute(
@@ -526,7 +526,7 @@ def test_execute_jsonl_output_emits_cli_display_event():
             "-c",
             code,
         ],
-        node="tester",
+        node="code_tester",
     )
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     event = next(event for event in detail["events"] if event["type"] == "cli.display")
@@ -537,25 +537,25 @@ def test_execute_jsonl_output_emits_cli_display_event():
 
 def test_execute_non_json_output_falls_back_to_node_progress():
     iteration_id = create_manual_iteration("cli-fallback")
-    pipeline.db.update_iteration(iteration_id, current_node="tester", status="testing", last_error=None)
-    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "tester"}
+    pipeline.db.update_iteration(iteration_id, current_node="code_tester", status="testing", last_error=None)
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "code_tester"}
 
-    pipeline._execute(state, ["python", "-c", "print('plain output')"], node="tester")
+    pipeline._execute(state, ["python", "-c", "print('plain output')"], node="code_tester")
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert any(event["type"] == "node.progress" and event["payload"]["title"] == "已收到模型输出" for event in detail["events"])
 
 
 def test_execute_stderr_jsonl_emits_cli_display_without_error_warning():
     iteration_id = create_manual_iteration("cli-stderr-jsonl")
-    pipeline.db.update_iteration(iteration_id, current_node="tester", status="testing", last_error=None)
-    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "tester"}
+    pipeline.db.update_iteration(iteration_id, current_node="code_tester", status="testing", last_error=None)
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "code_tester"}
     code = (
         "import json, sys; "
         "print(json.dumps({'type':'thread.started'})); "
         "print(json.dumps({'type':'turn.started'}), file=sys.stderr)"
     )
 
-    pipeline._execute(state, ["python", "-c", code], node="tester")
+    pipeline._execute(state, ["python", "-c", code], node="code_tester")
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert any(event["type"] == "cli.display" for event in detail["events"])
     assert not any(
@@ -566,11 +566,11 @@ def test_execute_stderr_jsonl_emits_cli_display_without_error_warning():
 
 def test_execute_stderr_plain_logs_use_diagnostic_title():
     iteration_id = create_manual_iteration("cli-stderr-plain")
-    pipeline.db.update_iteration(iteration_id, current_node="tester", status="testing", last_error=None)
-    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "tester"}
+    pipeline.db.update_iteration(iteration_id, current_node="code_tester", status="testing", last_error=None)
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "code_tester"}
     code = "import sys; print('stdout ok'); print('stderr diag', file=sys.stderr)"
 
-    pipeline._execute(state, ["python", "-c", code], node="tester")
+    pipeline._execute(state, ["python", "-c", code], node="code_tester")
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert any(event["type"] == "node.progress" and event["payload"].get("title") == "CLI 诊断输出" for event in detail["events"])
     assert not any(
@@ -593,7 +593,7 @@ def test_real_cli_execute_runs_from_project_root(tmp_path, monkeypatch):
     runner = SequenceRunner([CLIResult(command=[], returncode=0, stdout="ok", stderr="")])
     monkeypatch.setattr(pipeline, "real_runner", runner)
 
-    pipeline._execute({"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id}, ["echo", "ok"], node="tester")
+    pipeline._execute({"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id}, ["echo", "ok"], node="code_tester")
 
     assert runner.cwd_history == [repo_root]
 
@@ -624,10 +624,10 @@ def test_tester_command_uses_project_cli_bindings(tmp_path):
         f"/api/projects/{project_id}",
         json={
             "cli_bindings": {
-                "planner": "claude",
+                "prd_planner": "claude",
                 "planner_clarification": "claude",
                 "coder": "claude",
-                "tester": "claude",
+                "code_tester": "claude",
             }
         },
     )
@@ -660,17 +660,17 @@ def test_route_after_ui_tester_coder_retry():
 
 
 def test_route_tester_failure_routes_adversarial_to_self():
-    from specforge.contracts import Defect, TesterArtifact
+    from specforge.contracts import Defect, VerificationArtifact
 
-    iteration_id = create_manual_iteration("tester-self-retry")
-    artifact = TesterArtifact(
+    iteration_id = create_manual_iteration("code-tester-self-retry")
+    artifact = VerificationArtifact(
         verify_report="# Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
         passed=False,
         defects=[
             Defect(
                 severity="P0",
                 path="tests/adversarial/bad.test.ts",
-                owner="tester",
+                owner="code_tester",
                 message="bad import",
             )
         ],
@@ -688,15 +688,15 @@ def test_route_tester_failure_routes_adversarial_to_self():
     assert result["route"] == "self_retry"
     assert result["retry_target"] == "code_tester"
     detail = client.get(f"/api/iterations/{iteration_id}").json()
-    assert detail["retry_counts"]["tester_self"] == 1
+    assert detail["retry_counts"]["code_tester_self"] == 1
     assert "code_tester.retry_to_self" in [event["type"] for event in detail["events"]]
 
 
 def test_route_tester_failure_routes_src_to_coder():
-    from specforge.contracts import Defect, TesterArtifact
+    from specforge.contracts import Defect, VerificationArtifact
 
-    iteration_id = create_manual_iteration("tester-coder-retry")
-    artifact = TesterArtifact(
+    iteration_id = create_manual_iteration("code-tester-coder-retry")
+    artifact = VerificationArtifact(
         verify_report="# Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
         passed=False,
         defects=[Defect(severity="P0", path="src/app.ts", owner="coder", message="bug")],
@@ -715,7 +715,7 @@ def test_route_tester_failure_routes_src_to_coder():
     assert result["retry_target"] == "coder"
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert detail["retry_counts"]["coder_tester"] == 1
-    assert "tester.retry_to_coder" in [event["type"] for event in detail["events"]]
+    assert "code_tester.retry_to_coder" in [event["type"] for event in detail["events"]]
 
 
 def test_ensure_verify_report_markers_adds_title_and_pass_summary():
@@ -832,18 +832,18 @@ def test_tester_review_fallback_failure_uses_existing_retry_path(monkeypatch):
     assert detail["retry_counts"]["coder_tester"] == 1
     event_types = [event["type"] for event in detail["events"]]
     assert "code_tester.review_fallback.started" in event_types
-    assert "tester.max_retries" in event_types
+    assert "code_tester.max_retries" in event_types
 
 
 def test_execute_live_cli_node_from_db_current_node():
     iteration_id = create_manual_iteration("live-cli-node", mode="dry-run")
-    pipeline.db.update_iteration(iteration_id, current_node="planner", status="planning")
+    pipeline.db.update_iteration(iteration_id, current_node="prd_planner", status="planning")
     state = {"iteration_id": iteration_id, "mode": "dry-run", "current_node": None}
 
-    pipeline._execute(state, ["echo", "planner"], node="planner")
+    pipeline._execute(state, ["echo", "prd"], node="prd_planner")
     snapshot = pipeline._live_cli_snapshot(iteration_id)
     assert snapshot is not None
-    assert snapshot["node"] == "planner"
+    assert snapshot["node"] == "prd_planner"
 
     pipeline.db.update_iteration(iteration_id, current_node="coder")
     pipeline._execute(state, ["echo", "coder"])
@@ -858,14 +858,14 @@ def test_append_live_cli_publishes_cli_output_event():
         json={"project_name": "cli-output-event", "goal": "stream chunks", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
-    pipeline._reset_live_cli(iteration_id, "planner")
+    pipeline._reset_live_cli(iteration_id, "prd_planner")
     queue = pipeline.broker.subscribe(iteration_id)
     try:
         pipeline._append_live_cli(iteration_id, "stdout", "hello")
         envelope = queue.get(timeout=1)
         assert envelope.type == "cli.output"
         assert envelope.event is not None
-        assert envelope.event["payload"]["node"] == "planner"
+        assert envelope.event["payload"]["node"] == "prd_planner"
         assert envelope.event["payload"]["stream"] == "stdout"
         assert envelope.event["payload"]["chunk"] == "hello"
     finally:

@@ -24,7 +24,7 @@ function isCliOutputEvent(event: LiveMessage['event']): event is { type: 'cli.ou
 
 export function useIterationLive(iterationId: string | null) {
   const [detail, setDetail] = useState<IterationDetail | null>(null)
-  const [docName, setDocName] = useState('system_design')
+  const [docName, setDocName] = useState('prd')
   const [docText, setDocText] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [liveError, setLiveError] = useState<string | null>(null)

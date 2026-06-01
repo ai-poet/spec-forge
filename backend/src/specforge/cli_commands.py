@@ -4,35 +4,23 @@ import json
 from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import BaseModel
-
 CliProvider = Literal["claude", "codex"]
 CliStage = Literal[
     "prd_planner",
     "test_planner",
-    "planner",
     "planner_discovery",
     "planner_clarification",
     "coder",
     "code_tester",
-    "tester",
 ]
 
 DEFAULT_CLI_BINDINGS: dict[CliStage, CliProvider] = {
     "prd_planner": "claude",
     "test_planner": "claude",
-    "planner": "claude",
     "planner_discovery": "claude",
     "planner_clarification": "claude",
     "coder": "claude",
     "code_tester": "claude",
-    "tester": "claude",
-}
-
-_STAGE_ALIASES: dict[CliStage, CliStage] = {
-    "prd_planner": "planner",
-    "test_planner": "planner",
-    "code_tester": "tester",
 }
 
 
@@ -41,11 +29,6 @@ def resolve_cli_provider(bindings: Optional[dict[str, str]], stage: CliStage) ->
         value = bindings.get(stage)
         if value in ("claude", "codex"):
             return value  # type: ignore[return-value]
-        alias = _STAGE_ALIASES.get(stage)
-        if alias:
-            value = bindings.get(alias)
-            if value in ("claude", "codex"):
-                return value  # type: ignore[return-value]
     return DEFAULT_CLI_BINDINGS[stage]
 
 
@@ -101,27 +84,7 @@ def _codex_command(prompt: str, schema_file: Path) -> list[str]:
     ]
 
 
-def _build_stage_command(*, provider: CliProvider, prompt: str, schema_inline: str, schema_file: Path) -> list[str]:
+def build_cli_command(*, provider: CliProvider, prompt: str, schema_inline: str, schema_file: Path) -> list[str]:
     if provider == "codex":
         return _codex_command(prompt, schema_file)
     return _claude_command(prompt, schema_inline)
-
-
-def build_planner_command(*, provider: CliProvider, prompt: str, schema_inline: str, schema_file: Path) -> list[str]:
-    return _build_stage_command(provider=provider, prompt=prompt, schema_inline=schema_inline, schema_file=schema_file)
-
-
-def build_planner_discovery_command(*, provider: CliProvider, prompt: str, schema_inline: str, schema_file: Path) -> list[str]:
-    return _build_stage_command(provider=provider, prompt=prompt, schema_inline=schema_inline, schema_file=schema_file)
-
-
-def build_planner_clarification_command(*, provider: CliProvider, prompt: str, schema_inline: str, schema_file: Path) -> list[str]:
-    return _build_stage_command(provider=provider, prompt=prompt, schema_inline=schema_inline, schema_file=schema_file)
-
-
-def build_coder_command(*, provider: CliProvider, prompt: str, schema_inline: str, schema_file: Path) -> list[str]:
-    return _build_stage_command(provider=provider, prompt=prompt, schema_inline=schema_inline, schema_file=schema_file)
-
-
-def build_tester_command(*, provider: CliProvider, prompt: str, schema_inline: str, schema_file: Path) -> list[str]:
-    return _build_stage_command(provider=provider, prompt=prompt, schema_inline=schema_inline, schema_file=schema_file)

@@ -13,7 +13,7 @@ from specforge.prompt_loader import (
 
 
 def test_list_stage_modules_orders_skill_first_runtime_last() -> None:
-    modules = list_stage_modules("planner")
+    modules = list_stage_modules("prd_planner")
     assert modules[0] == "SKILL.md"
     assert modules[-1] == "runtime.md"
     assert "context-manifest.md" in modules
@@ -36,13 +36,11 @@ def test_compose_planner_discovery_includes_brief_context() -> None:
     assert "Round 1 Q: scope?" in text
 
 
-def test_compose_planner_includes_context_manifest_anchor() -> None:
+def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     text = compose_stage_prompt(
-        "planner",
+        "prd_planner",
         variables={
-            "schema_hint": "{tests:[]}",
-            "ui_spec_hint": "{}",
-            "ui_actions": "assert_text",
+            "schema_hint": "{prd:string}",
             "brief": "Build feature X",
             "requirements_brief": "MVP scope for feature X",
             "discovery_qa": "(none)",
@@ -51,11 +49,11 @@ def test_compose_planner_includes_context_manifest_anchor() -> None:
             "workflow_state": "",
         },
     )
-    assert "## SpecForge stage: planner" in text
+    assert "## SpecForge stage: prd_planner" in text
     assert "context_for_coder" in text
     assert "context/for_tester.jsonl" in text
     assert "Build feature X" in text
-    assert "Framework rules here." in text
+    assert "modification_plan" not in text
 
 
 def test_compose_coder_includes_manifest_and_docs_root() -> None:
@@ -67,12 +65,12 @@ def test_compose_coder_includes_manifest_and_docs_root() -> None:
             "failure_notes": "(none)",
             "framework_conventions": "",
             "convention_excerpt": "",
-            "context_manifest": "- system_design.md: design\n",
+            "context_manifest": "- prd.md: design\n",
             "runtime_notes": "",
         },
     )
     assert "/tmp/iter" in text
-    assert "system_design.md" in text
+    assert "prd.md" in text
     assert "src/**" in text
 
 
@@ -101,12 +99,12 @@ def test_project_extra_appended_when_present(tmp_path: Path) -> None:
 
 
 def test_load_project_skill_extra_missing_returns_none(tmp_path: Path) -> None:
-    assert load_project_skill_extra(tmp_path, "planner") is None
+    assert load_project_skill_extra(tmp_path, "prd_planner") is None
 
 
-def test_compose_tester_includes_verify_and_execution_mode() -> None:
+def test_compose_code_tester_includes_verify_and_execution_mode() -> None:
     text = compose_stage_prompt(
-        "tester",
+        "code_tester",
         variables={
             "repo_root": "/proj",
             "docs_root": "/proj/docs/iter",

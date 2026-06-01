@@ -12,9 +12,9 @@ def test_render_coder_prompt_includes_placeholders() -> None:
             "failure_notes": "none",
             "framework_conventions": "",
             "convention_excerpt": "",
-            "context_manifest": "- system_design.md: design\n",
+            "context_manifest": "- prd.md: design\n",
             "runtime_notes": "",
         },
     )
     assert "/tmp/iter" in text
-    assert "system_design.md" in text
+    assert "prd.md" in text

@@ -101,7 +101,7 @@ export function buildMacroFlow(detail: IterationDetail | null): MacroFlowModel {
       label: '① 澄清',
     })
   }
-  if ((retry.coder_tester ?? 0) > 0 || hasRetryEvent(detail, 'tester.retry_to_coder') || hasRetryEvent(detail, 'tester.failed_retry')) {
+  if ((retry.coder_tester ?? 0) > 0 || hasRetryEvent(detail, 'code_tester.retry_to_coder')) {
     edges.push({
       id: 'retry:coder->code_tester',
       from: stepNodeId('code_tester'),
@@ -110,7 +110,7 @@ export function buildMacroFlow(detail: IterationDetail | null): MacroFlowModel {
       label: '②a',
     })
   }
-  if ((retry.tester_self ?? 0) > 0 || hasRetryEvent(detail, 'tester.retry_to_self')) {
+  if ((retry.code_tester_self ?? 0) > 0 || hasRetryEvent(detail, 'code_tester.retry_to_self')) {
     edges.push({
       id: 'retry:code_tester->code_tester',
       from: stepNodeId('code_tester'),
@@ -137,12 +137,11 @@ type MilestoneKind = 'started' | 'progress' | 'artifact' | 'fallback' | 'termina
 function milestoneKind(event: SemanticEvent): MilestoneKind {
   if (event.type === 'node.started') return 'started'
   if (event.type.startsWith('artifact.')) return 'artifact'
-  if (event.type.startsWith('tester.review_fallback')) return 'fallback'
+  if (event.type.startsWith('code_tester.review_fallback')) return 'fallback'
   if (event.type === 'node.progress') return 'progress'
   if (
-    event.type === 'tester.retry_to_coder'
-    || event.type === 'tester.retry_to_self'
-    || event.type === 'tester.failed_retry'
+    event.type === 'code_tester.retry_to_coder'
+    || event.type === 'code_tester.retry_to_self'
     || event.type === 'planner_verify.rejected'
   ) {
     return 'progress'
@@ -159,10 +158,10 @@ function terminalLabel(event: SemanticEvent): string {
 
 function mergeProgressLabel(events: SemanticEvent[]): string {
   const latest = events[events.length - 1]
-  if (latest?.type === 'tester.retry_to_coder' || latest?.type === 'tester.failed_retry') {
+  if (latest?.type === 'code_tester.retry_to_coder') {
     return '失败 → 回到实现节点'
   }
-  if (latest?.type === 'tester.retry_to_self') return '失败 → Tester 自修'
+  if (latest?.type === 'code_tester.retry_to_self') return '失败 → Code Tester 自修'
   if (latest?.type === 'planner_verify.rejected') return '规格复核驳回'
   return latest?.title ?? '进行中'
 }

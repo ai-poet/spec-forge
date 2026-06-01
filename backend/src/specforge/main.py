@@ -460,22 +460,15 @@ def add_runtime_note(iteration_id: str, payload: RetryRequest) -> IterationSumma
     return get_iteration(iteration_id)
 
 
-_DOCUMENT_ALIASES = {
-    "system_design": "prd",
-    "modification_plan": "prd",
-}
-
-
 @app.get("/api/iterations/{iteration_id}/documents/{name}")
 def get_document(iteration_id: str, name: str) -> dict[str, str]:
-    resolved = _DOCUMENT_ALIASES.get(name, name)
     docs = db.list_documents(iteration_id)
     for doc in docs:
-        if doc["name"] == resolved:
+        if doc["name"] == name:
             from pathlib import Path
 
             path = Path(doc["path"])
-            return {"name": name, "content": path.read_text(encoding="utf-8"), "checksum": doc["checksum"], "resolved_name": resolved}
+            return {"name": name, "content": path.read_text(encoding="utf-8"), "checksum": doc["checksum"]}
     raise HTTPException(status_code=404, detail="document not found")
 
 
@@ -577,9 +570,7 @@ def project_summary(row, counts: dict[str, int] | None = None) -> ProjectSummary
         default_test_command=row["default_test_command"],
         default_build_command=row["default_build_command"] if "default_build_command" in row.keys() else None,
         cli_bindings=_cli_bindings_from_row(row),
-        planner_model=row["planner_model"],
         coder_model=row["coder_model"],
-        tester_model=row["tester_model"],
         max_coder_tester_retries=row["max_coder_tester_retries"],
         max_clarifications=row["max_clarifications"],
         max_verify_rejects=row["max_verify_rejects"],
