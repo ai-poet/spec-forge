@@ -24,11 +24,15 @@ export const epicStatusLabel: Record<EpicStatus, string> = {
 }
 
 export const nodeLabel: Record<NodeName, string> = {
+  prd_planner: 'PRD 规划',
+  test_planner: '测试规划',
   planner: '规划',
   planner_discovery: '需求澄清',
   coder: '实现',
   coder_retry: '实现重试',
   integrity_check: '测试完整性检查',
+  code_tester: '代码验证',
+  ui_tester: 'UI 验证',
   tester: '验证',
   planner_clarification: '规划澄清',
   planner_verify: '规格复核',

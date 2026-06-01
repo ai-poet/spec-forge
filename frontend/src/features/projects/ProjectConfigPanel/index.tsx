@@ -12,10 +12,11 @@ interface Props {
 }
 
 const STAGE_LABELS: { key: keyof CliBindings; label: string }[] = [
-  { key: 'planner', label: '规划 (Planner)' },
+  { key: 'prd_planner', label: 'PRD 规划' },
+  { key: 'test_planner', label: '测试规划' },
   { key: 'planner_clarification', label: '规划澄清' },
   { key: 'coder', label: '实现 (Coder)' },
-  { key: 'tester', label: '验证 (Tester)' },
+  { key: 'code_tester', label: '代码验证' },
 ]
 
 function mergeBindings(project: ProjectSummary | null): CliBindings {

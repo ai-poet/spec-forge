@@ -113,10 +113,11 @@ Project（项目）
 | 分区 | 路径模式 | Owner | 说明 |
 |------|----------|-------|------|
 | 源码 | `src/**`（或 convention 中的 `internal/`、`lib/` 等） | **Coder** | 实现代码 |
-| 受保护测试 | `tests/unit`、`tests/integration`、`tests/ui` | **Planner** | checksum 基线，Coder/Tester 不可改 |
+| 受保护测试 | `tests/unit`、`tests/integration`、`tests/ui` | **Test Planner** | checksum 基线，Coder/Code Tester 不可改 |
 | 对抗测试 | `tests/adversarial/**` | **Tester** | Tester 可增删 |
 | 验证产物 | `verify_report.md`、`delivery_advice.md`、`ui_*` | **Tester** | 验证与交付文档 |
-| 规划文档 | 其余 `*.md` 规划类文档 | **Planner** | 设计/计划 |
+| PRD | `prd.md` | **PRD Planner** | 产品与实现范围 |
+| 测试计划 | `testing_plan.md` | **Test Planner** | 测试策略 |
 
 项目可在 `docs/00_convention.md` 中声明源码根目录、测试布局与 import 约定（Planner 应在首轮替换默认 stub）；各阶段 prompt 会注入该文件摘要及 [`backend/prompts/framework_conventions.md`](backend/prompts/framework_conventions.md) 中的框架规则。
 
@@ -124,7 +125,7 @@ Project（项目）
 
 ## 流水线怎么跑（通俗版）
 
-你可以把整个流程想成一条工厂流水线：三个 Agent 工人、两个程序门禁、一个规格复核、最后由你签字交付。下图对应 LangGraph 的真实边（见 `pipeline.py` 的 `_build_graph`）。
+你可以把整个流程想成一条工厂流水线：四个规划/验证 Agent、两个程序门禁、一个规格复核、最后由你签字交付。下图对应 LangGraph 的真实边（见 `pipeline.py` 的 `_build_graph`）。
 
 ```mermaid
 flowchart TB
@@ -132,10 +133,12 @@ flowchart TB
 
   subgraph agentNodes ["Agent 节点（调用 CLI）"]
     plannerDiscovery["planner_discovery\n需求澄清 CLI"]
-    planner["Planner\n终局规划 CLI"]
+    prdPlanner["prd_planner\nPRD + context manifests"]
+    testPlanner["test_planner\n受保护测试（Coder 前）"]
     coder["Coder\nClaude CLI"]
     plannerClarification["planner_clarification\nClaude CLI"]
-    tester["Tester\nCodex CLI"]
+    codeTester["code_tester\n代码审查 CLI"]
+    uiTester["ui_tester\n程序节点"]
   end
 
   subgraph gateNodes ["程序门禁 / 人工检查点"]
@@ -147,12 +150,14 @@ flowchart TB
   end
 
   plannerDiscovery -->|"status=ask"| requirementsInput
-  requirementsInput --> planner
-  plannerDiscovery -->|"status=ready"| planner
+  requirementsInput --> prdPlanner
+  plannerDiscovery -->|"status=ready"| prdPlanner
   plannerDiscovery -->|"失败 / 停止"| endBlocked([END\nblocked / stopped])
 
-  planner -->|"规划成功"| coder
-  planner -->|"失败 / 停止"| endBlocked
+  prdPlanner --> testPlanner
+  prdPlanner -->|"失败 / 停止"| endBlocked
+  testPlanner -->|"测试规划成功"| coder
+  testPlanner -->|"失败 / 停止"| endBlocked
 
   coder -->|"clarification_request"| plannerClarification
   coder -->|"实现完成"| integrityCheck
@@ -162,25 +167,30 @@ flowchart TB
   plannerClarification -->|"澄清超限 → blocked_user"| endBlockedUser([END\nblocked_user])
   plannerClarification -->|"失败 / 停止"| endBlocked
 
-  integrityCheck -->|"checksum 通过"| tester
+  integrityCheck -->|"checksum 通过"| codeTester
   integrityCheck -->|"测试被篡改"| endBlocked
 
-  tester -->|"验证通过\n（UI 失败可带警告）"| plannerVerify
-  tester -->|"缺陷 owner=coder\n→ 回环 ②a"| coder
-  tester -->|"缺陷 owner=tester\n→ 回环 ②b"| tester
-  tester -->|"缺陷 owner=planner\n或超重试上限"| endBlocked
+  codeTester --> uiTester
+  codeTester -->|"缺陷回环"| coder
+  codeTester -->|"失败 / 停止"| endBlocked
+
+  uiTester -->|"验证通过\n（UI 失败可带警告）"| plannerVerify
+  uiTester -->|"缺陷 owner=coder"| coder
+  uiTester -->|"缺陷 owner=test_planner"| testPlanner
+  uiTester -->|"缺陷 owner=code_tester"| codeTester
+  uiTester -->|"超重试上限"| endBlocked
 
   plannerVerify -->|"报告合格"| verifyApproval
-  plannerVerify -->|"驳回且未超上限\n→ 回环 ③"| tester
+  plannerVerify -->|"驳回且未超上限"| codeTester
   plannerVerify -->|"驳回且超上限"| endBlocked
 
   verifyApproval --> doneNode
   doneNode --> endDelivered([END\ndelivered])
 
-  tester -.->|"Tester 内部调用\n含审查兜底 · 非 LangGraph 节点"| uiDriver["UI Driver\nCua 优先 · Web 回退 Playwright\n断言失败 → 警告"]
+  uiTester -.->|"ui_tester 内调用"| uiDriver["UI Driver\nCua 优先 · Web 回退 Playwright"]
 ```
 
-**图例：** 实线 = LangGraph 边；虚线 = Tester 节点内的工具调用。`integrity_check` 与 `planner_verify` 不调用外部 CLI。
+**图例：** 实线 = LangGraph 边；虚线 = `ui_tester` 内的 UI Driver。`integrity_check` 与 `planner_verify` 不调用外部 CLI。主产物为 `prd.md`（API 仍可用 `system_design` / `modification_plan` 别名读取）。
 
 ### 各步骤在干什么
 
@@ -188,11 +198,13 @@ flowchart TB
 |------|------|--------|--------|
 | 需求澄清 | `planner_discovery` | Claude CLI | 在终局规划前澄清模糊需求（auto：清晰则直接 ready，否则一次一问） |
 | 需求回答 | `requirements_input` | **你** | 在工作台回答 Planner 问题；写入 `discovery/*` |
-| 规划 | `planner` | Claude CLI | 需求确认后**一次**产出设计/计划/测试文件，并直接进入实现 |
+| PRD 规划 | `prd_planner` | Claude CLI | 产出 `prd.md` 与 context manifests |
+| 测试规划 | `test_planner` | Claude CLI | 产出 `testing_plan.md` 与受保护 `tests/**`（建立 checksum 基线） |
 | 实现 | `coder` | Claude CLI | 只改 `src/**`，根据规划写代码 |
 | 澄清 | `planner_clarification` | Claude CLI | Coder 看不懂时，Planner 正式回答并写入 `clarifications/` |
-| 完整性 | `integrity_check` | 后端程序 | 检查 Planner 写的测试有没有被 Coder 偷偷改掉 |
-| 验证 | `tester` | Codex CLI | 独立跑验证，写 `verify_report.md` 与 `defects[]`；CLI 异常时可走代码审查兜底；写盘后可选跑 `build_command`/`test_command` 闸门；可选 UI 测试 |
+| 完整性 | `integrity_check` | 后端程序 | 检查 Test Planner 写的测试有没有被 Coder 偷偷改掉 |
+| 代码验证 | `code_tester` | Codex/Claude CLI | 独立代码审查与测试命令；写 `verify_report.md` 与 `defects[]`（不调用 UI 自动化） |
+| UI 验证 | `ui_tester` | 后端程序 | 执行 `tests/ui/*.json` trajectory，合并 UI 结果并写盘 |
 | 复核 | `planner_verify` | 后端程序 | 检查验证报告格式是否合格 |
 | 交付确认 | `verify_approval` | **你** | 在前端点「确认交付」，流水线才归档 |
 | 完成 | `done` | 后端 | 状态变为 `delivered`，写入 iteration_log |
