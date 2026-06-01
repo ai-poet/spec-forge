@@ -47,7 +47,7 @@ class PipelinePromptsMixin:
         path = self.docs_root(iteration_id) / manifest_rel
         if not path.exists():
             return ""
-        from ..context_manifest import read_jsonl
+        from ...policy.context_manifest import read_jsonl
 
         return format_manifest_for_prompt(read_jsonl(path), heading=heading)
 
