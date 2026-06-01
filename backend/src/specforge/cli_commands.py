@@ -7,10 +7,11 @@ from typing import Literal, Optional
 from pydantic import BaseModel
 
 CliProvider = Literal["claude", "codex"]
-CliStage = Literal["planner", "planner_clarification", "coder", "tester"]
+CliStage = Literal["planner", "planner_discovery", "planner_clarification", "coder", "tester"]
 
 DEFAULT_CLI_BINDINGS: dict[CliStage, CliProvider] = {
     "planner": "claude",
+    "planner_discovery": "claude",
     "planner_clarification": "claude",
     "coder": "claude",
     "tester": "claude",
@@ -78,6 +79,12 @@ def _codex_command(prompt: str, schema_file: Path) -> list[str]:
 
 
 def build_planner_command(*, provider: CliProvider, prompt: str, schema_inline: str, schema_file: Path) -> list[str]:
+    if provider == "codex":
+        return _codex_command(prompt, schema_file)
+    return _claude_command(prompt, schema_inline)
+
+
+def build_planner_discovery_command(*, provider: CliProvider, prompt: str, schema_inline: str, schema_file: Path) -> list[str]:
     if provider == "codex":
         return _codex_command(prompt, schema_file)
     return _claude_command(prompt, schema_inline)

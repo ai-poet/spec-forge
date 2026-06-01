@@ -4,7 +4,8 @@ export const iterationStatusLabel: Record<IterationStatus, string> = {
   created: '已创建',
   queued: '已排队',
   planning: '正在规划',
-  awaiting_design_approval: '自动推进中',
+  awaiting_requirements_input: '等待需求澄清',
+  awaiting_design_approval: '等待设计审批',
   coding: '正在实现',
   retrying: '自动重试中',
   testing: '正在验证',
@@ -25,6 +26,7 @@ export const epicStatusLabel: Record<EpicStatus, string> = {
 
 export const nodeLabel: Record<NodeName, string> = {
   planner: '规划',
+  planner_discovery: '需求澄清',
   coder: '实现',
   coder_retry: '实现重试',
   integrity_check: '测试完整性检查',
@@ -51,6 +53,8 @@ export const timelineFilterLabel: Record<TimelineFilter, string> = {
 
 export function graphNodeLabel(value: string) {
   if (value in nodeLabel) return nodeLabel[value as NodeName]
+  if (value === 'requirements_input') return '需求回答'
+  if (value === 'design_approval') return '设计审批'
   if (value === 'verify_approval') return '交付确认'
   if (value === 'done') return '交付完成'
   if (value === 'END') return '结束'
@@ -61,6 +65,7 @@ export function retryLabel(value: string) {
   if (value === 'coder_tester') return '实现/验证重试'
   if (value === 'tester_self') return 'Tester 自修'
   if (value === 'coder_planner_clarify') return '实现澄清'
+  if (value === 'discovery_round') return '需求澄清轮次'
   if (value === 'planner_verify_reject') return '规格复核驳回'
   return value
 }
@@ -69,6 +74,10 @@ export function eventLabel(value: string) {
   const labels: Record<string, string> = {
     'iteration.queued': '流水线已排队',
     'iteration.started': '规划已开始',
+    'discovery.question': '需求澄清提问',
+    'discovery.answered': '需求澄清已回答',
+    'discovery.ready': '需求已足够清晰',
+    'design.pending': '等待设计审批',
     'planner.completed': '规划完成',
     'design.approved': '设计已审批',
     'coder.completed': '实现完成',
@@ -113,6 +122,7 @@ export function documentLabel(value: string) {
     testing_plan: '测试计划',
     verify_report: '验证报告',
     delivery_advice: '交付建议',
+    requirements_brief: '需求摘要',
     ui_report: 'UI 验证报告',
     ui_results: 'UI 验证结果',
   }

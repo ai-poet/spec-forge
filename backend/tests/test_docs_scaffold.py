@@ -29,6 +29,7 @@ def test_ensure_iteration_docs_creates_iteration_folder(tmp_path: Path):
     assert iteration_root == iteration_docs_root(repo, "iteration_001")
     assert (iteration_root / "tests" / "unit").is_dir()
     assert (iteration_root / "clarifications").is_dir()
+    assert (iteration_root / "discovery").is_dir()
     assert (iteration_root / "context").is_dir()
     assert not (iteration_root / "README.md").exists()
 

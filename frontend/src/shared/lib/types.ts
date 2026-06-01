@@ -2,6 +2,7 @@ export type IterationStatus =
   | 'created'
   | 'queued'
   | 'planning'
+  | 'awaiting_requirements_input'
   | 'awaiting_design_approval'
   | 'coding'
   | 'retrying'
@@ -13,7 +14,15 @@ export type IterationStatus =
   | 'failed'
   | 'stopped'
 
-export type NodeName = 'planner' | 'coder' | 'coder_retry' | 'integrity_check' | 'tester' | 'planner_clarification' | 'planner_verify'
+export type NodeName =
+  | 'planner'
+  | 'planner_discovery'
+  | 'coder'
+  | 'coder_retry'
+  | 'integrity_check'
+  | 'tester'
+  | 'planner_clarification'
+  | 'planner_verify'
 export type Mode = 'dry-run' | 'real-cli'
 
 export interface IterationSummary {
@@ -57,6 +66,7 @@ export type CliBindingProvider = 'claude' | 'codex'
 
 export interface CliBindings {
   planner: CliBindingProvider
+  planner_discovery: CliBindingProvider
   planner_clarification: CliBindingProvider
   coder: CliBindingProvider
   tester: CliBindingProvider
@@ -64,6 +74,7 @@ export interface CliBindings {
 
 export const DEFAULT_CLI_BINDINGS: CliBindings = {
   planner: 'claude',
+  planner_discovery: 'claude',
   planner_clarification: 'claude',
   coder: 'claude',
   tester: 'claude',
@@ -200,9 +211,24 @@ export interface CliOutputPayload {
   chunk: string
 }
 
+export interface PendingDiscovery {
+  round: number
+  question: string
+  options: string[]
+  assumptions: string[]
+}
+
+export interface DiscoveryHistoryEntry {
+  round: number
+  question: string
+  answer: string
+}
+
 export interface IterationDetail extends IterationSummary {
   test_command: string | null
   graph_next: string[]
+  pending_discovery?: PendingDiscovery | null
+  discovery_history?: DiscoveryHistoryEntry[]
   documents: DocumentRecord[]
   events: EventRecord[]
   runs: NodeRunRecord[]

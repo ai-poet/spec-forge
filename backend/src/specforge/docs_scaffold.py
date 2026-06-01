@@ -58,6 +58,7 @@ def ensure_iteration_docs(repo_root: Path, docs_slug: str) -> Path:
     (iteration_root / "tests" / "adversarial").mkdir(parents=True, exist_ok=True)
     (iteration_root / "tests" / "ui" / "recordings").mkdir(parents=True, exist_ok=True)
     (iteration_root / "clarifications").mkdir(parents=True, exist_ok=True)
+    (iteration_root / "discovery").mkdir(parents=True, exist_ok=True)
     (iteration_root / "context").mkdir(parents=True, exist_ok=True)
     return iteration_root
 

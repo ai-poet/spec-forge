@@ -5,7 +5,6 @@ import { nodesForStep, type PipelineStepKey } from './pipelineSteps'
 export const PIPELINE_RUNNING_STATUSES = new Set([
   'queued',
   'planning',
-  'awaiting_design_approval',
   'coding',
   'retrying',
   'testing',

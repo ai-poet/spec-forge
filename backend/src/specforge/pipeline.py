@@ -17,6 +17,7 @@ from .cli_commands import (
     build_coder_command,
     build_planner_clarification_command,
     build_planner_command,
+    build_planner_discovery_command,
     build_tester_command,
     parse_cli_bindings,
     resolve_cli_provider,
@@ -31,6 +32,7 @@ from .contracts import (
     Defect,
     PlannerArtifact,
     PlannerClarificationArtifact,
+    PlannerDiscoveryArtifact,
     TesterArtifact,
     UIDriverRunResult,
     UITestResult,
@@ -101,6 +103,12 @@ class PipelineState(TypedDict, total=False):
     max_tester_self_retries: int
     max_clarifications: int
     max_verify_rejects: int
+    max_discovery_rounds: int
+    requirements_brief: Annotated[str, _last_str]
+    discovery_qa: list[dict[str, Any]]
+    pending_discovery_question: Optional[str]
+    pending_discovery_options: list[str]
+    pending_discovery_assumptions: list[str]
     planner_run_id: Optional[str]
     coder_run_id: Optional[str]
     tester_run_id: Optional[str]
@@ -185,7 +193,16 @@ class LangGraphPipeline:
             "max_tester_self_retries": int(project["max_tester_self_retries"]) if project and "max_tester_self_retries" in project.keys() else 3,
             "max_clarifications": int(project["max_clarifications"]) if project else 3,
             "max_verify_rejects": int(project["max_verify_rejects"]) if project else 2,
+            "max_discovery_rounds": int(project["max_discovery_rounds"]) if project and "max_discovery_rounds" in project.keys() else 8,
+            "discovery_qa": [],
+            "requirements_brief": "",
         }
+
+    def answer_requirements(self, iteration_id: str, answer: str) -> None:
+        self.resume(iteration_id, "requirements_input", answer)
+
+    def skip_discovery(self, iteration_id: str, note: Optional[str] = None) -> None:
+        self.resume(iteration_id, "requirements_input", f"SKIP:{note or 'proceed with documented assumptions'}")
 
     def approve_design(self, iteration_id: str, note: Optional[str] = None) -> None:
         self.resume(iteration_id, "design_approval", note or "approved")
@@ -249,6 +266,12 @@ class LangGraphPipeline:
         self._aborted_iterations.discard(iteration_id)
         config = self._config(iteration_id)
 
+        if resume_node == "requirements_input" and self.can_resume(iteration_id, "requirements_input"):
+            self.resume(iteration_id, "requirements_input", note or "resumed")
+            return
+        if resume_node == "design_approval" and self.can_resume(iteration_id, "design_approval"):
+            self.approve_design(iteration_id, note=note)
+            return
         if resume_node == "verify_approval" and self.can_resume(iteration_id, "verify_approval"):
             self._update_iteration(
                 iteration_id,
@@ -309,7 +332,9 @@ class LangGraphPipeline:
         return {
             "queued": NodeName.planner.value,
             "created": NodeName.planner.value,
-            "planning": NodeName.planner.value,
+            "planning": NodeName.planner_discovery.value,
+            "awaiting_requirements_input": "requirements_input",
+            "awaiting_design_approval": "design_approval",
             "coding": NodeName.coder.value,
             "retrying": NodeName.coder.value,
             "testing": NodeName.tester.value,
@@ -318,8 +343,11 @@ class LangGraphPipeline:
 
     def _status_for_node(self, node: str) -> IterationStatus:
         mapping = {
+            NodeName.planner_discovery.value: IterationStatus.planning,
             NodeName.planner.value: IterationStatus.planning,
             NodeName.planner_clarification.value: IterationStatus.retrying,
+            "requirements_input": IterationStatus.awaiting_requirements_input,
+            "design_approval": IterationStatus.awaiting_design_approval,
             NodeName.coder.value: IterationStatus.coding,
             NodeName.integrity_check.value: IterationStatus.testing,
             NodeName.tester.value: IterationStatus.testing,
@@ -396,6 +424,7 @@ class LangGraphPipeline:
             ],
             "ui_results": [result.model_dump() for result in self._ui_results(iteration_id)],
             "live_cli": self._live_cli_snapshot(iteration_id),
+            **self._discovery_snapshot_fields(iteration_id),
         }
 
     def _live_cli_snapshot(self, iteration_id: str) -> Optional[dict[str, str]]:
@@ -455,7 +484,10 @@ class LangGraphPipeline:
 
     def _build_graph(self) -> StateGraph:
         builder = StateGraph(PipelineState)
+        builder.add_node("planner_discovery", self._planner_discovery_node)
+        builder.add_node("requirements_input", self._requirements_input_node)
         builder.add_node("planner", self._planner_node)
+        builder.add_node("design_approval", self._design_approval_node)
         builder.add_node("coder", self._coder_node)
         builder.add_node("planner_clarification", self._planner_clarification_node)
         builder.add_node("integrity_check", self._integrity_check_node)
@@ -463,8 +495,15 @@ class LangGraphPipeline:
         builder.add_node("planner_verify", self._planner_verify_node)
         builder.add_node("verify_approval", self._verify_approval_node)
         builder.add_node("done", self._done_node)
-        builder.add_edge(START, "planner")
-        builder.add_conditional_edges("planner", self._route_after_planner, {"blocked": END, "coder": "coder"})
+        builder.add_edge(START, "planner_discovery")
+        builder.add_conditional_edges(
+            "planner_discovery",
+            self._route_after_discovery,
+            {"blocked": END, "ask": "requirements_input", "ready": "planner"},
+        )
+        builder.add_edge("requirements_input", "planner_discovery")
+        builder.add_conditional_edges("planner", self._route_after_planner, {"blocked": END, "approval": "design_approval"})
+        builder.add_conditional_edges("design_approval", self._route_after_design_approval, {"blocked": END, "coder": "coder"})
         builder.add_conditional_edges(
             "coder",
             self._route_after_coder,
@@ -486,19 +525,238 @@ class LangGraphPipeline:
         builder.add_edge("done", END)
         return builder
 
+    def _planner_discovery_node(self, state: PipelineState) -> PipelineState:
+        iteration_id = state["iteration_id"]
+        goal = state["goal"]
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
+        self.project_root(iteration_id).mkdir(parents=True, exist_ok=True)
+        self._prepare_iteration_docs(iteration_id)
+        discovery_qa = list(state.get("discovery_qa") or [])
+        row = self._require_iteration(iteration_id)
+        docs_slug = row["docs_slug"] if "docs_slug" in row.keys() and row["docs_slug"] else iteration_id
+        if not discovery_qa:
+            append_iteration_log(
+                self.project_repo_root(iteration_id),
+                docs_slug=docs_slug,
+                event="iteration.started",
+                detail=f"Planning started for goal: {goal}",
+            )
+        max_rounds = state.get("max_discovery_rounds", 8)
+        if len(discovery_qa) >= max_rounds:
+            self._update_iteration(iteration_id, status=IterationStatus.blocked_user.value, current_node=None)
+            return self._block(
+                iteration_id,
+                "discovery.max_retries",
+                None,
+                "discovery question cap reached",
+                blocked_user=True,
+            )
+
+        self._update_iteration(
+            iteration_id,
+            status=IterationStatus.planning.value,
+            current_node=NodeName.planner_discovery.value,
+            last_error=None,
+        )
+        self._reset_live_cli(iteration_id, NodeName.planner_discovery.value)
+        self._publish_snapshot(iteration_id)
+        self._node_event(
+            iteration_id,
+            "node.started",
+            NodeName.planner_discovery.value,
+            "需求澄清已启动",
+            "Planner 正在分析大需求，必要时将向您提出单个澄清问题。",
+        )
+        run_result = self._execute(
+            state,
+            self._planner_discovery_command(state),
+            node=NodeName.planner_discovery.value,
+        )
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
+        run_id = self._record_run(iteration_id, NodeName.planner_discovery.value, run_result)
+        if run_result.returncode:
+            self._node_event(
+                iteration_id,
+                "node.failed",
+                NodeName.planner_discovery.value,
+                "需求澄清失败",
+                "Planner discovery CLI 执行失败。",
+                severity="error",
+                run_id=run_id,
+                action_hint="查看运行日志，确认 claude CLI 可用并能返回 JSON artifact。",
+            )
+            return self._block(iteration_id, "planner_discovery.failed", run_id, run_result.stderr)
+
+        try:
+            artifact = self._planner_discovery_artifact(state, run_result)
+        except Exception as exc:
+            self._node_event(
+                iteration_id,
+                "node.failed",
+                NodeName.planner_discovery.value,
+                "澄清产物无效",
+                "Planner discovery 输出无法被解析为合法 artifact。",
+                severity="error",
+                run_id=run_id,
+            )
+            return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
+
+        docs = IterationDocs(self.docs_root(iteration_id))
+        docs.ensure()
+        brief_path = docs.write_text(
+            "discovery/requirements_brief.md",
+            self._discovery_brief_markdown(artifact.requirements_brief, artifact.assumptions, artifact.complexity),
+        )
+        self._record_document(iteration_id, "requirements_brief", brief_path)
+
+        if artifact.status == "ready":
+            self._add_event(
+                iteration_id,
+                event_type="discovery.ready",
+                payload={"complexity": artifact.complexity, "rationale": artifact.rationale},
+            )
+            self._node_event(
+                iteration_id,
+                "node.completed",
+                NodeName.planner_discovery.value,
+                "需求已足够清晰",
+                artifact.rationale or "Planner 判断无需进一步澄清，进入终局规划。",
+                severity="success",
+                run_id=run_id,
+            )
+            return {
+                "route": "ready",
+                "requirements_brief": artifact.requirements_brief,
+                "status": IterationStatus.planning.value,
+                "current_node": None,
+            }
+
+        question = (artifact.question or "").strip()
+        if not question:
+            return self._block(iteration_id, "discovery.missing_question", run_id, "ask status requires question")
+
+        round_num = len(discovery_qa) + 1
+        question_path = docs.write_text(
+            f"discovery/{round_num:02d}_question.md",
+            f"---\ndoc: discovery\nstatus: open\nowner: user\n---\n\n# Discovery Question {round_num:02d}\n\n{question}\n",
+        )
+        self._record_document(iteration_id, f"discovery_question_{round_num:02d}", question_path)
+        self._add_event(
+            iteration_id,
+            event_type="discovery.question",
+            payload={
+                "round": round_num,
+                "question": question,
+                "options": artifact.options,
+                "assumptions": artifact.assumptions,
+            },
+        )
+        self._node_event(
+            iteration_id,
+            "node.progress",
+            NodeName.planner_discovery.value,
+            "等待您的回答",
+            question,
+            severity="info",
+            run_id=run_id,
+            action_hint="在工作台回答该问题，或选择跳过澄清。",
+        )
+        self._update_iteration(
+            iteration_id,
+            status=IterationStatus.awaiting_requirements_input.value,
+            current_node=None,
+        )
+        return {
+            "route": "ask",
+            "requirements_brief": artifact.requirements_brief,
+            "pending_discovery_question": question,
+            "pending_discovery_options": artifact.options,
+            "pending_discovery_assumptions": artifact.assumptions,
+            "status": IterationStatus.awaiting_requirements_input.value,
+            "current_node": None,
+        }
+
+    def _requirements_input_node(self, state: PipelineState) -> PipelineState:
+        iteration_id = state["iteration_id"]
+        question = state.get("pending_discovery_question") or ""
+        options = list(state.get("pending_discovery_options") or [])
+        assumptions = list(state.get("pending_discovery_assumptions") or [])
+        answer = interrupt(
+            {
+                "checkpoint": "requirements_input",
+                "iteration_id": iteration_id,
+                "question": question,
+                "options": options,
+                "assumptions": assumptions,
+            }
+        )
+        discovery_qa = list(state.get("discovery_qa") or [])
+        round_num = len(discovery_qa) + 1
+        discovery_qa.append(
+            {
+                "round": round_num,
+                "question": question,
+                "answer": str(answer),
+                "options": options,
+            }
+        )
+        docs = IterationDocs(self.docs_root(iteration_id))
+        docs.ensure()
+        answer_path = docs.write_text(
+            f"discovery/{round_num:02d}_answer.md",
+            f"---\ndoc: discovery\nstatus: answered\nowner: user\n---\n\n# Discovery Answer {round_num:02d}\n\n{answer}\n",
+        )
+        self._record_document(iteration_id, f"discovery_answer_{round_num:02d}", answer_path)
+        self._add_event(
+            iteration_id,
+            event_type="discovery.answered",
+            payload={"round": round_num, "question": question, "answer": str(answer)},
+        )
+        self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.planner_discovery.value)
+        return {
+            "discovery_qa": discovery_qa,
+            "pending_discovery_question": None,
+            "pending_discovery_options": [],
+            "pending_discovery_assumptions": [],
+            "status": IterationStatus.planning.value,
+            "route": "",
+            "current_node": NodeName.planner_discovery.value,
+        }
+
+    def _design_approval_node(self, state: PipelineState) -> PipelineState:
+        iteration_id = state["iteration_id"]
+        self._update_iteration(iteration_id, status=IterationStatus.awaiting_design_approval.value, current_node=None)
+        self._add_event(iteration_id, event_type="design.pending", payload={"checkpoint": "design_approval"})
+        self._node_event(
+            iteration_id,
+            "node.progress",
+            "design_approval",
+            "等待设计审批",
+            "规划文档已生成，请审阅系统设计、修改计划与测试方案后批准进入实现。",
+            severity="info",
+            action_hint="在工作台批准设计，或停止迭代后修改 Epic/文档。",
+        )
+        answer = interrupt({"checkpoint": "design_approval", "iteration_id": iteration_id})
+        self._add_event(iteration_id, event_type="design.approved", payload={"note": answer})
+        self._node_event(
+            iteration_id,
+            "node.completed",
+            "design_approval",
+            "设计已批准",
+            "用户已批准本轮规划，进入实现。",
+            severity="success",
+        )
+        return {
+            "design_approval": str(answer),
+            "status": IterationStatus.coding.value,
+            "current_node": None,
+        }
+
     def _planner_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
         goal = state["goal"]
-        self.project_root(iteration_id).mkdir(parents=True, exist_ok=True)
-        self._prepare_iteration_docs(iteration_id)
-        row = self._require_iteration(iteration_id)
-        docs_slug = row["docs_slug"] if "docs_slug" in row.keys() and row["docs_slug"] else iteration_id
-        append_iteration_log(
-            self.project_repo_root(iteration_id),
-            docs_slug=docs_slug,
-            event="iteration.started",
-            detail=f"Planning started for goal: {goal}",
-        )
         self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.planner.value, last_error=None)
         self._reset_live_cli(iteration_id, NodeName.planner.value)
         self._publish_snapshot(iteration_id)
@@ -537,17 +795,21 @@ class LangGraphPipeline:
                 last_error=None,
             )
             self._add_event(iteration_id, event_type="planner.completed", payload={"documents": 3 + len(artifact.tests), "run_id": run_id})
-            self._add_event(iteration_id, event_type="design.approved", payload={"note": "auto-approved"})
             self._node_event(
                 iteration_id,
                 "node.completed",
                 NodeName.planner.value,
                 "规划完成",
-                f"已根据大需求生成 3 份规划文档和 {len(artifact.tests)} 个测试文件，自动进入实现。",
+                f"已根据澄清后的需求生成 3 份规划文档和 {len(artifact.tests)} 个测试文件，等待设计审批。",
                 severity="success",
                 run_id=run_id,
             )
-            return {"status": IterationStatus.coding.value, "current_node": None, "planner_run_id": run_id, "design_approval": "auto-approved"}
+            return {
+                "status": IterationStatus.planning.value,
+                "current_node": None,
+                "planner_run_id": run_id,
+                "route": "approval",
+            }
         except Exception as exc:
             event_type = ui_spec_error_type(str(exc))
             hint = (
@@ -949,8 +1211,26 @@ class LangGraphPipeline:
         self._node_event(iteration_id, "node.completed", "done", "迭代已交付", "本轮流水线已完成并归档为已交付状态。", severity="success")
         return {"status": IterationStatus.delivered.value, "current_node": None}
 
-    def _route_after_planner(self, state: PipelineState) -> Literal["blocked", "coder"]:
-        return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value} else "coder"
+    def _route_after_discovery(self, state: PipelineState) -> Literal["blocked", "ask", "ready"]:
+        if state.get("status") in {
+            IterationStatus.blocked.value,
+            IterationStatus.blocked_user.value,
+            IterationStatus.stopped.value,
+        }:
+            return "blocked"
+        if state.get("route") == "ask":
+            return "ask"
+        return "ready"
+
+    def _route_after_planner(self, state: PipelineState) -> Literal["blocked", "approval"]:
+        if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
+            return "blocked"
+        return "approval"
+
+    def _route_after_design_approval(self, state: PipelineState) -> Literal["blocked", "coder"]:
+        if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
+            return "blocked"
+        return "coder"
 
     def _route_after_coder(self, state: PipelineState) -> Literal["blocked", "clarification", "integrity"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.stopped.value}:
@@ -1219,14 +1499,104 @@ class LangGraphPipeline:
             parts.append(f"Epic acceptance criteria: {state['epic_acceptance_criteria']}")
         return "\n".join(parts)
 
+    def _discovery_context_prompt(self, state: PipelineState) -> str:
+        parts: list[str] = []
+        brief = (state.get("requirements_brief") or "").strip()
+        if brief:
+            parts.append(f"Current requirements brief:\n{brief}")
+        qa_text = self._format_discovery_qa_for_prompt(state.get("discovery_qa") or [])
+        if qa_text:
+            parts.append(f"Prior discovery Q&A:\n{qa_text}")
+        if not parts:
+            return "(no prior discovery context)"
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _format_discovery_qa_for_prompt(discovery_qa: list[dict[str, Any]]) -> str:
+        if not discovery_qa:
+            return ""
+        lines: list[str] = []
+        for item in discovery_qa:
+            round_num = item.get("round", "?")
+            question = item.get("question", "")
+            answer = item.get("answer", "")
+            lines.append(f"Round {round_num} Q: {question}")
+            lines.append(f"Round {round_num} A: {answer}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _discovery_brief_markdown(brief: str, assumptions: list[str], complexity: str) -> str:
+        assumption_lines = "\n".join(f"- {item}" for item in assumptions) if assumptions else "- (none)"
+        body = brief.strip() or "(evolving)"
+        return (
+            "---\ndoc: requirements_brief\nstatus: draft\nowner: user\n---\n\n"
+            f"# Requirements Brief\n\n**Complexity:** {complexity}\n\n## Summary\n\n{body}\n\n"
+            f"## Assumptions\n\n{assumption_lines}\n"
+        )
+
+    def _discovery_snapshot_fields(self, iteration_id: str) -> dict[str, Any]:
+        graph_state = self.graph.get_state(self._config(iteration_id))
+        values = graph_state.values or {}
+        discovery_qa = list(values.get("discovery_qa") or [])
+        history = [
+            {
+                "round": int(item.get("round", index + 1)),
+                "question": str(item.get("question", "")),
+                "answer": str(item.get("answer", "")),
+            }
+            for index, item in enumerate(discovery_qa)
+        ]
+        pending: dict[str, Any] | None = None
+        question = values.get("pending_discovery_question")
+        if question:
+            pending = {
+                "round": len(discovery_qa) + 1,
+                "question": str(question),
+                "options": list(values.get("pending_discovery_options") or []),
+                "assumptions": list(values.get("pending_discovery_assumptions") or []),
+            }
+        return {"pending_discovery": pending, "discovery_history": history}
+
     def _cli_provider(self, state: PipelineState, stage: CliStage) -> str:
         raw = self._project_field(state, "cli_bindings")
         bindings = parse_cli_bindings(raw)
         return resolve_cli_provider(bindings, stage)
 
+    def _planner_discovery_command(self, state: PipelineState) -> list[str]:
+        iteration_id = state["iteration_id"]
+        if self._is_real_cli(state.get("mode")):
+            repo_root = self.project_repo_root(iteration_id)
+            prompt = compose_stage_prompt(
+                "planner_discovery",
+                repo_root=repo_root,
+                variables={
+                    "schema_hint": (
+                        "{status:ask|ready, complexity:trivial|simple|moderate|complex, "
+                        "question?:string, options:[string] (required when ask; last must be 其他（请说明）), "
+                        "assumptions:[string], "
+                        "requirements_brief:string, rationale:string}"
+                    ),
+                    "brief": self._planner_brief(state),
+                    "discovery_context": self._discovery_context_prompt(state),
+                    "framework_conventions": read_framework_conventions(),
+                    "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
+                    "workflow_state": self._workflow_state_section(state, node=NodeName.planner_discovery.value),
+                },
+            )
+            provider = self._cli_provider(state, "planner_discovery")
+            return build_planner_discovery_command(
+                provider=provider,
+                prompt=prompt,
+                schema_inline=self._artifact_schema_inline(PlannerDiscoveryArtifact),
+                schema_file=self._artifact_schema_file(iteration_id, "planner_discovery_artifact", PlannerDiscoveryArtifact),
+            )
+        return ["specforge", "planner_discovery", iteration_id]
+
     def _planner_command(self, state: PipelineState) -> list[str]:
         iteration_id = state["iteration_id"]
         brief = self._planner_brief(state)
+        requirements_brief = (state.get("requirements_brief") or "").strip() or "(see iteration goal and discovery docs)"
+        discovery_qa = self._format_discovery_qa_for_prompt(state.get("discovery_qa") or []) or "(none)"
         if self._is_real_cli(state.get("mode")):
             repo_root = self.project_repo_root(iteration_id)
             prompt = compose_stage_prompt(
@@ -1245,6 +1615,8 @@ class LangGraphPipeline:
                     ),
                     "ui_actions": ", ".join(UI_TEST_ACTIONS),
                     "brief": brief,
+                    "requirements_brief": requirements_brief,
+                    "discovery_qa": discovery_qa,
                     "framework_conventions": read_framework_conventions(),
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.planner.value),
@@ -1430,6 +1802,39 @@ class LangGraphPipeline:
         if project is None:
             return None
         return project[field]
+
+    def _planner_discovery_artifact(self, state: PipelineState, run_result: CLIResult) -> PlannerDiscoveryArtifact:
+        if self._is_real_cli(state.get("mode")):
+            raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
+            return parse_json_artifact(raw, PlannerDiscoveryArtifact)  # type: ignore[return-value]
+        discovery_qa = state.get("discovery_qa") or []
+        goal = state["goal"]
+        if not discovery_qa:
+            return PlannerDiscoveryArtifact(
+                status="ask",
+                complexity="moderate",
+                question=f"What is the primary acceptance criterion for: {goal}?",
+                options=[
+                    "Ship a minimal vertical slice first",
+                    "Match existing product conventions exactly",
+                    "Optimize for test coverage and CI gates",
+                    "其他（请说明）",
+                ],
+                assumptions=["Dry-run discovery round 1"],
+                requirements_brief=f"Goal: {goal}\n\n(Open questions remain.)",
+                rationale="Dry-run asks one clarifying question before planning.",
+            )
+        return PlannerDiscoveryArtifact(
+            status="ready",
+            complexity="simple",
+            assumptions=["User answered the dry-run discovery question"],
+            requirements_brief=(
+                f"Goal: {goal}\n\n"
+                f"User answer: {discovery_qa[-1].get('answer', '')}\n\n"
+                "Proceed to system design, modification plan, and protected tests."
+            ),
+            rationale="Dry-run discovery complete after one Q&A round.",
+        )
 
     def _planner_artifact(self, state: PipelineState, run_result: CLIResult) -> PlannerArtifact:
         if self._is_real_cli(state.get("mode")):

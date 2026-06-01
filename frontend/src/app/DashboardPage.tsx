@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
-import { approveVerify, createIteration, listIterationsForProject, resumeIteration, stopIteration } from '../shared/lib/api'
+import {
+  answerRequirements,
+  approveDesign,
+  approveVerify,
+  createIteration,
+  listIterationsForProject,
+  resumeIteration,
+  skipDiscovery,
+  stopIteration,
+} from '../shared/lib/api'
 import { parseEpicDraft } from '../features/epics/lib/parseEpicDraft'
 import { ProjectConfigPanel } from '../features/projects/ProjectConfigPanel'
 import { CreateProjectModal } from '../features/projects/CreateProjectModal'
@@ -118,6 +127,44 @@ export function DashboardPage() {
       await epics.refreshEpics(epic.id)
       await refreshIterations(epic.id, item.id)
       setShowCreatePipeline(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleAnswerRequirements(answer: string) {
+    if (!selectedIterationId) return
+    setBusy(true)
+    try {
+      await answerRequirements(selectedIterationId, answer)
+      await live.loadDetail()
+      await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleSkipDiscovery() {
+    if (!selectedIterationId) return
+    setBusy(true)
+    try {
+      await skipDiscovery(selectedIterationId, '按当前假设继续')
+      await live.loadDetail()
+      await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleApproveDesign() {
+    if (!selectedIterationId) return
+    setBusy(true)
+    try {
+      await approveDesign(selectedIterationId, 'approved')
+      await live.loadDetail()
+      await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId)
+      await epics.refreshEpics(epics.selectedEpicId ?? undefined)
+      await projects.refreshProjects()
     } finally {
       setBusy(false)
     }
@@ -310,6 +357,9 @@ export function DashboardPage() {
                   isLoading={live.isLoading}
                   busy={busy}
                   onLoadDocument={live.loadDocument}
+                  onAnswerRequirements={handleAnswerRequirements}
+                  onSkipDiscovery={handleSkipDiscovery}
+                  onApproveDesign={handleApproveDesign}
                   onApproveVerify={handleApproveVerify}
                   onStop={handleStop}
                   onResume={handleResume}

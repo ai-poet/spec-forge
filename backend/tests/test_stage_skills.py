@@ -19,6 +19,23 @@ def test_list_stage_modules_orders_skill_first_runtime_last() -> None:
     assert "context-manifest.md" in modules
 
 
+def test_compose_planner_discovery_includes_brief_context() -> None:
+    text = compose_stage_prompt(
+        "planner_discovery",
+        variables={
+            "schema_hint": "{status:ask|ready}",
+            "brief": "Goal: feature X",
+            "discovery_context": "Round 1 Q: scope?\nRound 1 A: MVP",
+            "framework_conventions": "",
+            "convention_excerpt": "",
+            "workflow_state": "",
+        },
+    )
+    assert "## SpecForge stage: planner_discovery" in text
+    assert "One question per turn" in text
+    assert "Round 1 Q: scope?" in text
+
+
 def test_compose_planner_includes_context_manifest_anchor() -> None:
     text = compose_stage_prompt(
         "planner",
@@ -27,6 +44,8 @@ def test_compose_planner_includes_context_manifest_anchor() -> None:
             "ui_spec_hint": "{}",
             "ui_actions": "assert_text",
             "brief": "Build feature X",
+            "requirements_brief": "MVP scope for feature X",
+            "discovery_qa": "(none)",
             "framework_conventions": "Framework rules here.",
             "convention_excerpt": "",
             "workflow_state": "",

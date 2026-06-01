@@ -75,7 +75,9 @@ Epic 状态由关联 iteration 汇总：
 
 ```text
 START
-  -> planner
+  -> planner_discovery
+  -> [ask] requirements_input interrupt -> planner_discovery
+  -> [ready] planner
   -> design_approval interrupt
   -> coder
   -> integrity_check
@@ -86,7 +88,9 @@ START
   -> END
 ```
 
-Tester 失败会回到 Coder，受 `max_coder_tester_retries` 限制。Coder 可以请求 clarification，超出 `max_clarifications` 后进入 `blocked_user`。Planner 验证 verify report 失败可回到 Coder，受 `max_verify_rejects` 限制。
+`planner_discovery` 使用 Trellis 风格规则（action-before-asking、一次一问）；`auto` 模式下 trivial/simple 目标可首轮 `ready`。澄清产物写入 `discovery/requirements_brief.md` 与 `discovery/NN_{question,answer}.md`，终局 `planner` prompt 注入 brief 与 Q&A 历史。
+
+Tester 失败会回到 Coder，受 `max_coder_tester_retries` 限制。Coder 可以请求 clarification，超出 `max_clarifications` 后进入 `blocked_user`。`planner_discovery` 提问轮次受 `max_discovery_rounds` 限制。Planner 验证 verify report 失败可回到 Coder，受 `max_verify_rejects` 限制。
 
 ## UI Driver / Node 4
 
@@ -161,6 +165,8 @@ Iteration API：
 - `GET /api/iterations?project_id=...&epic_id=...`
 - `POST /api/iterations`
 - `GET /api/iterations/{id}`
+- `POST /api/iterations/{id}/answer-requirements`
+- `POST /api/iterations/{id}/skip-discovery`
 - `POST /api/iterations/{id}/approve-design`
 - `POST /api/iterations/{id}/approve-verify`
 - `POST /api/iterations/{id}/stop`

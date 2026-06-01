@@ -19,6 +19,9 @@ interface Props {
   isLoading: boolean
   busy: boolean
   onLoadDocument: (name: string) => Promise<void>
+  onAnswerRequirements: (answer: string) => Promise<void>
+  onSkipDiscovery: () => Promise<void>
+  onApproveDesign: () => Promise<void>
   onApproveVerify: () => Promise<void>
   onStop: () => Promise<void>
   onResume: () => Promise<void>
@@ -33,6 +36,9 @@ export function StageFocusPanel({
   isLoading,
   busy,
   onLoadDocument,
+  onAnswerRequirements,
+  onSkipDiscovery,
+  onApproveDesign,
   onApproveVerify,
   onStop,
   onResume,
@@ -139,6 +145,9 @@ export function StageFocusPanel({
           detail={detail}
           reviewMode={reviewMode}
           busy={busy}
+          onAnswerRequirements={onAnswerRequirements}
+          onSkipDiscovery={onSkipDiscovery}
+          onApproveDesign={onApproveDesign}
           onApproveVerify={onApproveVerify}
           onStop={onStop}
           onResume={onResume}

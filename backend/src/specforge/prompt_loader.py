@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-StageName = Literal["planner", "coder", "tester", "planner_clarification"]
+StageName = Literal["planner", "planner_discovery", "coder", "tester", "planner_clarification"]
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 _STAGES_DIR = _PROMPTS_DIR / "stages"

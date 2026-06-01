@@ -152,6 +152,7 @@ class Database:
                 "max_verify_rejects": "INTEGER NOT NULL DEFAULT 2",
                 "default_build_command": "TEXT",
                 "max_tester_self_retries": "INTEGER NOT NULL DEFAULT 3",
+                "max_discovery_rounds": "INTEGER NOT NULL DEFAULT 8",
             }
             for column, definition in project_defaults.items():
                 if column not in project_columns:
@@ -180,6 +181,7 @@ class Database:
         max_clarifications: int = 3,
         max_verify_rejects: int = 2,
         max_tester_self_retries: int = 3,
+        max_discovery_rounds: int = 8,
     ) -> str:
         from .project_paths import prepare_project_root
 
@@ -201,9 +203,9 @@ class Database:
                     id, name, root_path, description, default_mode, default_test_command,
                     default_build_command, planner_model, coder_model, tester_model,
                     max_coder_tester_retries, max_clarifications, max_verify_rejects,
-                    max_tester_self_retries, created_at, updated_at
+                    max_tester_self_retries, max_discovery_rounds, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     project_id,
@@ -220,6 +222,7 @@ class Database:
                     max_clarifications,
                     max_verify_rejects,
                     max_tester_self_retries,
+                    max_discovery_rounds,
                     now,
                     now,
                 ),
@@ -239,6 +242,7 @@ class Database:
             "max_clarifications",
             "max_verify_rejects",
             "max_tester_self_retries",
+            "max_discovery_rounds",
         }
         updates = []
         values: list[Any] = []

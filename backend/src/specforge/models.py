@@ -21,6 +21,7 @@ class CliProviderName(str, Enum):
 
 class CliBindings(BaseModel):
     planner: CliProviderName = CliProviderName.claude
+    planner_discovery: CliProviderName = CliProviderName.claude
     planner_clarification: CliProviderName = CliProviderName.claude
     coder: CliProviderName = CliProviderName.claude
     tester: CliProviderName = CliProviderName.claude
@@ -30,6 +31,7 @@ class IterationStatus(str, Enum):
     created = "created"
     queued = "queued"
     planning = "planning"
+    awaiting_requirements_input = "awaiting_requirements_input"
     awaiting_design_approval = "awaiting_design_approval"
     coding = "coding"
     retrying = "retrying"
@@ -44,6 +46,7 @@ class IterationStatus(str, Enum):
 
 class NodeName(str, Enum):
     planner = "planner"
+    planner_discovery = "planner_discovery"
     coder = "coder"
     coder_retry = "coder_retry"
     integrity_check = "integrity_check"
@@ -74,6 +77,7 @@ class CreateProjectRequest(BaseModel):
     max_clarifications: int = Field(default=3, ge=0, le=20)
     max_verify_rejects: int = Field(default=2, ge=0, le=20)
     max_tester_self_retries: int = Field(default=3, ge=0, le=20)
+    max_discovery_rounds: int = Field(default=8, ge=0, le=30)
 
 
 class ValidateProjectPathRequest(BaseModel):
@@ -116,6 +120,7 @@ class UpdateProjectRequest(BaseModel):
     max_clarifications: Optional[int] = Field(default=None, ge=0, le=20)
     max_verify_rejects: Optional[int] = Field(default=None, ge=0, le=20)
     max_tester_self_retries: Optional[int] = Field(default=None, ge=0, le=20)
+    max_discovery_rounds: Optional[int] = Field(default=None, ge=0, le=30)
 
 
 class EpicStatus(str, Enum):
@@ -154,6 +159,7 @@ class ProjectSummary(BaseModel):
     max_clarifications: int = 3
     max_verify_rejects: int = 2
     max_tester_self_retries: int = 3
+    max_discovery_rounds: int = 8
     created_at: datetime
     updated_at: datetime
     iteration_count: int = 0
@@ -231,9 +237,24 @@ class LiveCliOutput(BaseModel):
     stderr: str = ""
 
 
+class PendingDiscovery(BaseModel):
+    round: int
+    question: str
+    options: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
+class DiscoveryHistoryEntry(BaseModel):
+    round: int
+    question: str
+    answer: str
+
+
 class IterationDetail(IterationSummary):
     test_command: Optional[str] = None
     graph_next: list[str] = Field(default_factory=list)
+    pending_discovery: Optional[PendingDiscovery] = None
+    discovery_history: list[DiscoveryHistoryEntry] = Field(default_factory=list)
     documents: list[DocumentRecord] = Field(default_factory=list)
     events: list[EventRecord] = Field(default_factory=list)
     runs: list[NodeRunRecord] = Field(default_factory=list)
@@ -243,6 +264,10 @@ class IterationDetail(IterationSummary):
 
 class ApproveRequest(BaseModel):
     note: Optional[str] = None
+
+
+class AnswerRequirementsRequest(BaseModel):
+    answer: str = Field(min_length=1)
 
 
 class RetryRequest(BaseModel):

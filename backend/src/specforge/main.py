@@ -16,14 +16,17 @@ from .db import Database
 from .events import EventBroker, EventEnvelope
 from .job_queue import PipelineJobQueue
 from .models import (
+    AnswerRequirementsRequest,
     ApproveRequest,
     CreateEpicRequest,
     CreateIterationRequest,
     CreateProjectRequest,
+    DiscoveryHistoryEntry,
     EpicDetail,
     EpicSummary,
     IterationDetail,
     IterationSummary,
+    PendingDiscovery,
     ProjectSummary,
     RetryRequest,
     UpdateEpicRequest,
@@ -161,6 +164,7 @@ def create_project(payload: CreateProjectRequest) -> ProjectSummary:
             max_clarifications=payload.max_clarifications,
             max_verify_rejects=payload.max_verify_rejects,
             max_tester_self_retries=payload.max_tester_self_retries,
+            max_discovery_rounds=payload.max_discovery_rounds,
         )
     except ValueError as exc:
         message = str(exc)
@@ -363,6 +367,8 @@ def get_iteration(iteration_id: str) -> IterationDetail:
         runs=snapshot["runs"],
         ui_results=snapshot["ui_results"],
         live_cli=snapshot.get("live_cli"),
+        pending_discovery=PendingDiscovery(**snapshot["pending_discovery"]) if snapshot.get("pending_discovery") else None,
+        discovery_history=[DiscoveryHistoryEntry(**item) for item in snapshot.get("discovery_history") or []],
     )
 
 
@@ -380,6 +386,27 @@ def delete_iteration(iteration_id: str) -> dict[str, bool]:
     if epic_id:
         db.update_epic_status(epic_id)
     return {"ok": True}
+
+
+@app.post("/api/iterations/{iteration_id}/answer-requirements", response_model=IterationDetail)
+def answer_requirements(iteration_id: str, payload: AnswerRequirementsRequest) -> IterationDetail:
+    if not pipeline.can_resume(iteration_id, "requirements_input"):
+        raise HTTPException(status_code=409, detail="iteration is not awaiting requirements_input")
+    db.add_event(iteration_id, event_type="resume.queued", payload={"checkpoint": "requirements_input"})
+    job_queue.enqueue_resume(iteration_id, "requirements_input", payload.answer)
+    refresh_iteration_epic(iteration_id)
+    return get_iteration(iteration_id)
+
+
+@app.post("/api/iterations/{iteration_id}/skip-discovery", response_model=IterationDetail)
+def skip_discovery(iteration_id: str, payload: ApproveRequest) -> IterationDetail:
+    if not pipeline.can_resume(iteration_id, "requirements_input"):
+        raise HTTPException(status_code=409, detail="iteration is not awaiting requirements_input")
+    note = payload.note or "proceed with documented assumptions"
+    db.add_event(iteration_id, event_type="resume.queued", payload={"checkpoint": "requirements_input", "skip": True})
+    job_queue.enqueue_resume(iteration_id, "requirements_input", f"SKIP:{note}")
+    refresh_iteration_epic(iteration_id)
+    return get_iteration(iteration_id)
 
 
 @app.post("/api/iterations/{iteration_id}/approve-design", response_model=IterationSummary)
@@ -560,6 +587,7 @@ def project_summary(row, counts: dict[str, int] | None = None) -> ProjectSummary
         max_clarifications=row["max_clarifications"],
         max_verify_rejects=row["max_verify_rejects"],
         max_tester_self_retries=row["max_tester_self_retries"] if "max_tester_self_retries" in row.keys() else 3,
+        max_discovery_rounds=row["max_discovery_rounds"] if "max_discovery_rounds" in row.keys() else 8,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         iteration_count=bucket["total"],

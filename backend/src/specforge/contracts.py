@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 
 class ArtifactFile(BaseModel):
@@ -23,6 +23,29 @@ class PlannerArtifact(BaseModel):
     tests: list[ArtifactFile] = Field(default_factory=list)
     context_for_coder: list[ContextManifestEntry] = Field(default_factory=list)
     context_for_tester: list[ContextManifestEntry] = Field(default_factory=list)
+
+
+class PlannerDiscoveryArtifact(BaseModel):
+    status: Literal["ask", "ready"]
+    complexity: Literal["trivial", "simple", "moderate", "complex"] = "moderate"
+    question: Optional[str] = None
+    options: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    requirements_brief: str = ""
+    rationale: str = ""
+
+    @model_validator(mode="after")
+    def validate_ask_options(self) -> "PlannerDiscoveryArtifact":
+        if self.status != "ask":
+            return self
+        from .discovery_options import DISCOVERY_CUSTOM_OPTION_LABEL, normalize_discovery_options
+
+        if not (self.question or "").strip():
+            raise ValueError("ask status requires question")
+        object.__setattr__(self, "options", normalize_discovery_options(self.options))
+        if self.options[-1] != DISCOVERY_CUSTOM_OPTION_LABEL:
+            raise ValueError(f"last option must be '{DISCOVERY_CUSTOM_OPTION_LABEL}'")
+        return self
 
 
 class PlannerClarificationArtifact(BaseModel):

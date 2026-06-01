@@ -39,6 +39,24 @@ def drain_jobs():
     job_queue.join()
 
 
+def advance_through_planning_gates(iteration_id: str) -> None:
+    """Answer discovery and approve design so dry-run can reach coder/tester."""
+    for _ in range(12):
+        drain_jobs()
+        detail = client.get(f"/api/iterations/{iteration_id}").json()
+        status = detail["status"]
+        if status == "awaiting_requirements_input":
+            client.post(
+                f"/api/iterations/{iteration_id}/answer-requirements",
+                json={"answer": "Ship a minimal vertical slice first"},
+            )
+            continue
+        if status == "awaiting_design_approval":
+            client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "approved"})
+            continue
+        return
+
+
 def create_manual_iteration(project_name: str, *, mode: str = "real-cli") -> str:
     iteration_id = pipeline.db.create_iteration(
         project_name=f"{project_name}-{uuid4().hex[:6]}",
@@ -237,7 +255,7 @@ def test_iteration_workspace_under_project_root(tmp_path):
     root_path = project.json()["root_path"]
     resp = client.post("/api/iterations", json={"project_id": project_id, "goal": "write under project", "mode": "dry-run"})
     iteration_id = resp.json()["id"]
-    drain_jobs()
+    advance_through_planning_gates(iteration_id)
     workspace = pipeline.project_root(iteration_id)
     docs_root = pipeline.docs_root(iteration_id)
     assert str(workspace).startswith(str((Path(root_path) / ".specforge" / "iterations").resolve()))
@@ -307,13 +325,45 @@ def test_epic_status_delivered_after_all_iterations_deliver(tmp_path):
 
     resp = client.post("/api/iterations", json={"project_id": project_id, "epic_id": epic_id, "goal": "ship", "mode": "dry-run"})
     iteration_id = resp.json()["id"]
-    drain_jobs()
+    advance_through_planning_gates(iteration_id)
     client.post(f"/api/iterations/{iteration_id}/approve-verify", json={"note": "ok"})
     drain_jobs()
 
     detail = client.get(f"/api/epics/{epic_id}")
     assert detail.json()["status"] == "delivered"
     assert detail.json()["delivered_count"] == 1
+
+
+def test_discovery_answer_and_design_approval(tmp_path):
+    project = post_project(tmp_path, "discovery-flow")
+    project_id = project.json()["id"]
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "goal": "ambiguous dashboard", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "awaiting_requirements_input"
+    assert detail["pending_discovery"]["question"]
+    assert detail["graph_next"] == ["requirements_input"]
+
+    answer = client.post(
+        f"/api/iterations/{iteration_id}/answer-requirements",
+        json={"answer": "Prioritize admin users first"},
+    )
+    assert answer.status_code == 200
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "awaiting_design_approval"
+    assert any(doc["name"] == "system_design" for doc in detail["documents"])
+    assert len(detail["discovery_history"]) == 1
+
+    approve = client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "looks good"})
+    assert approve.status_code == 200
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "awaiting_verify_approval"
 
 
 def test_create_iteration_runs_dry_flow():
@@ -326,7 +376,7 @@ def test_create_iteration_runs_dry_flow():
     assert data["status"] == "queued"
     drain_jobs()
     detail = client.get(f"/api/iterations/{data['id']}")
-    assert detail.json()["status"] == "awaiting_verify_approval"
+    assert detail.json()["status"] == "awaiting_requirements_input"
 
 
 def test_dry_run_emits_semantic_events():
@@ -340,8 +390,11 @@ def test_dry_run_emits_semantic_events():
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     semantic = [event for event in detail["events"] if event["type"] in {"node.started", "node.completed", "artifact.created"}]
 
-    assert any(event["payload"]["node"] == "planner" and event["type"] == "node.started" for event in semantic)
-    assert any(event["type"] == "artifact.created" and event["payload"]["document"] == "system_design" for event in semantic)
+    assert any(
+        event["payload"]["node"] == "planner_discovery" and event["type"] == "node.started"
+        for event in semantic
+    )
+    assert any(event["type"] == "discovery.question" for event in detail["events"])
     assert all({"node", "title", "message", "severity"}.issubset(event["payload"]) for event in semantic)
 
 
@@ -351,7 +404,7 @@ def test_iteration_detail_includes_documents():
         json={"project_name": "demo2", "goal": "make a thing", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
-    drain_jobs()
+    advance_through_planning_gates(iteration_id)
     detail = client.get(f"/api/iterations/{iteration_id}")
     assert detail.status_code == 200
     payload = detail.json()
@@ -365,7 +418,7 @@ def test_design_to_delivery_flow():
         json={"project_name": "demo3", "goal": "ship end to end", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
-    drain_jobs()
+    advance_through_planning_gates(iteration_id)
 
     detail = client.get(f"/api/iterations/{iteration_id}")
     assert detail.json()["status"] == "awaiting_verify_approval"
@@ -383,7 +436,7 @@ def test_tester_writes_delivery_advice():
         json={"project_name": "advice", "goal": "ship with delivery advice", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
-    drain_jobs()
+    advance_through_planning_gates(iteration_id)
 
     detail = client.get(f"/api/iterations/{iteration_id}").json()
 
@@ -402,6 +455,7 @@ def test_invalid_approval_returns_409():
     invalid_design = client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "removed checkpoint"})
     assert invalid_design.status_code == 409
 
+    advance_through_planning_gates(iteration_id)
     client.post(f"/api/iterations/{iteration_id}/approve-verify", json={"note": "ok"})
     drain_jobs()
 
@@ -427,7 +481,7 @@ def test_project_config_is_inherited(tmp_path):
     resp = client.post("/api/iterations", json={"project_id": project_id, "goal": "inherit defaults"})
     assert resp.status_code == 200
     assert resp.json()["mode"] == "dry-run"
-    drain_jobs()
+    advance_through_planning_gates(resp.json()["id"])
     detail = client.get(f"/api/iterations/{resp.json()['id']}")
     assert detail.json()["test_command"] == "pytest"
 
@@ -559,9 +613,8 @@ def test_coder_prompt_points_to_project_src_and_iteration_docs(tmp_path):
     prompt = command[-1]
 
     assert "current working directory is the project root" in prompt
-    assert "Edit only project source files under src/**" in prompt
+    assert "write zones" in prompt or "src/**" in prompt
     assert str(pipeline.docs_root(iteration_id)) in prompt
-    assert "Do not edit docs/**" in prompt
 
 
 def test_tester_command_uses_project_cli_bindings(tmp_path):
@@ -884,11 +937,11 @@ def test_stop_iteration_records_stopped_at_node():
     )
     iteration_id = resp.json()["id"]
     drain_jobs()
-    pipeline.db.update_iteration(iteration_id, current_node="planner", status="planning")
+    pipeline.db.update_iteration(iteration_id, current_node="planner_discovery", status="planning")
     pipeline.stop_iteration(iteration_id, "stopped for test")
     row = pipeline.db.get_iteration_row(iteration_id)
     assert row["status"] == "stopped"
-    assert row["stopped_at_node"] == "planner"
+    assert row["stopped_at_node"] == "planner_discovery"
 
 
 def test_planner_clarification_writes_question_and_answer(tmp_path):
@@ -967,7 +1020,7 @@ def test_double_clarification_loop_reaches_verify_approval(tmp_path, monkeypatch
         json={"project_id": project_id, "goal": "two clarification rounds", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
-    drain_jobs()
+    advance_through_planning_gates(iteration_id)
 
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert detail["status"] == IterationStatus.awaiting_verify_approval.value
@@ -1002,7 +1055,7 @@ def test_double_clarification_cli_failure_blocks_without_langgraph_error(tmp_pat
         json={"project_id": project_id, "goal": "second clarify fails", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
-    drain_jobs()
+    advance_through_planning_gates(iteration_id)
 
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert detail["status"] == IterationStatus.blocked.value
@@ -1032,7 +1085,7 @@ def test_resume_stopped_iteration(tmp_path):
         iteration_id,
         status="stopped",
         current_node=None,
-        stopped_at_node="planner",
+        stopped_at_node="planner_discovery",
         last_error="user stopped",
     )
     resume = client.post(f"/api/iterations/{iteration_id}/resume", json={"note": "continue"})
@@ -1110,7 +1163,7 @@ def test_ui_spec_invalid_blocks_tester_with_classified_error(tmp_path, monkeypat
         json={"project_id": project_id, "goal": "ui spec tester block", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
-    drain_jobs()
+    advance_through_planning_gates(iteration_id)
 
     ui_path = pipeline.docs_root(iteration_id) / "tests" / "ui" / "bad.json"
     ui_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1162,7 +1215,7 @@ def test_checksum_gate_blocks_modified_protected_tests():
         json={"project_name": "integrity", "goal": "protect tests", "mode": "dry-run"},
     )
     iteration_id = resp.json()["id"]
-    drain_jobs()
+    advance_through_planning_gates(iteration_id)
 
     test_file = pipeline.docs_root(iteration_id) / "tests" / "unit" / "test_transitions.py"
     test_file.write_text("def test_bad():\n    assert True\n", encoding="utf-8")
@@ -1178,11 +1231,18 @@ def test_checksum_gate_blocks_modified_protected_tests():
 
 
 def test_artifact_invalid_emits_classified_error():
+    from specforge.contracts import PlannerDiscoveryArtifact
+
     original_planner = pipeline._planner_artifact
+    original_discovery = pipeline._planner_discovery_artifact
+
+    def ready_discovery(state, run_result):
+        return PlannerDiscoveryArtifact(status="ready", requirements_brief="Ready to plan.", complexity="simple")
 
     def bad_planner_artifact(state, run_result):
         raise ValueError("planner returned invalid JSON")
 
+    pipeline._planner_discovery_artifact = ready_discovery  # type: ignore[method-assign]
     pipeline._planner_artifact = bad_planner_artifact  # type: ignore[method-assign]
     try:
         resp = client.post(
@@ -1194,6 +1254,7 @@ def test_artifact_invalid_emits_classified_error():
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
+        pipeline._planner_discovery_artifact = original_discovery  # type: ignore[method-assign]
 
     assert detail["status"] == "blocked"
     assert any(event["type"] == "artifact.invalid" for event in detail["events"])
@@ -1210,7 +1271,7 @@ def test_tester_failure_retries_until_blocked(tmp_path):
         json={"project_id": project_id, "goal": "force tester failure"},
     )
     iteration_id = resp.json()["id"]
-    drain_jobs()
+    advance_through_planning_gates(iteration_id)
 
     detail = client.get(f"/api/iterations/{iteration_id}")
     payload = detail.json()
@@ -1230,7 +1291,7 @@ def test_ui_driver_playwright_fallback_passes_web():
             json={"project_name": "ui-playwright", "goal": "run UI playwright", "mode": "dry-run"},
         )
         iteration_id = resp.json()["id"]
-        drain_jobs()
+        advance_through_planning_gates(iteration_id)
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1254,7 +1315,7 @@ def test_ui_driver_cua_unavailable_native_warns_web_playwright():
             json={"project_name": "ui-mixed", "goal": "run UI mixed", "mode": "dry-run"},
         )
         iteration_id = resp.json()["id"]
-        drain_jobs()
+        advance_through_planning_gates(iteration_id)
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1280,7 +1341,7 @@ def test_ui_driver_playwright_unavailable_web_warns():
             json={"project_name": "ui-dual-fail", "goal": "run UI dual fail", "mode": "dry-run"},
         )
         iteration_id = resp.json()["id"]
-        drain_jobs()
+        advance_through_planning_gates(iteration_id)
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1302,7 +1363,7 @@ def test_ui_driver_pass_writes_results_and_artifacts():
             json={"project_name": "ui-pass", "goal": "run UI pass", "mode": "dry-run"},
         )
         iteration_id = resp.json()["id"]
-        drain_jobs()
+        advance_through_planning_gates(iteration_id)
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1328,7 +1389,7 @@ def test_ui_driver_failure_warns_without_retry(tmp_path):
             json={"project_id": project_id, "goal": "run UI fail"},
         )
         iteration_id = resp.json()["id"]
-        drain_jobs()
+        advance_through_planning_gates(iteration_id)
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1417,7 +1478,7 @@ class FakeUIDriver:
         self.status = status
         self.last_specs: list[UITestSpec] = []
 
-    def run_specs(self, specs: list[UITestSpec], docs_root):
+    def run_specs(self, specs: list[UITestSpec], docs_root, *, iteration_id: str | None = None):
         self.last_specs = specs
         if self.status == "playwright_fallback":
             return UIDriverRunResult(

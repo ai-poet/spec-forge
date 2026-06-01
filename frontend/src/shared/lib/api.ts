@@ -181,6 +181,20 @@ export function deleteIteration(id: string): Promise<{ ok: boolean }> {
   })
 }
 
+export function answerRequirements(id: string, answer: string): Promise<IterationDetail> {
+  return request(`/api/iterations/${id}/answer-requirements`, {
+    method: 'POST',
+    body: JSON.stringify({ answer }),
+  })
+}
+
+export function skipDiscovery(id: string, note?: string): Promise<IterationDetail> {
+  return request(`/api/iterations/${id}/skip-discovery`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
+  })
+}
+
 export function approveDesign(id: string, note?: string): Promise<IterationSummary> {
   return request(`/api/iterations/${id}/approve-design`, {
     method: 'POST',

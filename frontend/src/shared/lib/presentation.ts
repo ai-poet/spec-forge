@@ -91,7 +91,6 @@ function isActionableWarning(event: ReturnType<typeof presentEvent>): boolean {
 const PIPELINE_RUNNING_STATUSES = new Set([
   'queued',
   'planning',
-  'awaiting_design_approval',
   'coding',
   'retrying',
   'testing',

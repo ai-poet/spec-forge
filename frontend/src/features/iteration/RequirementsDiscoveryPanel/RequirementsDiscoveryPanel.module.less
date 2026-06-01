@@ -1,0 +1,146 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.question {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.assumptions ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.choiceBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.choiceHint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.choiceList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.choiceOption {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  font: inherit;
+  line-height: 1.45;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.choiceOption:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.choiceOption:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.choiceOptionActive {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.customBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.choiceIndex {
+  flex-shrink: 0;
+  min-width: 1.25rem;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.choiceLabel {
+  flex: 1;
+}
+
+.freeformBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.freeformLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.input {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.footerActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.history {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.history ol {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}

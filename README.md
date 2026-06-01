@@ -128,24 +128,34 @@ Project（项目）
 
 ```mermaid
 flowchart TB
-  startNode([START]) --> planner
+  startNode([START]) --> plannerDiscovery
 
   subgraph agentNodes ["Agent 节点（调用 CLI）"]
-    planner["Planner\nClaude CLI"]
+    plannerDiscovery["planner_discovery\n需求澄清 CLI"]
+    planner["Planner\n终局规划 CLI"]
     coder["Coder\nClaude CLI"]
     plannerClarification["planner_clarification\nClaude CLI"]
     tester["Tester\nCodex CLI"]
   end
 
   subgraph gateNodes ["程序门禁 / 人工检查点"]
+    requirementsInput["requirements_input\ninterrupt：你回答问题"]
+    designApproval["design_approval\ninterrupt：你批准设计"]
     integrityCheck["integrity_check\n受保护测试 checksum"]
     plannerVerify["planner_verify\n验证报告格式复核"]
     verifyApproval["verify_approval\ninterrupt：你点「确认交付」"]
     doneNode["done\n写入 iteration_log"]
   end
 
-  planner -->|"规划成功"| coder
-  planner -->|"失败 / 停止"| endBlocked([END\nblocked / stopped])
+  plannerDiscovery -->|"status=ask"| requirementsInput
+  requirementsInput --> plannerDiscovery
+  plannerDiscovery -->|"status=ready"| planner
+  plannerDiscovery -->|"失败 / 停止"| endBlocked([END\nblocked / stopped])
+
+  planner -->|"规划成功"| designApproval
+  planner -->|"失败 / 停止"| endBlocked
+
+  designApproval -->|"已批准"| coder
 
   coder -->|"clarification_request"| plannerClarification
   coder -->|"实现完成"| integrityCheck
@@ -179,7 +189,10 @@ flowchart TB
 
 | 阶段 | 节点 | 谁在做 | 做什么 |
 |------|------|--------|--------|
-| 规划 | `planner` | Claude CLI | 读大需求和项目 docs，产出设计/计划/测试文件 |
+| 需求澄清 | `planner_discovery` | Claude CLI | 在终局规划前澄清模糊需求（auto：清晰则直接 ready，否则一次一问） |
+| 需求回答 | `requirements_input` | **你** | 在工作台回答 Planner 问题；写入 `discovery/*` |
+| 规划 | `planner` | Claude CLI | 基于澄清后的 brief 产出设计/计划/测试文件 |
+| 设计审批 | `design_approval` | **你** | 批准 `system_design` / `modification_plan` / `testing_plan` 后进入实现 |
 | 实现 | `coder` | Claude CLI | 只改 `src/**`，根据规划写代码 |
 | 澄清 | `planner_clarification` | Claude CLI | Coder 看不懂时，Planner 正式回答并写入 `clarifications/` |
 | 完整性 | `integrity_check` | 后端程序 | 检查 Planner 写的测试有没有被 Coder 偷偷改掉 |
@@ -188,7 +201,7 @@ flowchart TB
 | 交付确认 | `verify_approval` | **你** | 在前端点「确认交付」，流水线才归档 |
 | 完成 | `done` | 后端 | 状态变为 `delivered`，写入 iteration_log |
 
-**注意：** 规划完成后**不会**再让你审批设计，会直接进入实现。目前唯一的人工检查点是**最终交付确认**。
+**注意：** 规划前有**需求澄清**（可多轮，默认上限 `max_discovery_rounds`），规划后有**设计审批**，交付前还有**最终确认**。实现中 Coder 仍可通过 `planner_clarification` 请求补充澄清（与规划前 discovery 分离）。
 
 ---
 

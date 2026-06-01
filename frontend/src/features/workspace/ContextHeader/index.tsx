@@ -17,7 +17,10 @@ interface Props {
 function statusPillClass(status: string): string {
   if (status === 'delivered') return styles.delivered
   if (status.includes('blocked')) return styles.blocked
-  if (['planning', 'coding', 'testing', 'retrying', 'queued', 'awaiting_design_approval'].includes(status)) return styles.running
+  if (['planning', 'coding', 'testing', 'retrying', 'queued'].includes(status)) return styles.running
+  if (['awaiting_requirements_input', 'awaiting_design_approval', 'awaiting_verify_approval'].includes(status)) {
+    return styles.active
+  }
   return styles.active
 }
 
