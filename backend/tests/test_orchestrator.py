@@ -1229,7 +1229,7 @@ def test_checksum_gate_blocks_modified_protected_tests():
 
 
 def test_artifact_invalid_emits_classified_error():
-    from specforge.contracts import PlannerDiscoveryArtifact
+    from specforge.core.contracts import PlannerDiscoveryArtifact
 
     original_prd = pipeline._prd_planner_artifact
     original_discovery = pipeline._planner_discovery_artifact
