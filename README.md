@@ -422,6 +422,8 @@ CLI 使用 `bypassPermissions` / `--dangerously-bypass-approvals-and-sandbox` �
 | Web 无 selector（`assert_text` / `click_text` 等） | 优先 **CuaDriver**；Cua 不可用时回退 Playwright |
 | `native` | **CuaDriver**（本机 `cua-driver` CLI） |
 
+**Cua 全局单会话**：本机同时只允许一个 CUA UI 会话（文件锁 `.specforge/cua-driver.session.lock`）。若锁被占用，Web 无 selector 用例会回退 Playwright；native 或未回退用例记为 `warning`（未执行），不阻断交付，依赖 Tester 代码审查。
+
 CuaDriver 安装器 vendored 在 [`computer-use/backend/install_cua_driver.py`](computer-use/backend/install_cua_driver.py)（与 computer-use `--host` 单机路径相同；**不需要**跑 `analyze_product.py`）。macOS 安装后请在系统设置授予 CuaDriver **辅助功能**与**屏幕录制**权限。
 
 ```bash
@@ -431,7 +433,7 @@ python computer-use/backend/install_cua_driver.py
 
 `./scripts/dev.sh` installs Playwright and runs the CuaDriver installer by default. Set `SPECFORGE_SKIP_UI=1` or `SPECFORGE_SKIP_CUA=1` to skip either stack.
 
-`GET /api/health` includes `ui.playwright`, `ui.cua`, `playwright_install_hint`, and `cua_install_hint`.
+`GET /api/health` includes `ui.playwright`, `ui.cua`, `ui.cua_session` (`idle` or `busy:<iteration_id>`), and install hints.
 
 ---
 

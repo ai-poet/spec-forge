@@ -10,6 +10,7 @@ def test_ui_runtime_status_shape() -> None:
     assert "install_hint" in status
     assert "playwright_install_hint" in status
     assert "cua_install_hint" in status
+    assert "cua_session" in status
     assert "pip install" in status["playwright_install_hint"]
     assert "install_cua_driver" in status["cua_install_hint"]
 

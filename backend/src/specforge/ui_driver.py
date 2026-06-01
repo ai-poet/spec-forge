@@ -19,6 +19,12 @@ from .ui_driver_common import (
     target_label,
     wait_milliseconds,
 )
+from .cua_session import (
+    CUA_BUSY_SINGLE_SESSION_PREFIX,
+    cua_session_busy_message,
+    read_cua_session_holder,
+    try_acquire_cua_session,
+)
 from .ui_driver_playwright import NATIVE_UNAVAILABLE, PlaywrightUIDriverRunner
 
 CUA_SELECTOR_UNSUPPORTED = (
@@ -347,23 +353,37 @@ class UIDriverRunner:
         self._playwright = playwright_runner or PlaywrightUIDriverRunner()
         self._force = settings.ui_driver_force.lower()
 
-    def run_specs(self, specs: list[UITestSpec], docs_root: Path) -> UIDriverRunResult:
+    def run_specs(
+        self,
+        specs: list[UITestSpec],
+        docs_root: Path,
+        *,
+        iteration_id: str | None = None,
+    ) -> UIDriverRunResult:
         if not specs:
             return UIDriverRunResult(available=True, results=[])
 
         if self._force == "playwright":
             return self._run_playwright_only(specs, docs_root)
         if self._force == "cua":
-            return self._run_cua_only(specs, docs_root)
+            return self._run_cua_only(specs, docs_root, iteration_id=iteration_id)
 
-        return self._run_auto(specs, docs_root)
+        return self._run_auto(specs, docs_root, iteration_id=iteration_id)
 
-    def _run_auto(self, specs: list[UITestSpec], docs_root: Path) -> UIDriverRunResult:
+    def _run_auto(
+        self,
+        specs: list[UITestSpec],
+        docs_root: Path,
+        *,
+        iteration_id: str | None = None,
+    ) -> UIDriverRunResult:
         selector_web_specs = [spec for spec in specs if self._requires_playwright(spec)]
         remaining_specs = [spec for spec in specs if not self._requires_playwright(spec)]
         results: list[UITestResult] = []
         fallback: Literal["playwright"] | None = None
         extra_warnings: list[str] = []
+        cua_busy_flag = False
+        cua_holder_id: str | None = None
 
         if selector_web_specs:
             pw_error = self._playwright.ensure_available()
@@ -378,7 +398,21 @@ class UIDriverRunner:
         if remaining_specs:
             cua_error = self._cua.ensure_available()
             if cua_error is None:
-                results.extend(self._cua.run_specs(remaining_specs, docs_root))
+                cua_chunk, chunk_busy, holder = self._run_cua_chunk(
+                    remaining_specs,
+                    docs_root,
+                    iteration_id=iteration_id,
+                )
+                results.extend(cua_chunk)
+                if chunk_busy:
+                    cua_busy_flag = True
+                    cua_holder_id = holder
+                    extra_warnings.append(cua_session_busy_message(holder))
+                    if any(
+                        item.driver == "playwright" and item.status in {"passed", "failed"}
+                        for item in cua_chunk
+                    ):
+                        fallback = "playwright"
             else:
                 web_specs = [spec for spec in remaining_specs if spec.kind == "web"]
                 native_specs = [spec for spec in remaining_specs if spec.kind == "native"]
@@ -398,20 +432,93 @@ class UIDriverRunner:
         extra = "; ".join(dict.fromkeys(extra_warnings)) or None
         warning = self._build_warning(results, extra)
         available = any(result.status in {"passed", "failed"} for result in results)
-        return UIDriverRunResult(available=available, warning=warning, fallback=fallback, results=results)
+        active_holder = read_cua_session_holder()
+        return UIDriverRunResult(
+            available=available,
+            warning=warning,
+            fallback=fallback,
+            cua_busy=cua_busy_flag,
+            cua_session_holder=cua_holder_id or (active_holder.iteration_id if active_holder else None),
+            results=results,
+        )
 
     def _requires_playwright(self, spec: UITestSpec) -> bool:
         return spec.kind == "web" and any(step_selector(step) for step in spec.steps)
 
-    def _run_cua_only(self, specs: list[UITestSpec], docs_root: Path) -> UIDriverRunResult:
+    def _run_cua_only(
+        self,
+        specs: list[UITestSpec],
+        docs_root: Path,
+        *,
+        iteration_id: str | None = None,
+    ) -> UIDriverRunResult:
         cua_error = self._cua.ensure_available()
         if cua_error:
+            busy_results, _, _ = self._run_cua_busy_fallback(specs, docs_root, reason=cua_error)
             return UIDriverRunResult(
                 available=False,
                 warning=cua_error,
-                results=[skipped_result(spec, cua_error, driver="cua") for spec in specs],
+                results=busy_results,
             )
-        return UIDriverRunResult(available=True, results=self._cua.run_specs(specs, docs_root))
+        results, cua_busy, holder_id = self._run_cua_chunk(specs, docs_root, iteration_id=iteration_id)
+        warning = cua_session_busy_message(holder_id) if cua_busy else None
+        return UIDriverRunResult(
+            available=any(result.status in {"passed", "failed"} for result in results),
+            warning=warning,
+            cua_busy=cua_busy,
+            cua_session_holder=holder_id,
+            results=results,
+        )
+
+    def _run_cua_chunk(
+        self,
+        specs: list[UITestSpec],
+        docs_root: Path,
+        *,
+        iteration_id: str | None,
+    ) -> tuple[list[UITestResult], bool, str | None]:
+        if not specs:
+            return [], False, None
+        if not iteration_id:
+            return self._cua.run_specs(specs, docs_root), False, None
+        with try_acquire_cua_session(iteration_id) as session:
+            if session is None:
+                holder = read_cua_session_holder()
+                holder_id = holder.iteration_id if holder else None
+                busy_results, _, _ = self._run_cua_busy_fallback(
+                    specs,
+                    docs_root,
+                    holder=holder_id,
+                    session_busy=True,
+                )
+                return busy_results, True, holder_id
+            return self._cua.run_specs(specs, docs_root), False, None
+
+    def _run_cua_busy_fallback(
+        self,
+        specs: list[UITestSpec],
+        docs_root: Path,
+        *,
+        reason: str | None = None,
+        holder: str | None = None,
+        session_busy: bool = False,
+    ) -> tuple[list[UITestResult], bool, str | None]:
+        busy_msg = reason or cua_session_busy_message(holder)
+        web_specs = [spec for spec in specs if spec.kind == "web"]
+        native_specs = [spec for spec in specs if spec.kind == "native"]
+        results: list[UITestResult] = []
+        busy = session_busy
+        if web_specs:
+            pw_error = self._playwright.ensure_available()
+            if pw_error:
+                combined = f"{busy_msg}; {pw_error}"
+                results.extend(skipped_result(spec, combined, driver="playwright") for spec in web_specs)
+            else:
+                results.extend(self._playwright.run_specs(web_specs, docs_root))
+        if native_specs:
+            native_msg = busy_msg if session_busy else f"{busy_msg}; {NATIVE_UNAVAILABLE}"
+            results.extend(skipped_result(spec, native_msg, driver="cua") for spec in native_specs)
+        return results, busy, holder
 
     def _run_playwright_only(self, specs: list[UITestSpec], docs_root: Path) -> UIDriverRunResult:
         web_specs = [spec for spec in specs if spec.kind == "web"]

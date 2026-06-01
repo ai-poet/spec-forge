@@ -8,6 +8,8 @@ Set `passed=false` when you find any P0/P1 bug, and list them in `defects[]` (`f
 
 Do not mark the implementation failed solely because Playwright, CUA Driver, browser binaries, accessibility permissions, screen recording permissions, or native UI automation are unavailable; record those as `ui_warnings` or `delivery_recommendations` and continue with static inspection/code review.
 
+CuaDriver allows only one UI session on this machine at a time. When `ui_results` show `CuaDriver busy (single-session)`, that is not a Coder defect: Web specs may have fallen back to Playwright; native specs were skipped and require your code review.
+
 UI automation assertion failures are warnings unless your code review shows the same issue is a P0/P1 implementation bug.
 
 {test_command_section}

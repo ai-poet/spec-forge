@@ -24,7 +24,9 @@ export function needsCuaInstall(error: string | null | undefined): boolean {
     lower.includes('permissions missing') ||
     lower.includes('accessibility') ||
     lower.includes('native ui') ||
-    lower.includes('install_cua_driver')
+    lower.includes('install_cua_driver') ||
+    lower.includes('single-session') ||
+    lower.includes('only one ui session')
   )
 }
 

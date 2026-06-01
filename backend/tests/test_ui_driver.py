@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from contextlib import contextmanager
+from typing import Iterator
+
 from specforge.contracts import UIDriverRunResult, UITestResult, UITestSpec
+from specforge import ui_driver as ui_driver_module
 from specforge.ui_driver import CuaCliTransport, CuaUIDriverRunner, UIDriverRunner
 from specforge.ui_driver_playwright import PlaywrightUIDriverRunner
+from specforge import cua_session
 
 
 class UnavailableCuaTransport(CuaCliTransport):
@@ -200,6 +205,60 @@ def test_cua_selector_steps_fail_before_launching(tmp_path: Path) -> None:
     assert result.driver == "cua"
     assert "CSS selector UI steps require a DOM-capable runner" in (result.error or "")
     assert "launch_app" not in transport.calls
+
+
+def test_auto_cua_busy_falls_back_to_playwright_for_web(tmp_path: Path, monkeypatch) -> None:
+    spec = UITestSpec.model_validate(
+        {
+            "id": "web_smoke",
+            "kind": "web",
+            "target": {"url": "http://127.0.0.1:5178"},
+            "steps": [{"action": "assert_text", "text": "SpecForge"}],
+        }
+    )
+    cua = AvailableCuaRunner()
+
+    @contextmanager
+    def busy_session(_iteration_id: str) -> Iterator[None]:
+        yield None
+
+    monkeypatch.setattr(ui_driver_module, "try_acquire_cua_session", busy_session)
+    monkeypatch.setattr(
+        ui_driver_module,
+        "read_cua_session_holder",
+        lambda: cua_session.CuaSessionHolder("other-iter", 99999),
+    )
+
+    runner = UIDriverRunner(
+        cua_runner=cua,  # type: ignore[arg-type]
+        playwright_runner=FakePlaywrightRunner(),  # type: ignore[arg-type]
+    )
+    result = runner.run_specs([spec], tmp_path, iteration_id="iter-a")
+    assert result.cua_busy is True
+    assert result.results[0].status == "passed"
+    assert result.results[0].driver == "playwright"
+    assert cua.called is False
+
+
+def test_auto_cua_busy_native_warns(tmp_path: Path, monkeypatch) -> None:
+    native = UITestSpec.model_validate(
+        {"id": "native_smoke", "kind": "native", "target": {"bundle_id": "com.example.app"}, "steps": []}
+    )
+    cua = AvailableCuaRunner()
+
+    @contextmanager
+    def busy_session(_iteration_id: str) -> Iterator[None]:
+        yield None
+
+    monkeypatch.setattr(ui_driver_module, "try_acquire_cua_session", busy_session)
+    runner = UIDriverRunner(
+        cua_runner=cua,  # type: ignore[arg-type]
+        playwright_runner=FakePlaywrightRunner(),  # type: ignore[arg-type]
+    )
+    result = runner.run_specs([native], tmp_path, iteration_id="iter-a")
+    assert result.cua_busy is True
+    assert result.results[0].status == "warning"
+    assert "only one ui session" in (result.results[0].error or "").lower()
 
 
 def test_cua_permission_text_not_granted_is_unavailable() -> None:

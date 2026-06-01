@@ -1476,7 +1476,24 @@ class LangGraphPipeline:
             return UIDriverRunResult(available=True, results=[])
         self._node_event(iteration_id, "node.started", "ui_driver", "UI Driver 已启动", f"正在执行 {len(specs)} 条 UI trajectory。", run_id=run_id)
         self._add_event(iteration_id, event_type="ui_driver.started", payload={"count": len(specs)})
-        result = self.ui_driver.run_specs(specs, docs.root)
+        result = self.ui_driver.run_specs(specs, docs.root, iteration_id=iteration_id)
+        if result.cua_busy:
+            holder = result.cua_session_holder or "another iteration"
+            self._add_event(
+                iteration_id,
+                event_type="ui_driver.cua_busy",
+                payload={"holder": holder, "count": len(specs)},
+            )
+            self._node_event(
+                iteration_id,
+                "node.progress",
+                "ui_driver",
+                "CuaDriver 会话占用中",
+                f"本机仅允许一个 CUA UI 会话（当前由 {holder} 占用）。Web 用例已尝试 Playwright；其余记为未执行，依赖 Tester 代码审查。",
+                severity="warning",
+                action_hint="等待其它 iteration 完成或改用 Playwright selector Web spec；native UI 需空闲 CuaDriver。",
+                run_id=run_id,
+            )
         if result.fallback == "playwright":
             self._node_event(
                 iteration_id,

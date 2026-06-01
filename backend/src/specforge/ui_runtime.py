@@ -5,6 +5,7 @@ import os
 from typing import TypedDict
 
 from .cua_bootstrap import CUA_INSTALL_HINT, cua_driver_installed, ensure_cua_driver
+from .cua_session import read_cua_session_holder
 from .ui_driver import CuaUIDriverRunner
 from .ui_driver_playwright import PLAYWRIGHT_INSTALL_HINT, PlaywrightUIDriverRunner
 
@@ -16,6 +17,7 @@ UI_DRIVER_INSTALL_HINT = PLAYWRIGHT_INSTALL_HINT
 class UIRuntimeStatus(TypedDict):
     playwright: str
     cua: str
+    cua_session: str
     playwright_install_hint: str
     cua_install_hint: str
     install_hint: str
@@ -30,12 +32,20 @@ def _cua_runtime_status() -> str:
     return CuaUIDriverRunner().ensure_available() or "ok"
 
 
+def _cua_session_status() -> str:
+    holder = read_cua_session_holder()
+    if holder is None:
+        return "idle"
+    return f"busy:{holder.iteration_id}"
+
+
 def ui_runtime_status() -> UIRuntimeStatus:
     playwright_error = PlaywrightUIDriverRunner().ensure_available()
     cua_status = _cua_runtime_status()
     return {
         "playwright": "ok" if playwright_error is None else playwright_error,
         "cua": cua_status,
+        "cua_session": _cua_session_status(),
         "playwright_install_hint": PLAYWRIGHT_INSTALL_HINT,
         "cua_install_hint": CUA_INSTALL_HINT,
         "install_hint": PLAYWRIGHT_INSTALL_HINT,

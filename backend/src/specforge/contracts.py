@@ -130,6 +130,8 @@ class UIDriverRunResult(BaseModel):
     available: bool
     warning: Optional[str] = None
     fallback: Optional[Literal["playwright"]] = None
+    cua_busy: bool = False
+    cua_session_holder: Optional[str] = None
     results: list[UITestResult] = Field(default_factory=list)
 
 

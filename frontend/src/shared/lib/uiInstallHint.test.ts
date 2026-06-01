@@ -50,4 +50,8 @@ describe('install guides', () => {
     ]
     expect(showCuaInstallGuide(results)).toBe(true)
   })
+
+  it('detects single-session busy message', () => {
+    expect(needsCuaInstall('CuaDriver busy: only one UI session allowed (held by iter-1)')).toBe(true)
+  })
 })
