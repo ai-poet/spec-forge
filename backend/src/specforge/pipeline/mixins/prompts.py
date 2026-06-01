@@ -187,7 +187,7 @@ class PipelinePromptsMixin:
         existing = state.get("planning_cli_session_id")
         if existing:
             return existing
-        session_id = uuid4().hex
+        session_id = str(uuid4())
         state["planning_cli_session_id"] = session_id
         return session_id
 
