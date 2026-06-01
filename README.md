@@ -73,6 +73,10 @@ Project（项目）
 │               ├── ui/
 │               └── adversarial/
 └── .specforge/
+    ├── skills/                        # 可选：按环节追加团队规程（见下文）
+    │   ├── planner/extra.md
+    │   ├── coder/extra.md
+    │   └── tester/extra.md
     └── iterations/
         └── iter_abc123/               # 本轮代码工作区
             ├── src/                   # Coder 只改这里
@@ -80,6 +84,27 @@ Project（项目）
 ```
 
 创建 Project 时仅初始化目录与少量种子文件（`00_convention` 短 stub、`01_project_goal`）；SpecForge 框架规则（写区、UI 测试格式）通过 prompt 注入，不写入用户仓库。每次 Iteration 启动时创建 `docs/system_design/iteration_NNN/` 目录树，产物由 Agent 生成、程序校验落盘。
+
+### 项目级 Stage Skills（可选）
+
+内置规程在 SpecForge 后端 [`backend/prompts/stages/`](backend/prompts/stages/)，**每次 CLI 调用由程序组装进 prompt**（不依赖 Claude/Codex 自动发现 skills 目录）。
+
+若需为本仓库追加环节说明，在绑定项目根目录创建（创建 Project 时会建好空目录）：
+
+```text
+.specforge/skills/planner/extra.md   # 追加到 Planner prompt 末尾
+.specforge/skills/coder/extra.md
+.specforge/skills/tester/extra.md
+```
+
+`extra.md` 为纯 Markdown，无需 YAML frontmatter。示例（`planner/extra.md`）：
+
+```markdown
+## Team conventions
+
+- Use `pnpm` for all Node commands.
+- Read `docs/spec/api/` before changing public HTTP handlers.
+```
 
 ### 写权限分区（Write Zones）
 

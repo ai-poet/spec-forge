@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from specforge.prompt_loader import (
+    compose_stage_prompt,
+    compose_stage_prompt_modules,
+    list_stage_modules,
+    load_project_skill_extra,
+)
+
+
+def test_list_stage_modules_orders_skill_first_runtime_last() -> None:
+    modules = list_stage_modules("planner")
+    assert modules[0] == "SKILL.md"
+    assert modules[-1] == "runtime.md"
+    assert "context-manifest.md" in modules
+
+
+def test_compose_planner_includes_context_manifest_anchor() -> None:
+    text = compose_stage_prompt(
+        "planner",
+        variables={
+            "schema_hint": "{tests:[]}",
+            "ui_spec_hint": "{}",
+            "ui_actions": "assert_text",
+            "brief": "Build feature X",
+            "framework_conventions": "Framework rules here.",
+            "convention_excerpt": "",
+            "workflow_state": "",
+        },
+    )
+    assert "## SpecForge stage: planner" in text
+    assert "context_for_coder" in text
+    assert "context/for_tester.jsonl" in text
+    assert "Build feature X" in text
+    assert "Framework rules here." in text
+
+
+def test_compose_coder_includes_manifest_and_docs_root() -> None:
+    text = compose_stage_prompt(
+        "coder",
+        variables={
+            "docs_root": "/tmp/iter",
+            "schema_hint": "{changed_paths:[]}",
+            "failure_notes": "(none)",
+            "framework_conventions": "",
+            "convention_excerpt": "",
+            "context_manifest": "- system_design.md: design\n",
+            "runtime_notes": "",
+        },
+    )
+    assert "/tmp/iter" in text
+    assert "system_design.md" in text
+    assert "src/**" in text
+
+
+def test_project_extra_appended_when_present(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    extra_dir = repo / ".specforge" / "skills" / "coder"
+    extra_dir.mkdir(parents=True)
+    (extra_dir / "extra.md").write_text("Use pnpm only.", encoding="utf-8")
+
+    text = compose_stage_prompt(
+        "coder",
+        repo_root=repo,
+        variables={
+            "docs_root": "/iter",
+            "schema_hint": "{}",
+            "failure_notes": "",
+            "framework_conventions": "",
+            "convention_excerpt": "",
+            "context_manifest": "",
+            "runtime_notes": "",
+        },
+    )
+    assert "Use pnpm only." in text
+    modules = compose_stage_prompt_modules("coder", repo_root=repo)
+    assert "extra.md" in modules
+
+
+def test_load_project_skill_extra_missing_returns_none(tmp_path: Path) -> None:
+    assert load_project_skill_extra(tmp_path, "planner") is None
+
+
+def test_compose_tester_includes_verify_and_execution_mode() -> None:
+    text = compose_stage_prompt(
+        "tester",
+        variables={
+            "repo_root": "/proj",
+            "docs_root": "/proj/docs/iter",
+            "schema_hint": "{passed:boolean}",
+            "test_command_section": "Configured test command: pytest.",
+            "build_command_section": "",
+            "retry_notes_section": "",
+            "framework_conventions": "",
+            "convention_excerpt": "",
+            "context_manifest": "",
+            "runtime_notes": "",
+            "execution_mode": "Run verification and inspect user-facing behavior.",
+        },
+    )
+    assert "tests/adversarial" in text
+    assert "pytest." in text
+    assert "Run verification" in text
+
+
+def test_compose_unknown_stage_raises() -> None:
+    with pytest.raises(FileNotFoundError):
+        list_stage_modules("not_a_stage")  # type: ignore[arg-type]

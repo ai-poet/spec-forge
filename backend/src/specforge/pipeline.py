@@ -57,7 +57,7 @@ from .context_manifest import (
     resolve_tester_manifest,
     write_jsonl,
 )
-from .prompt_loader import render_prompt
+from .prompt_loader import compose_stage_prompt
 from .write_zones import enrich_defects, retry_target, summarize_failure_notes
 from .models import IterationStatus, Mode, NodeName
 from .ui_driver import UIDriverRunner
@@ -1227,23 +1227,26 @@ class LangGraphPipeline:
         brief = self._planner_brief(state)
         if self._is_real_cli(state.get("mode")):
             repo_root = self.project_repo_root(iteration_id)
-            prompt = render_prompt(
+            prompt = compose_stage_prompt(
                 "planner",
-                schema_hint=(
-                    "{system_design:string, modification_plan:string, testing_plan:string, "
-                    "tests:[{path:string, content:string}], "
-                    "context_for_coder:[{file:string, reason:string}], "
-                    "context_for_tester:[{file:string, reason:string}]}"
-                ),
-                ui_spec_hint=(
-                    "{id,title,kind:web|native,target:{url|bundle_id|app_name},"
-                    "steps:[{action,text,value,selector,key,keys,direction,amount}]}"
-                ),
-                ui_actions=", ".join(UI_TEST_ACTIONS),
-                brief=brief,
-                framework_conventions=read_framework_conventions(),
-                convention_excerpt=self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
-                workflow_state=self._workflow_state_section(state, node=NodeName.planner.value),
+                repo_root=repo_root,
+                variables={
+                    "schema_hint": (
+                        "{system_design:string, modification_plan:string, testing_plan:string, "
+                        "tests:[{path:string, content:string}], "
+                        "context_for_coder:[{file:string, reason:string}], "
+                        "context_for_tester:[{file:string, reason:string}]}"
+                    ),
+                    "ui_spec_hint": (
+                        "{id,title,kind:web|native,target:{url|bundle_id|app_name},"
+                        "steps:[{action,text,value,selector,key,keys,direction,amount}]}"
+                    ),
+                    "ui_actions": ", ".join(UI_TEST_ACTIONS),
+                    "brief": brief,
+                    "framework_conventions": read_framework_conventions(),
+                    "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
+                    "workflow_state": self._workflow_state_section(state, node=NodeName.planner.value),
+                },
             )
             provider = self._cli_provider(state, "planner")
             return build_planner_command(
@@ -1258,17 +1261,21 @@ class LangGraphPipeline:
         if self._is_real_cli(state.get("mode")):
             iteration_id = state["iteration_id"]
             docs_root = self.docs_root(iteration_id)
-            prompt = render_prompt(
+            repo_root = self.project_repo_root(iteration_id)
+            prompt = compose_stage_prompt(
                 "planner_clarification",
-                docs_root=str(docs_root),
-                schema_hint="{answer:string, summary:string}",
-                clarification_request=clarification_request,
-                context_manifest=self._context_manifest_prompt(
-                    iteration_id,
-                    FOR_CODER,
-                    heading="Coder context manifest (for_coder.jsonl):",
-                ),
-                runtime_notes=self._runtime_notes_prompt(iteration_id),
+                repo_root=repo_root,
+                variables={
+                    "docs_root": str(docs_root),
+                    "schema_hint": "{answer:string, summary:string}",
+                    "clarification_request": clarification_request,
+                    "context_manifest": self._context_manifest_prompt(
+                        iteration_id,
+                        FOR_CODER,
+                        heading="Coder context manifest (for_coder.jsonl):",
+                    ),
+                    "runtime_notes": self._runtime_notes_prompt(iteration_id),
+                },
             )
             provider = self._cli_provider(state, "planner_clarification")
             return build_planner_clarification_command(
@@ -1285,19 +1292,22 @@ class LangGraphPipeline:
             notes = state.get("failure_notes") or ""
             docs_root = self.docs_root(iteration_id)
             repo_root = self.project_repo_root(iteration_id)
-            prompt = render_prompt(
+            prompt = compose_stage_prompt(
                 "coder",
-                docs_root=str(docs_root),
-                schema_hint="{changed_paths:[string], summary:string, clarification_request?:string}",
-                failure_notes=notes or "(none)",
-                framework_conventions=read_framework_conventions(),
-                convention_excerpt=self._project_convention_prompt(repo_root),
-                context_manifest=self._context_manifest_prompt(
-                    iteration_id,
-                    FOR_CODER,
-                    heading="Required context files (read only these paths):",
-                ),
-                runtime_notes=self._runtime_notes_prompt(iteration_id),
+                repo_root=repo_root,
+                variables={
+                    "docs_root": str(docs_root),
+                    "schema_hint": "{changed_paths:[string], summary:string, clarification_request?:string}",
+                    "failure_notes": notes or "(none)",
+                    "framework_conventions": read_framework_conventions(),
+                    "convention_excerpt": self._project_convention_prompt(repo_root),
+                    "context_manifest": self._context_manifest_prompt(
+                        iteration_id,
+                        FOR_CODER,
+                        heading="Required context files (read only these paths):",
+                    ),
+                    "runtime_notes": self._runtime_notes_prompt(iteration_id),
+                },
             )
             provider = self._cli_provider(state, "coder")
             return build_coder_command(
@@ -1330,74 +1340,74 @@ class LangGraphPipeline:
         build_command = row["build_command"] if "build_command" in row.keys() else None
         if not build_command and state.get("project_id"):
             build_command = self._project_field(state, "default_build_command")
-        common = (
-            "You are Tester and independent delivery reviewer for SpecForge. "
-            f"Project root: {repo_root}. Iteration docs root: {docs_root}. "
-            "Read the approved planning documents, implementation changes, and project tests before judging delivery readiness. "
-            "Return only final JSON matching {verify_report:string, passed:boolean, failure_notes?:string, "
-            "defects:[{severity:'P0'|'P1'|'P2', path?:string, owner?:'coder'|'tester'|'planner', message:string}], "
-            "ux_notes:[string], delivery_recommendations:[string], "
-            "ui_results?:[], ui_warnings?:[], adversarial_tests:[{path:string, content:string}]}. "
-            "verify_report must be Markdown with a # title, a ## Summary section, and explicit Pass/Fail counts "
-            "(example: '- Pass: 3\\n- Fail: 0'). "
-            "Only propose adversarial tests under tests/adversarial. "
-            "For each defect set owner=tester when the path is under tests/adversarial/** or verify/delivery docs; "
-            "owner=coder for src/** implementation bugs; owner=planner for protected tests under tests/unit, tests/integration, tests/ui. "
-            "You must complete a code review of the Coder implementation. Set passed=true only when the code review finds no P0 or P1 bugs. "
-            "Set passed=false when you find any P0/P1 bug, and list them in defects[] (failure_notes is optional summary). "
-            "Do not mark the implementation failed solely because Playwright, CUA Driver, browser binaries, accessibility permissions, "
-            "screen recording permissions, or native UI automation are unavailable; record those as ui_warnings or delivery recommendations "
-            "and continue with static inspection/code review. UI automation assertion failures are warnings unless your code review shows "
-            "the same issue is a P0/P1 implementation bug. "
-        )
-        framework = read_framework_conventions()
-        if framework:
-            common += f"SpecForge framework rules:\n{framework}\n"
-        project_convention = self._project_convention_prompt(repo_root)
-        if project_convention:
-            common += project_convention
+
+        retry_notes_section = ""
         if state.get("failure_notes"):
-            common += (
+            retry_notes_section = (
                 "Retry notes to address in the Tester artifact: "
                 f"{state.get('failure_notes')}. "
                 "If Planner verification rejected verify_report.md structure, regenerate verify_report with a Markdown title, "
-                "a Summary section, and explicit Pass/Fail counts; this is a Tester docs artifact, not a Coder src/** change. "
+                "a Summary section, and explicit Pass/Fail counts; this is a Tester docs artifact, not a Coder src/** change."
             )
+
         if test_command:
-            common += f"Configured test command: {test_command}. Run it when practical and report the result. "
+            test_command_section = f"Configured test command: {test_command}. Run it when practical and report the result."
         else:
-            common += "No configured test command is set; choose lightweight verification from the repo when practical. "
-        if build_command:
-            common += f"Configured build command: {build_command}. Run it when practical before marking passed=true. "
-        manifest = self._context_manifest_prompt(
-            iteration_id,
-            FOR_TESTER,
-            heading="Required context files (read only these paths):",
-        )
-        if manifest:
-            common += manifest
-        runtime = self._runtime_notes_prompt(iteration_id)
-        if runtime:
-            common += runtime
-        if review_only:
-            return (
-                common
-                + "This is a review-only fallback after the primary Tester run failed before producing a valid artifact. "
-                + "Do not invoke Playwright, CUA Driver, browsers, native GUI automation, or screen recording tools. "
-                + "Base the verdict on code review, static inspection, available logs, and non-UI checks only. "
-                + "The pass/fail verdict must represent whether the code review found P0/P1 bugs. "
-                + "If UI automation was skipped because of the primary failure, include that in ui_warnings and delivery_recommendations. "
-                + f"Primary failure notes: {fallback_reason}"
+            test_command_section = (
+                "No configured test command is set; choose lightweight verification from the repo when practical."
             )
-        return render_prompt(
+
+        build_command_section = ""
+        if build_command:
+            build_command_section = (
+                f"Configured build command: {build_command}. Run it when practical before marking passed=true."
+            )
+
+        if review_only:
+            execution_mode = (
+                "This is a review-only fallback after the primary Tester run failed before producing a valid artifact. "
+                "Do not invoke Playwright, CUA Driver, browsers, native GUI automation, or screen recording tools. "
+                "Base the verdict on code review, static inspection, available logs, and non-UI checks only. "
+                "The pass/fail verdict must represent whether the code review found P0/P1 bugs. "
+                "If UI automation was skipped because of the primary failure, include that in ui_warnings and delivery_recommendations. "
+                f"Primary failure notes: {fallback_reason}"
+            )
+        else:
+            execution_mode = (
+                "Run verification and inspect user-facing behavior where possible. "
+                "UI automation is best-effort evidence; UI automation failures should be reported as warnings, "
+                "not as passed=false, unless your code review identifies a P0/P1 implementation bug behind them. "
+                "Include practical post-delivery recommendations."
+            )
+
+        framework = read_framework_conventions()
+        framework_block = f"SpecForge framework rules:\n{framework}\n" if framework else ""
+
+        return compose_stage_prompt(
             "tester",
-            common_body=(
-                common
-                + "Run verification and inspect user-facing behavior where possible. "
-                + "UI automation is best-effort evidence; UI automation failures should be reported as warnings, "
-                + "not as passed=false, unless your code review identifies a P0/P1 implementation bug behind them. "
-                + "Include practical post-delivery recommendations."
-            ),
+            repo_root=repo_root,
+            variables={
+                "repo_root": str(repo_root),
+                "docs_root": str(docs_root),
+                "schema_hint": (
+                    "{verify_report:string, passed:boolean, failure_notes?:string, "
+                    "defects:[{severity:'P0'|'P1'|'P2', path?:string, owner?:'coder'|'tester'|'planner', message:string}], "
+                    "ux_notes:[string], delivery_recommendations:[string], "
+                    "ui_results?:[], ui_warnings?:[], adversarial_tests:[{path:string, content:string}]}"
+                ),
+                "test_command_section": test_command_section,
+                "build_command_section": build_command_section,
+                "retry_notes_section": retry_notes_section,
+                "framework_conventions": framework_block,
+                "convention_excerpt": self._project_convention_prompt(repo_root),
+                "context_manifest": self._context_manifest_prompt(
+                    iteration_id,
+                    FOR_TESTER,
+                    heading="Required context files (read only these paths):",
+                ),
+                "runtime_notes": self._runtime_notes_prompt(iteration_id),
+                "execution_mode": execution_mode,
+            },
         )
 
     def _artifact_schema_inline(self, model: type[BaseModel]) -> str:

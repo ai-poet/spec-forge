@@ -15,6 +15,8 @@ def test_ensure_project_docs_creates_tree(tmp_path: Path):
     assert not (root / "spec-index.md").exists()
     assert (root / "spec").is_dir()
     assert (root / "system_design").is_dir()
+    for stage in ("planner", "coder", "tester"):
+        assert (repo / ".specforge" / "skills" / stage).is_dir()
     convention = (root / "00_convention.md").read_text(encoding="utf-8")
     assert "Replace this stub" in convention
     assert "assert_text_match" not in convention

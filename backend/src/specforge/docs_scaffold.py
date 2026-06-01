@@ -36,7 +36,17 @@ def ensure_project_docs(repo_root: Path, *, project_name: str, description: str 
 
     (root / "spec").mkdir(exist_ok=True)
 
+    ensure_project_skills(repo_root)
+
     return root
+
+
+def ensure_project_skills(repo_root: Path) -> Path:
+    """Create empty per-stage skill override directories (content is team-maintained)."""
+    skills_root = repo_root / ".specforge" / "skills"
+    for stage in ("planner", "coder", "tester"):
+        (skills_root / stage).mkdir(parents=True, exist_ok=True)
+    return skills_root
 
 
 def ensure_iteration_docs(repo_root: Path, docs_slug: str) -> Path:
