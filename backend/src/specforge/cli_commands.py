@@ -57,6 +57,7 @@ def _claude_command(prompt: str, schema: str | Path) -> list[str]:
         "bypassPermissions",
         "--verbose",
         "--include-partial-messages",
+        "--include-hook-events",
         "--json-schema",
         schema_arg,
         prompt,

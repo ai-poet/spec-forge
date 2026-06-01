@@ -1,0 +1,24 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from specforge.artifact_gate import read_convention_excerpt, read_framework_conventions, read_spec_index
+
+
+def test_read_framework_conventions_returns_rules() -> None:
+    text = read_framework_conventions()
+    assert "Write zones" in text
+    assert "tests/ui" in text
+
+
+def test_read_spec_index_missing_returns_empty(tmp_path: Path) -> None:
+    assert read_spec_index(tmp_path) == ""
+
+
+def test_read_convention_excerpt_does_not_pull_missing_spec_index(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "00_convention.md").write_text("# Conv\n\nsrc/** only\n", encoding="utf-8")
+    text = read_convention_excerpt(tmp_path)
+    assert "src/**" in text
+    assert "Spec index" not in text

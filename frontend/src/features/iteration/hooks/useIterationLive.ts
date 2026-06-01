@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getIteration, getIterationDocument } from '../../../shared/lib/api'
+import { iterationWebSocketUrl } from '../../../shared/lib/wsUrl'
 import type { CliOutputPayload, IterationDetail, LiveConnectionStatus, LiveMessage } from '../../../shared/lib/types'
 
 function documentsMetaKey(documents: IterationDetail['documents'] | undefined): string {
@@ -91,7 +92,7 @@ export function useIterationLive(iterationId: string | null) {
 
     function connect() {
       setConnectionStatus(retry ? 'reconnecting' : 'connecting')
-      socket = new WebSocket(`ws://127.0.0.1:8787/ws/iterations/${iterationId}`)
+      socket = new WebSocket(iterationWebSocketUrl(iterationId))
       socket.onopen = () => {
         retry = 0
         setConnectionStatus('connected')

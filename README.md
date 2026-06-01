@@ -53,16 +53,18 @@ Project（项目）
 ```text
 /path/to/my-app/
 ├── docs/                              # 项目级文档（事实源）
-│   ├── 00_convention.md               # 文档约定 + 源码/测试目录布局（Agent 读此文件）
-│   ├── 01_project_goal.md             # 项目目标
-│   ├── 02_iteration_log.md            # 迭代日志（自动追加）
-│   ├── 03_invariants/                 # 不变量（数据/安全/性能）
-│   ├── 04_decisions/                  # ADR 架构决策记录
+│   ├── 00_convention.md               # 项目布局约定（短 stub，由 Planner 扩写）
+│   ├── 01_project_goal.md             # 项目目标（创建时种子，可再由 Agent 维护）
+│   ├── 02_iteration_log.md            # 迭代日志（程序追加审计）
+│   ├── spec/                          # 包级规范（Agent 按需创建）
+│   ├── 03_invariants/                 # 不变量（Agent 按需创建）
+│   ├── 04_decisions/                  # 项目 ADR（Agent 按需创建）
 │   └── system_design/
 │       └── iteration_001/             # 第 1 轮迭代的产物
 │           ├── system_design.md
 │           ├── modification_plan.md
 │           ├── testing_plan.md
+│           ├── context/               # for_coder.jsonl / for_tester.jsonl（Planner 必填）
 │           ├── verify_report.md
 │           ├── clarifications/        # Coder 提问 / Planner 回答
 │           └── tests/
@@ -77,7 +79,7 @@ Project（项目）
             └── .specforge/schemas/    # CLI JSON schema 缓存
 ```
 
-创建 Project 时会自动生成 `docs/` 骨架；每次 Iteration 启动时会在 `docs/system_design/iteration_NNN/` 下创建本轮目录。
+创建 Project 时仅初始化目录与少量种子文件（`00_convention` 短 stub、`01_project_goal`）；SpecForge 框架规则（写区、UI 测试格式）通过 prompt 注入，不写入用户仓库。每次 Iteration 启动时创建 `docs/system_design/iteration_NNN/` 目录树，产物由 Agent 生成、程序校验落盘。
 
 ### 写权限分区（Write Zones）
 
@@ -91,7 +93,7 @@ Project（项目）
 | 验证产物 | `verify_report.md`、`delivery_advice.md`、`ui_*` | **Tester** | 验证与交付文档 |
 | 规划文档 | 其余 `*.md` 规划类文档 | **Planner** | 设计/计划 |
 
-项目可在 `docs/00_convention.md` 中声明本仓库的源码根目录、测试布局与 import 约定；Planner/Coder/Tester 的 CLI prompt 会注入该文件摘要。
+项目可在 `docs/00_convention.md` 中声明源码根目录、测试布局与 import 约定（Planner 应在首轮替换默认 stub）；各阶段 prompt 会注入该文件摘要及 [`backend/prompts/framework_conventions.md`](backend/prompts/framework_conventions.md) 中的框架规则。
 
 ---
 
@@ -443,7 +445,7 @@ spec-forge/
 │       ├── pipeline.py       流水线状态机（核心）
 │       ├── write_zones.py    Write Zone owner 推断与 retry_target
 │       ├── artifact_gate.py  写盘闸门（build/test 命令）
-│       ├── docs_scaffold.py  文档树初始化（含 00_convention 模板）
+│       ├── docs_scaffold.py  文档目录初始化（种子文件 + 程序审计日志）
 │       ├── cli_runner.py     CLI 进程管理
 │       └── ...
 ├── frontend/             React 工作台

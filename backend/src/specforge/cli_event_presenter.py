@@ -15,6 +15,7 @@ Phase = Literal[
     "file_change",
     "mcp",
     "todo",
+    "hook",
     "retry",
     "result",
     "error",
@@ -99,13 +100,29 @@ class CliEventPresenter:
 
     def _looks_like_claude(self, payload: dict[str, Any]) -> bool:
         event_type = str(payload.get("type") or "")
-        return event_type in {"system", "assistant", "user", "result", "stream_event"} or "stream_event" in payload
+        return (
+            event_type in {"system", "assistant", "user", "result", "stream_event", "hook"}
+            or "stream_event" in payload
+            or bool(payload.get("hook_event"))
+        )
 
 
 class ClaudeCodeEventPresenter:
     def present(self, payload: dict[str, Any], *, node: str) -> Optional[CliDisplayEvent]:
         event_type = str(payload.get("type") or "")
         subtype = str(payload.get("subtype") or "")
+        if event_type == "hook" or payload.get("hook_event") or subtype.startswith("hook"):
+            hook_name = str(payload.get("hook_name") or payload.get("hook_event") or subtype or "hook")
+            hook_msg = _compact(payload.get("message") or payload.get("summary") or payload)
+            return CliDisplayEvent(
+                "claude_code",
+                node,
+                "hook",
+                f"Hook: {hook_name}",
+                hook_msg or "Claude Code hook event fired.",
+                tool=hook_name,
+                raw_event=payload,
+            )
         if event_type == "system" and subtype == "init":
             model = str(payload.get("model") or "")
             tools = payload.get("tools")
@@ -139,20 +156,53 @@ class ClaudeCodeEventPresenter:
     def _present_stream_event(self, payload: dict[str, Any], *, node: str) -> Optional[CliDisplayEvent]:
         stream_event = payload.get("stream_event") if isinstance(payload.get("stream_event"), dict) else payload
         stream_type = str(stream_event.get("type") or "")
+        block_index = stream_event.get("index")
+        item_id = str(block_index) if block_index is not None else None
         if stream_type == "content_block_delta":
             delta = stream_event.get("delta") if isinstance(stream_event.get("delta"), dict) else {}
             delta_type = str(delta.get("type") or "")
             if delta_type == "text_delta":
                 text = _compact(delta.get("text"))
-                return CliDisplayEvent("claude_code", node, "text", "Claude 正在生成文本", text or "模型正在流式输出内容。", preview=text, raw_event=payload)
+                return CliDisplayEvent(
+                    "claude_code",
+                    node,
+                    "text",
+                    "Claude 正在生成文本",
+                    text or "模型正在流式输出内容。",
+                    preview=text,
+                    item_id=item_id,
+                    raw_event=payload,
+                )
             if delta_type == "thinking_delta":
                 text = _compact(delta.get("thinking") or delta.get("text"))
-                return CliDisplayEvent("claude_code", node, "thinking", "Claude 正在推理", text or "模型正在形成下一步操作。", preview=text, raw_event=payload)
+                return CliDisplayEvent(
+                    "claude_code",
+                    node,
+                    "thinking",
+                    "Claude 正在推理",
+                    text or "模型正在形成下一步操作。",
+                    preview=text,
+                    item_id=item_id,
+                    raw_event=payload,
+                )
         if stream_type == "content_block_start":
             content = stream_event.get("content_block") if isinstance(stream_event.get("content_block"), dict) else {}
             if content.get("type") == "tool_use":
                 tool = str(content.get("name") or "tool")
-                return CliDisplayEvent("claude_code", node, "tool", f"调用工具: {tool}", "Claude Code 正在调用工具。", tool=tool, item_id=str(content.get("id") or ""), raw_event=payload)
+                paths = _tool_input_paths(content.get("input"))
+                command = _tool_input_command(content.get("input"), tool)
+                return CliDisplayEvent(
+                    "claude_code",
+                    node,
+                    "tool",
+                    f"调用工具: {tool}",
+                    "Claude Code 正在调用工具。",
+                    tool=tool,
+                    item_id=str(content.get("id") or ""),
+                    paths=paths,
+                    command=command,
+                    raw_event=payload,
+                )
         if stream_type == "message_stop":
             return CliDisplayEvent("claude_code", node, "result", "Claude 消息输出完成", "本轮模型消息已经结束。", severity="success", status="completed", raw_event=payload)
         return None
@@ -167,7 +217,21 @@ class ClaudeCodeEventPresenter:
                 if block.get("type") == "tool_use":
                     tool = str(block.get("name") or "tool")
                     preview = _compact(block.get("input"))
-                    return CliDisplayEvent("claude_code", node, "tool", f"调用工具: {tool}", preview or "Claude Code 正在调用工具。", tool=tool, item_id=str(block.get("id") or ""), preview=preview, raw_event=payload)
+                    paths = _tool_input_paths(block.get("input"))
+                    command = _tool_input_command(block.get("input"), tool)
+                    return CliDisplayEvent(
+                        "claude_code",
+                        node,
+                        "tool",
+                        f"调用工具: {tool}",
+                        preview or "Claude Code 正在调用工具。",
+                        tool=tool,
+                        item_id=str(block.get("id") or ""),
+                        preview=preview,
+                        paths=paths,
+                        command=command,
+                        raw_event=payload,
+                    )
                 if block.get("type") == "text":
                     text = _compact(block.get("text"))
                     return CliDisplayEvent("claude_code", node, "text", "Claude 输出说明", text or "Claude Code 正在输出文本。", preview=text, raw_event=payload)
@@ -249,6 +313,34 @@ class CodexEventPresenter:
             return CliDisplayEvent("codex", node, "thinking", "Codex 正在推理", text or "Tester 正在形成验证判断。", preview=text, raw_event=payload)
         text = _compact(payload.get("text") or payload.get("message"))
         return CliDisplayEvent("codex", node, "text", "Codex 输出验证结论", text or "Tester 正在输出最终报告内容。", preview=text, raw_event=payload)
+
+
+def _tool_input_paths(value: Any) -> list[str]:
+    if not isinstance(value, dict):
+        return []
+    paths: list[str] = []
+    for key in ("file_path", "filePath", "path", "notebook_path"):
+        raw = value.get(key)
+        if isinstance(raw, str) and raw.strip():
+            paths.append(raw.strip())
+    for key in ("paths", "files"):
+        raw = value.get(key)
+        if isinstance(raw, list):
+            paths.extend(str(item) for item in raw if str(item).strip())
+    return sorted(set(paths))
+
+
+def _tool_input_command(value: Any, tool: str) -> Optional[str]:
+    if not isinstance(value, dict):
+        return None
+    command = value.get("command") or value.get("cmd")
+    if isinstance(command, list):
+        return " ".join(map(str, command))
+    if isinstance(command, str) and command.strip():
+        return command.strip()
+    if tool.lower() in {"bash", "shell"} and isinstance(value.get("command"), str):
+        return str(value["command"])
+    return None
 
 
 def _compact(value: Any, *, limit: int = 360) -> str:

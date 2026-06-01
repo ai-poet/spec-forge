@@ -22,6 +22,7 @@ interface Props {
   onApproveVerify: () => Promise<void>
   onStop: () => Promise<void>
   onResume: () => Promise<void>
+  onRuntimeNoteSubmitted?: () => void
 }
 
 export function StageFocusPanel({
@@ -35,6 +36,7 @@ export function StageFocusPanel({
   onApproveVerify,
   onStop,
   onResume,
+  onRuntimeNoteSubmitted,
 }: Props) {
   const reviewMode = Boolean(reviewStepKey)
   const focusStep = reviewStepKey ?? (detail ? inferFocusStep(detail) : null)
@@ -89,6 +91,7 @@ export function StageFocusPanel({
           reviewMode={reviewMode}
           reviewStepKey={reviewStepKey}
           onSelectStep={onSelectStep}
+          onRuntimeNoteSubmitted={onRuntimeNoteSubmitted}
         />
         {renderStepExtras(focusStep)}
       </div>

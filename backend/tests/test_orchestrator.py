@@ -9,7 +9,17 @@ from fastapi.testclient import TestClient
 
 from specforge import contracts as contract_models
 from specforge.cli_runner import CLIResult
-from specforge.contracts import ArtifactFile, CoderArtifact, PlannerArtifact, UIDriverRunResult, UITestResult, UITestSpec, parse_json_artifact, validate_ui_spec_content
+from specforge.contracts import (
+    ArtifactFile,
+    CoderArtifact,
+    ContextManifestEntry,
+    PlannerArtifact,
+    UIDriverRunResult,
+    UITestResult,
+    UITestSpec,
+    parse_json_artifact,
+    validate_ui_spec_content,
+)
 from specforge.docs_io import IterationDocs, compare_test_integrity, test_integrity_manifest as build_test_integrity_manifest
 from specforge.main import app, job_queue, pipeline
 from specforge.models import IterationStatus
@@ -233,7 +243,8 @@ def test_iteration_workspace_under_project_root(tmp_path):
     assert str(workspace).startswith(str((Path(root_path) / ".specforge" / "iterations").resolve()))
     assert (docs_root / "system_design.md").exists()
     assert (Path(root_path) / "docs" / "00_convention.md").exists()
-    assert (Path(root_path) / "docs" / "04_decisions" / "ADR-001-langgraph.md").exists()
+    assert (docs_root / "context" / "for_coder.jsonl").exists()
+    assert (docs_root / "context" / "for_tester.jsonl").exists()
 
 
 def test_create_project_and_filter_iterations(tmp_path):
@@ -1084,6 +1095,8 @@ def test_planner_write_rejects_invalid_ui_spec(tmp_path):
         modification_plan="---\n\n# Plan\n",
         testing_plan="---\n\n# Tests\n",
         tests=[ArtifactFile(path="tests/ui/bad.json", content=bad_spec)],
+        context_for_coder=[ContextManifestEntry(file="system_design.md", reason="design")],
+        context_for_tester=[ContextManifestEntry(file="system_design.md", reason="design")],
     )
     with pytest.raises(ValueError, match="invalid UI spec"):
         pipeline._write_planner_artifact(iteration_id, docs, artifact)
@@ -1352,6 +1365,16 @@ def planner_with_ui_spec(state, run_result):
             ArtifactFile(path="tests/unit/test_transitions.py", content="def test_ok():\n    assert True\n"),
             ArtifactFile(path="tests/ui/web_smoke.json", content=ui_spec),
         ],
+        context_for_coder=[
+            ContextManifestEntry(file="system_design.md", reason="design"),
+            ContextManifestEntry(file="modification_plan.md", reason="scope"),
+            ContextManifestEntry(file="tests/ui/web_smoke.json", reason="protected ui spec"),
+        ],
+        context_for_tester=[
+            ContextManifestEntry(file="system_design.md", reason="design"),
+            ContextManifestEntry(file="modification_plan.md", reason="scope"),
+            ContextManifestEntry(file="tests/ui/web_smoke.json", reason="protected ui spec"),
+        ],
     )
 
 
@@ -1375,6 +1398,16 @@ def planner_with_ui_and_native_spec(state, run_result):
             ArtifactFile(path="tests/unit/test_transitions.py", content="def test_ok():\n    assert True\n"),
             ArtifactFile(path="tests/ui/web_smoke.json", content=web_spec),
             ArtifactFile(path="tests/ui/native_smoke.json", content=native_spec),
+        ],
+        context_for_coder=[
+            ContextManifestEntry(file="system_design.md", reason="design"),
+            ContextManifestEntry(file="modification_plan.md", reason="scope"),
+            ContextManifestEntry(file="tests/ui/web_smoke.json", reason="protected ui spec"),
+        ],
+        context_for_tester=[
+            ContextManifestEntry(file="system_design.md", reason="design"),
+            ContextManifestEntry(file="modification_plan.md", reason="scope"),
+            ContextManifestEntry(file="tests/ui/web_smoke.json", reason="protected ui spec"),
         ],
     )
 

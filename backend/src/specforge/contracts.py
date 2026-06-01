@@ -11,11 +11,18 @@ class ArtifactFile(BaseModel):
     content: str
 
 
+class ContextManifestEntry(BaseModel):
+    file: str = Field(min_length=1)
+    reason: str = ""
+
+
 class PlannerArtifact(BaseModel):
     system_design: str
     modification_plan: str
     testing_plan: str
     tests: list[ArtifactFile] = Field(default_factory=list)
+    context_for_coder: list[ContextManifestEntry] = Field(default_factory=list)
+    context_for_tester: list[ContextManifestEntry] = Field(default_factory=list)
 
 
 class PlannerClarificationArtifact(BaseModel):

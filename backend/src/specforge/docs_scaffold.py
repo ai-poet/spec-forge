@@ -19,8 +19,6 @@ def iteration_docs_root(repo_root: Path, docs_slug: str) -> Path:
 def ensure_project_docs(repo_root: Path, *, project_name: str, description: str | None = None) -> Path:
     root = project_docs_root(repo_root)
     root.mkdir(parents=True, exist_ok=True)
-    (root / "03_invariants").mkdir(exist_ok=True)
-    (root / "04_decisions").mkdir(exist_ok=True)
     (root / "system_design").mkdir(exist_ok=True)
 
     _write_if_missing(
@@ -35,21 +33,8 @@ def ensure_project_docs(repo_root: Path, *, project_name: str, description: str 
         root / "02_iteration_log.md",
         _iteration_log_template(),
     )
-    _write_if_missing(
-        root / "03_invariants" / "data_invariants.md",
-        _data_invariants_template(),
-    )
-    _write_if_missing(
-        root / "03_invariants" / "security_invariants.md",
-        _security_invariants_template(),
-    )
-    _write_if_missing(
-        root / "03_invariants" / "performance_budgets.md",
-        _performance_budgets_template(),
-    )
 
-    for filename, body in _adr_templates().items():
-        _write_if_missing(root / "04_decisions" / filename, body)
+    (root / "spec").mkdir(exist_ok=True)
 
     return root
 
@@ -63,10 +48,11 @@ def ensure_iteration_docs(repo_root: Path, docs_slug: str) -> Path:
     (iteration_root / "tests" / "adversarial").mkdir(parents=True, exist_ok=True)
     (iteration_root / "tests" / "ui" / "recordings").mkdir(parents=True, exist_ok=True)
     (iteration_root / "clarifications").mkdir(parents=True, exist_ok=True)
+    (iteration_root / "context").mkdir(parents=True, exist_ok=True)
     return iteration_root
 
 
-def append_iteration_log(repo_root: Path, *, docs_slug: str, event: str, detail: str) -> None:
+def append_iteration_log(repo_root: Path, *, docs_slug: str, event: str, detail: str) -> Path:
     ensure_project_docs(repo_root, project_name=repo_root.name)
     log_path = project_docs_root(repo_root) / "02_iteration_log.md"
     today = date.today().isoformat()
@@ -75,6 +61,7 @@ def append_iteration_log(repo_root: Path, *, docs_slug: str, event: str, detail:
         log_path.write_text(log_path.read_text(encoding="utf-8").rstrip() + entry + "\n", encoding="utf-8")
     else:
         log_path.write_text(_iteration_log_template() + entry + "\n", encoding="utf-8")
+    return log_path
 
 
 def _write_if_missing(path: Path, content: str) -> None:
@@ -87,55 +74,16 @@ def _write_if_missing(path: Path, content: str) -> None:
 def _convention_template() -> str:
     return """---
 doc: convention
-status: approved
-created: 2026-05-28
+status: draft
 owner: user
 ---
 
-# Documentation Conventions
+# Project Conventions
 
-- All docs are plain markdown with YAML frontmatter.
-- Links use relative paths, not wikilinks.
-- Planner writes specs and protected tests; Coder writes `src/`; Tester writes verify reports and adversarial tests.
-- Each iteration lives under `docs/system_design/iteration_NNN/`.
+Replace this stub with **this repository's** layout (source roots, test directories, import style).
+Planner should update this file on the first iteration when it is still generic.
 
-## Source and test layout
-
-Declare your project layout here so agents use correct paths (adapt for your stack):
-
-| Zone | Path pattern | Owner |
-|------|--------------|-------|
-| Source | `src/**` (or `internal/`, `lib/`, `pkg/`) | Coder |
-| Protected tests | `tests/unit`, `tests/integration`, `tests/ui` | Planner |
-| Adversarial tests | `tests/adversarial/**` | Tester |
-| Verify docs | `verify_report.md`, `delivery_advice.md`, `ui_*` | Tester |
-
-- Use relative imports from each test file to source modules; follow your language's module conventions.
-- Recommended verification: set `test_command` and `build_command` on the SpecForge project (e.g. `npm test`, `cargo check`).
-
-## UI test specs (`tests/ui/*.json`)
-
-Use snake_case actions only. Example:
-
-```json
-{
-  "id": "web_smoke",
-  "title": "Smoke",
-  "kind": "web",
-  "target": { "url": "http://127.0.0.1:5178" },
-  "steps": [
-    { "action": "click_text", "text": "Submit" },
-    { "action": "wait", "value": "500" },
-    { "action": "resize_window", "value": "360,420" },
-    { "action": "assert_text_match", "selector": ".timer", "value": "^\\\\d{2}:\\\\d{2}$" },
-    { "action": "assert_visible", "selector": ".timer" },
-    { "action": "assert_missing", "selector": ".timer" },
-    { "action": "screenshot" }
-  ]
-}
-```
-
-Allowed actions: `assert_text`, `assert_text_match`, `assert_missing`, `assert_visible`, `click_text`, `type_text`, `press_key`, `hotkey`, `scroll`, `screenshot`, `wait`, `resize_window`.
+Keep SpecForge write zones: Coder → source only; Planner → protected tests; Tester → verify docs and `tests/adversarial/`.
 """
 
 
@@ -144,10 +92,7 @@ def _project_goal_template(project_name: str, description: str) -> str:
     return f"""---
 doc: project_goal
 status: draft
-created: 2026-05-28
 owner: user
-checkpoint_a_until: 5
-checkpoint_b_until: 5
 ---
 
 # {project_name}
@@ -160,126 +105,10 @@ def _iteration_log_template() -> str:
     return """---
 doc: iteration_log
 status: active
-created: 2026-05-28
 owner: user
 ---
 
 # Iteration Log
 
-Progressive record of pipeline iterations for this project.
+Program-appended audit trail for pipeline runs. Agent-authored docs live under `system_design/iteration_NNN/`.
 """
-
-
-def _data_invariants_template() -> str:
-    return """---
-doc: invariant
-status: draft
-created: 2026-05-28
-owner: user
----
-
-# Data Invariants
-
-- Document schema and data-shape constraints that must never be violated.
-"""
-
-
-def _security_invariants_template() -> str:
-    return """---
-doc: invariant
-status: draft
-created: 2026-05-28
-owner: user
----
-
-# Security Invariants
-
-- Secrets never committed to git.
-- Agent CLIs must not write outside allowed directories.
-"""
-
-
-def _performance_budgets_template() -> str:
-    return """---
-doc: invariant
-status: draft
-created: 2026-05-28
-owner: user
----
-
-# Performance Budgets
-
-- Define latency, memory, and throughput budgets for critical paths.
-"""
-
-
-def _adr_templates() -> dict[str, str]:
-    return {
-        "ADR-001-langgraph.md": """---
-doc: adr
-status: accepted
-created: 2026-05-28
-owner: user
----
-
-# ADR-001: LangGraph for Orchestration
-
-Use LangGraph with SQLite checkpointer for typed state, HITL interrupts, and resumable pipelines.
-""",
-        "ADR-002-claude-code-sdk.md": """---
-doc: adr
-status: accepted
-created: 2026-05-28
-owner: user
----
-
-# ADR-002: Claude Code CLI for Planner and Coder
-
-Planner and Coder run as fresh Claude Code CLI sessions with JSON schema artifacts.
-""",
-        "ADR-003-cua-for-ui.md": """---
-doc: adr
-status: accepted
-created: 2026-05-28
-owner: user
----
-
-# ADR-003: Cua Driver for UI Verification
-
-UI tests are executed by Tester via CuaDriver, not as an independent LangGraph node.
-When Cua is unavailable, web trajectories fall back to Playwright; native trajectories remain skipped with warning.
-""",
-        "ADR-004-model-family-split.md": """---
-doc: adr
-status: accepted
-created: 2026-05-28
-owner: user
----
-
-# ADR-004: Split Model Families
-
-Planner/Coder use Claude; Tester uses Codex to reduce planner-tester collusion.
-""",
-        "ADR-005-local-md-not-obsidian.md": """---
-doc: adr
-status: accepted
-created: 2026-05-28
-owner: user
----
-
-# ADR-005: Local Markdown, Not Obsidian
-
-Docs live in git as plain markdown; viewers can be added later without migration.
-""",
-        "ADR-006-relative-path-links.md": """---
-doc: adr
-status: accepted
-created: 2026-05-28
-owner: user
----
-
-# ADR-006: Relative Path Links
-
-Cross-doc links use relative file paths for portability.
-""",
-    }

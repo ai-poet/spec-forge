@@ -14,7 +14,7 @@ import type {
   PickFolderResult,
 } from './types'
 
-const API_BASE = 'http://127.0.0.1:8787'
+export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? 'http://127.0.0.1:8787'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
@@ -190,6 +190,13 @@ export function approveDesign(id: string, note?: string): Promise<IterationSumma
 
 export function approveVerify(id: string, note?: string): Promise<IterationSummary> {
   return request(`/api/iterations/${id}/approve-verify`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
+  })
+}
+
+export function submitRuntimeNote(id: string, note: string): Promise<IterationSummary> {
+  return request(`/api/iterations/${id}/runtime-note`, {
     method: 'POST',
     body: JSON.stringify({ note }),
   })

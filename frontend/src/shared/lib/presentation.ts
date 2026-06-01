@@ -36,6 +36,7 @@ export function presentEvent(event: EventRecord): SemanticEvent {
     paths: arrayValue(payload.paths),
     tool: stringValue(payload.tool),
     preview: stringValue(payload.preview),
+    item_id: stringValue(payload.item_id),
     run_id: stringValue(payload.run_id),
     document: stringValue(payload.document),
     action_hint: stringValue(payload.action_hint) ?? fallback.action_hint,
@@ -61,6 +62,7 @@ export function cliPhaseLabel(value: string | undefined) {
     file_change: '文件',
     mcp: 'MCP',
     todo: '清单',
+    hook: 'Hook',
     retry: '重试',
     result: '结果',
     error: '错误',
@@ -183,6 +185,7 @@ function phaseValue(value: unknown): CliPhase | undefined {
     value === 'file_change' ||
     value === 'mcp' ||
     value === 'todo' ||
+    value === 'hook' ||
     value === 'retry' ||
     value === 'result' ||
     value === 'error'

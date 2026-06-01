@@ -9,6 +9,12 @@ def present(payload):
     return event
 
 
+def test_claude_hook_event_is_displayed():
+    hook = present({"type": "hook", "hook_name": "SessionStart", "message": "started"})
+    assert hook.phase == "hook"
+    assert "SessionStart" in hook.title
+
+
 def test_claude_init_and_api_retry_are_display_events():
     init = present({"type": "system", "subtype": "init", "model": "sonnet", "tools": ["Read", "Edit"]})
     assert init.provider == "claude_code"

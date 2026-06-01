@@ -83,6 +83,7 @@ class IterationDocs:
         (self.root / "tests" / "ui").mkdir(parents=True, exist_ok=True)
         (self.root / "tests" / "adversarial").mkdir(parents=True, exist_ok=True)
         (self.root / "clarifications").mkdir(parents=True, exist_ok=True)
+        (self.root / "context").mkdir(parents=True, exist_ok=True)
 
     def write_text(self, relative_path: str, content: str) -> Path:
         path = self.root / safe_relative_path(relative_path)

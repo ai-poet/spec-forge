@@ -107,7 +107,7 @@ export interface EventRecord {
 
 export type EventSeverity = 'info' | 'success' | 'warning' | 'error'
 export type CliProvider = 'claude_code' | 'codex'
-export type CliPhase = 'session' | 'thinking' | 'text' | 'tool' | 'command' | 'file_change' | 'mcp' | 'todo' | 'retry' | 'result' | 'error'
+export type CliPhase = 'session' | 'thinking' | 'text' | 'tool' | 'command' | 'file_change' | 'mcp' | 'todo' | 'hook' | 'retry' | 'result' | 'error'
 
 export interface CliDisplayPayload {
   provider: CliProvider
@@ -140,6 +140,7 @@ export interface SemanticEvent {
   paths?: string[]
   tool?: string
   preview?: string
+  item_id?: string
   run_id?: string
   document?: string
   action_hint?: string

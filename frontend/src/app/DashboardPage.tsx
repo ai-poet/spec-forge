@@ -313,6 +313,7 @@ export function DashboardPage() {
                   onApproveVerify={handleApproveVerify}
                   onStop={handleStop}
                   onResume={handleResume}
+                  onRuntimeNoteSubmitted={() => live.loadDetail().catch(console.error)}
                 />
               </WorkspaceShell>
             </div>

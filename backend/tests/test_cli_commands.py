@@ -34,3 +34,4 @@ def test_build_tester_command_codex_vs_claude():
     claude_cmd = build_tester_command(provider="claude", prompt=prompt, schema_inline=schema_inline, schema_file=schema_file)
     assert codex_cmd[0] == "codex"
     assert claude_cmd[0] == "claude"
+    assert "--include-hook-events" in claude_cmd

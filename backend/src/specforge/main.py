@@ -412,6 +412,24 @@ def resume_iteration(iteration_id: str, payload: RetryRequest) -> IterationSumma
     return get_iteration(iteration_id)
 
 
+_RUNTIME_NOTE_STATUSES = {"planning", "coding", "testing", "retrying", "queued"}
+
+
+@app.post("/api/iterations/{iteration_id}/runtime-note", response_model=IterationSummary)
+def add_runtime_note(iteration_id: str, payload: RetryRequest) -> IterationSummary:
+    iteration = db.get_iteration(iteration_id)
+    if not iteration:
+        raise HTTPException(status_code=404, detail="iteration not found")
+    if iteration["status"] not in _RUNTIME_NOTE_STATUSES:
+        raise HTTPException(status_code=409, detail="iteration is not accepting runtime notes")
+    note = (payload.note or "").strip()
+    if not note:
+        raise HTTPException(status_code=400, detail="note is required")
+    node = iteration["current_node"] if "current_node" in iteration.keys() else "user"
+    pipeline.add_runtime_note(iteration_id, note, node=str(node or "user"))
+    return get_iteration(iteration_id)
+
+
 @app.get("/api/iterations/{iteration_id}/documents/{name}")
 def get_document(iteration_id: str, name: str) -> dict[str, str]:
     docs = db.list_documents(iteration_id)

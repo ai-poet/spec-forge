@@ -27,6 +27,7 @@ from .config import settings
 from .contracts import (
     ArtifactFile,
     CoderArtifact,
+    ContextManifestEntry,
     Defect,
     PlannerArtifact,
     PlannerClarificationArtifact,
@@ -44,7 +45,19 @@ from .db import Database, iso, utcnow
 from .docs_io import IterationDocs, checksum, compare_test_integrity, safe_relative_path, test_integrity_manifest
 from .docs_scaffold import append_iteration_log, ensure_iteration_docs, ensure_project_docs, iteration_docs_root
 from .events import EventBroker, EventEnvelope
-from .artifact_gate import read_convention_excerpt, run_project_commands
+from .artifact_gate import read_convention_excerpt, read_framework_conventions, read_spec_index, run_project_commands
+from .context_manifest import (
+    FOR_CODER,
+    FOR_TESTER,
+    RUNTIME_NOTES,
+    append_runtime_note,
+    format_manifest_for_prompt,
+    format_runtime_notes_section,
+    resolve_coder_manifest,
+    resolve_tester_manifest,
+    write_jsonl,
+)
+from .prompt_loader import render_prompt
 from .write_zones import enrich_defects, retry_target, summarize_failure_notes
 from .models import IterationStatus, Mode, NodeName
 from .ui_driver import UIDriverRunner
@@ -1088,9 +1101,10 @@ class LangGraphPipeline:
                 cli_events = self.cli_presenter.present_chunk(chunk, node=str(current_node))
                 for event in cli_events:
                     key = event.key
-                    if key in seen_cli_events:
+                    if key in seen_cli_events and event.phase not in ("text", "thinking"):
                         continue
-                    seen_cli_events.add(key)
+                    if event.phase not in ("text", "thinking"):
+                        seen_cli_events.add(key)
                     self._cli_display_event(iteration_id, event)
                 if cli_events:
                     return
@@ -1135,6 +1149,53 @@ class LangGraphPipeline:
             return self.project_repo_root(iteration_id)
         return self.project_root(iteration_id)
 
+    def _workflow_state_section(self, state: PipelineState, *, node: str) -> str:
+        current = state.get("current_node") or node
+        status = state.get("status") or ""
+        route = state.get("route") or ""
+        parts = [f"node: {current}", f"status: {status}"]
+        if route:
+            parts.append(f"route: {route}")
+        body = "\n".join(parts)
+        return f"<workflow-state>\n{body}\n</workflow-state>"
+
+    def _context_manifest_prompt(self, iteration_id: str, manifest_rel: str, *, heading: str) -> str:
+        path = self.docs_root(iteration_id) / manifest_rel
+        if not path.exists():
+            return ""
+        from .context_manifest import read_jsonl
+
+        return format_manifest_for_prompt(read_jsonl(path), heading=heading)
+
+    def _runtime_notes_prompt(self, iteration_id: str) -> str:
+        path = self.docs_root(iteration_id) / RUNTIME_NOTES
+        return format_runtime_notes_section(path)
+
+    def add_runtime_note(self, iteration_id: str, note: str, *, node: str = "user") -> None:
+        text = note.strip()
+        if not text:
+            return
+        docs_root = self.docs_root(iteration_id)
+        append_runtime_note(docs_root / RUNTIME_NOTES, note=text, node=node)
+        self._add_event(
+            iteration_id,
+            event_type="runtime.note",
+            payload={"note": text, "node": node},
+        )
+        self._publish_snapshot(iteration_id)
+
+    def _project_convention_prompt(self, repo_root: Path) -> str:
+        convention = read_convention_excerpt(repo_root)
+        if not convention:
+            return ""
+        return f"Project docs/00_convention.md:\n{convention}\n"
+
+    def _spec_index_prompt(self, repo_root: Path) -> str:
+        index = read_spec_index(repo_root)
+        if not index:
+            return ""
+        return f"Project docs/spec-index.md:\n{index}\n"
+
     def _planner_brief(self, state: PipelineState) -> str:
         iteration_id = state["iteration_id"]
         docs_root = self.docs_root(iteration_id)
@@ -1143,7 +1204,10 @@ class LangGraphPipeline:
             f"Iteration goal: {state['goal']}",
             f"Project docs root: {repo_root / 'docs'}",
             f"Iteration docs root: {docs_root}",
-            "Read docs/00_convention.md, docs/01_project_goal.md, docs/03_invariants/, and docs/04_decisions/ before planning.",
+            "Read docs/00_convention.md and docs/01_project_goal.md before planning. "
+            "If docs/00_convention.md is still the default stub, update it with this repo's source/test layout (real-cli) or record layout in system_design. "
+            "If docs/03_invariants/ or docs/04_decisions/ exist, read relevant entries; create them only when needed. "
+            "If docs/spec-index.md exists, honor it when building context manifests.",
         ]
         if state.get("epic_title"):
             parts.append(f"Epic title: {state['epic_title']}")
@@ -1162,19 +1226,24 @@ class LangGraphPipeline:
         iteration_id = state["iteration_id"]
         brief = self._planner_brief(state)
         if self._is_real_cli(state.get("mode")):
-            prompt = (
-                "You are Planner for SpecForge. Read the epic (大需求) below and split it into concrete "
-                "implementation tasks for this iteration. Produce system design, modification plan, testing plan, "
-                "and protected tests. Return only JSON matching this shape: "
-                "{system_design:string, modification_plan:string, testing_plan:string, "
-                "tests:[{path:string, content:string}]}. "
-                "Use code test paths under tests/unit or tests/integration. "
-                "For UI tests, write JSON specs under tests/ui/*.json with shape "
-                "{id,title,kind:web|native,target:{url|bundle_id|app_name},steps:[{action,text,value,selector,key,keys,direction,amount}]}. "
-                f"Allowed UI actions (snake_case only): {', '.join(UI_TEST_ACTIONS)}. "
-                "Use selector only for Web specs that should run with Playwright; CuaDriver specs should be expressed by visible text/AX-visible controls. "
-                "Example step: {\"action\":\"click_text\",\"text\":\"Submit\"}. "
-                f"{brief}"
+            repo_root = self.project_repo_root(iteration_id)
+            prompt = render_prompt(
+                "planner",
+                schema_hint=(
+                    "{system_design:string, modification_plan:string, testing_plan:string, "
+                    "tests:[{path:string, content:string}], "
+                    "context_for_coder:[{file:string, reason:string}], "
+                    "context_for_tester:[{file:string, reason:string}]}"
+                ),
+                ui_spec_hint=(
+                    "{id,title,kind:web|native,target:{url|bundle_id|app_name},"
+                    "steps:[{action,text,value,selector,key,keys,direction,amount}]}"
+                ),
+                ui_actions=", ".join(UI_TEST_ACTIONS),
+                brief=brief,
+                framework_conventions=read_framework_conventions(),
+                convention_excerpt=self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
+                workflow_state=self._workflow_state_section(state, node=NodeName.planner.value),
             )
             provider = self._cli_provider(state, "planner")
             return build_planner_command(
@@ -1189,13 +1258,17 @@ class LangGraphPipeline:
         if self._is_real_cli(state.get("mode")):
             iteration_id = state["iteration_id"]
             docs_root = self.docs_root(iteration_id)
-            prompt = (
-                "You are Planner for SpecForge answering a Coder clarification request. "
-                f"Iteration docs root: {docs_root}. "
-                "Read the approved system_design.md, modification_plan.md, testing_plan.md, and project invariants. "
-                "Return only JSON matching {answer:string, summary:string}. "
-                "The answer must be actionable for Coder and should not change protected tests. "
-                f"Clarification request: {clarification_request}"
+            prompt = render_prompt(
+                "planner_clarification",
+                docs_root=str(docs_root),
+                schema_hint="{answer:string, summary:string}",
+                clarification_request=clarification_request,
+                context_manifest=self._context_manifest_prompt(
+                    iteration_id,
+                    FOR_CODER,
+                    heading="Coder context manifest (for_coder.jsonl):",
+                ),
+                runtime_notes=self._runtime_notes_prompt(iteration_id),
             )
             provider = self._cli_provider(state, "planner_clarification")
             return build_planner_clarification_command(
@@ -1212,19 +1285,20 @@ class LangGraphPipeline:
             notes = state.get("failure_notes") or ""
             docs_root = self.docs_root(iteration_id)
             repo_root = self.project_repo_root(iteration_id)
-            convention = read_convention_excerpt(repo_root)
-            prompt = (
-                "You are Coder for SpecForge. Your current working directory is the project root. "
-                f"Iteration docs root: {docs_root}. "
-                "Edit only project source files under src/** (or the source roots declared in docs/00_convention.md). "
-                "Read project docs under docs/ and the approved iteration specs under the iteration docs root. "
-                "Do not edit docs/**, tests/**, .specforge/**, verify_report.md, or protected planning documents. "
-                "Return only JSON matching "
-                "{changed_paths:[string], summary:string, clarification_request?:string}. "
-                f"Failure notes to address: {notes}"
+            prompt = render_prompt(
+                "coder",
+                docs_root=str(docs_root),
+                schema_hint="{changed_paths:[string], summary:string, clarification_request?:string}",
+                failure_notes=notes or "(none)",
+                framework_conventions=read_framework_conventions(),
+                convention_excerpt=self._project_convention_prompt(repo_root),
+                context_manifest=self._context_manifest_prompt(
+                    iteration_id,
+                    FOR_CODER,
+                    heading="Required context files (read only these paths):",
+                ),
+                runtime_notes=self._runtime_notes_prompt(iteration_id),
             )
-            if convention:
-                prompt += f"\nFollow path conventions in docs/00_convention.md:\n{convention}\n"
             provider = self._cli_provider(state, "coder")
             return build_coder_command(
                 provider=provider,
@@ -1256,7 +1330,6 @@ class LangGraphPipeline:
         build_command = row["build_command"] if "build_command" in row.keys() else None
         if not build_command and state.get("project_id"):
             build_command = self._project_field(state, "default_build_command")
-        convention = read_convention_excerpt(repo_root)
         common = (
             "You are Tester and independent delivery reviewer for SpecForge. "
             f"Project root: {repo_root}. Iteration docs root: {docs_root}. "
@@ -1277,8 +1350,12 @@ class LangGraphPipeline:
             "and continue with static inspection/code review. UI automation assertion failures are warnings unless your code review shows "
             "the same issue is a P0/P1 implementation bug. "
         )
-        if convention:
-            common += f"Follow path and import conventions in docs/00_convention.md:\n{convention}\n"
+        framework = read_framework_conventions()
+        if framework:
+            common += f"SpecForge framework rules:\n{framework}\n"
+        project_convention = self._project_convention_prompt(repo_root)
+        if project_convention:
+            common += project_convention
         if state.get("failure_notes"):
             common += (
                 "Retry notes to address in the Tester artifact: "
@@ -1292,6 +1369,16 @@ class LangGraphPipeline:
             common += "No configured test command is set; choose lightweight verification from the repo when practical. "
         if build_command:
             common += f"Configured build command: {build_command}. Run it when practical before marking passed=true. "
+        manifest = self._context_manifest_prompt(
+            iteration_id,
+            FOR_TESTER,
+            heading="Required context files (read only these paths):",
+        )
+        if manifest:
+            common += manifest
+        runtime = self._runtime_notes_prompt(iteration_id)
+        if runtime:
+            common += runtime
         if review_only:
             return (
                 common
@@ -1302,12 +1389,15 @@ class LangGraphPipeline:
                 + "If UI automation was skipped because of the primary failure, include that in ui_warnings and delivery_recommendations. "
                 + f"Primary failure notes: {fallback_reason}"
             )
-        return (
-            common
-            + "Run verification and inspect user-facing behavior where possible. "
-            + "UI automation is best-effort evidence; UI automation failures should be reported as warnings, "
-            + "not as passed=false, unless your code review identifies a P0/P1 implementation bug behind them. "
-            + "Include practical post-delivery recommendations."
+        return render_prompt(
+            "tester",
+            common_body=(
+                common
+                + "Run verification and inspect user-facing behavior where possible. "
+                + "UI automation is best-effort evidence; UI automation failures should be reported as warnings, "
+                + "not as passed=false, unless your code review identifies a P0/P1 implementation bug behind them. "
+                + "Include practical post-delivery recommendations."
+            ),
         )
 
     def _artifact_schema_inline(self, model: type[BaseModel]) -> str:
@@ -1343,6 +1433,18 @@ class LangGraphPipeline:
                     path="tests/unit/test_transitions.py",
                     content="from specforge.models import IterationStatus\n\n\ndef test_status_names_exist():\n    assert IterationStatus.created.value == 'created'\n",
                 )
+            ],
+            context_for_coder=[
+                ContextManifestEntry(file="system_design.md", reason="Approved design for Coder"),
+                ContextManifestEntry(file="modification_plan.md", reason="Implementation scope"),
+                ContextManifestEntry(file="testing_plan.md", reason="Protected test strategy"),
+                ContextManifestEntry(file="tests/unit/test_transitions.py", reason="Protected unit test"),
+            ],
+            context_for_tester=[
+                ContextManifestEntry(file="system_design.md", reason="Design intent for verification"),
+                ContextManifestEntry(file="modification_plan.md", reason="Expected implementation scope"),
+                ContextManifestEntry(file="testing_plan.md", reason="Verification strategy"),
+                ContextManifestEntry(file="tests/unit/test_transitions.py", reason="Protected tests to respect"),
             ],
         )
 
@@ -1509,6 +1611,11 @@ class LangGraphPipeline:
             path = docs.write_text(relative.as_posix(), file.content)
             self._record_document(iteration_id, relative.as_posix(), path)
             self._node_event(iteration_id, "artifact.created", NodeName.planner.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
+        context_root = docs.root / "context"
+        write_jsonl(context_root / "for_coder.jsonl", resolve_coder_manifest(artifact))
+        write_jsonl(context_root / "for_tester.jsonl", resolve_tester_manifest(artifact))
+        self._record_document(iteration_id, "context/for_coder.jsonl", context_root / "for_coder.jsonl")
+        self._record_document(iteration_id, "context/for_tester.jsonl", context_root / "for_tester.jsonl")
 
     def _ensure_verify_report_markers(self, text: str) -> str:
         result = text if text.strip() else "# Verify Report\n\n"

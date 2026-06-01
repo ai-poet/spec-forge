@@ -4,7 +4,9 @@ import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
 import { isStepLive, latestNodeProgress } from '../../pipeline/lib/pipelineLive'
 import { defaultExpandedRunIds, groupAgentActivities } from '../../pipeline/lib/groupAgentRuns'
+import { mergeCliDisplayEvents } from '../../../shared/lib/cliDisplayMerge'
 import { cliPhaseLabel, cliProviderLabel, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
+import { buildToolCardView } from '../../../shared/lib/toolPresentation'
 import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
 import styles from './RunLogPanel.module.less'
 
@@ -64,6 +66,7 @@ const PHASE_CLASS: Record<string, string | undefined> = {
   mcp: styles.phaseMcp,
   tool: styles.phaseTool,
   todo: styles.phaseTodo,
+  hook: styles.phaseHook,
 }
 
 function rowClassName(event: ReturnType<typeof presentEvent>, animatedIds: Set<string>): string {
@@ -73,6 +76,57 @@ function rowClassName(event: ReturnType<typeof presentEvent>, animatedIds: Set<s
   return [styles.row, phaseClass, severityClass, animatedIds.has(event.id) ? styles.isNew : '']
     .filter(Boolean)
     .join(' ')
+}
+
+function ToolCardBody({ event }: { event: SemanticEvent }) {
+  const card = buildToolCardView(event)
+  if (!card) return null
+  return (
+    <div className={styles.toolCard}>
+      <span className={styles.toolKind}>{card.headline}</span>
+      {card.command ? <pre className={styles.toolCommand}>{card.command}</pre> : null}
+      {card.paths.length ? (
+        <div className={styles.paths}>
+          {card.paths.map((path) => (
+            <span key={path}>{path}</span>
+          ))}
+        </div>
+      ) : null}
+      {card.todos.length ? (
+        <ul className={styles.todoList}>
+          {card.todos.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      {card.detail && card.detail !== card.command ? <pre className={styles.preview}>{formatCliText(card.detail)}</pre> : null}
+    </div>
+  )
+}
+
+function RawCliFold({ detail, cliActive }: { detail: IterationDetail | null; cliActive: boolean }) {
+  const [open, setOpen] = useState(false)
+  const live = detail?.live_cli
+  const hasStdout = Boolean(live?.stdout?.trim())
+  const hasStderr = Boolean(live?.stderr?.trim())
+  if (!hasStdout && !hasStderr && !cliActive) return null
+
+  return (
+    <details className={styles.rawFold} open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>查看原始 CLI 输出{cliActive ? '（实时）' : ''}</summary>
+      {hasStdout ? (
+        <pre className={styles.rawBlock} aria-label="stdout">
+          {live?.stdout}
+        </pre>
+      ) : null}
+      {hasStderr ? (
+        <pre className={`${styles.rawBlock} ${styles.rawStderr}`} aria-label="stderr">
+          {live?.stderr}
+        </pre>
+      ) : null}
+      {cliActive && !hasStdout && !hasStderr ? <p className="muted">等待原始流…</p> : null}
+    </details>
+  )
 }
 
 export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Props) {
@@ -85,13 +139,13 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
   const nodes = stepKey ? new Set(nodesForStep(stepKey)) : null
   const cliActive = isCliActive(detail, stepKey, reviewMode)
   const progress = latestNodeProgress(detail, stepKey)
-  const cliDisplays = useMemo(
-    () => (detail?.events ?? [])
+  const cliDisplays = useMemo(() => {
+    const raw = (detail?.events ?? [])
       .filter((event) => event.type === 'cli.display')
       .map(presentEvent)
-      .filter((event) => !nodes || nodes.has(event.node)),
-    [detail?.events, stepKey],
-  )
+      .filter((event) => !nodes || nodes.has(event.node))
+    return mergeCliDisplayEvents(raw)
+  }, [detail?.events, stepKey])
   const hasVerifyReject = Boolean((detail?.retry_counts?.planner_verify_reject ?? 0) > 0)
   const grouped = useMemo(
     () => groupAgentActivities(cliDisplays, stepKey, { reviewMode, stepLive: cliActive, hasVerifyReject }),
@@ -168,6 +222,8 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
   function renderCliRow(event: ReturnType<typeof presentEvent>) {
     const message = cliLogMessage(event)
     const preview = formatCliText(event.preview)
+    const toolCard = buildToolCardView(event)
+    const showStreamPreview = (event.phase === 'text' || event.phase === 'thinking') && preview
     return (
       <article key={event.id} className={rowClassName(event, animatedEventIds)}>
         <div className={styles.meta}>
@@ -177,14 +233,20 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
         </div>
         <div className={styles.body}>
           <strong>{event.title}</strong>
-          {message ? <p>{message}</p> : null}
-          {event.tool ? <span className={styles.detail}>工具: {event.tool}</span> : null}
-          {event.paths?.length ? (
+          {toolCard ? <ToolCardBody event={event} /> : null}
+          {!toolCard && message ? <p>{message}</p> : null}
+          {!toolCard && event.tool ? <span className={styles.detail}>工具: {event.tool}</span> : null}
+          {!toolCard && event.paths?.length ? (
             <div className={styles.paths}>
-              {event.paths.map((path) => <span key={path}>{path}</span>)}
+              {event.paths.map((path) => (
+                <span key={path}>{path}</span>
+              ))}
             </div>
           ) : null}
-          {preview && preview !== message ? <pre className={styles.preview}>{preview}</pre> : null}
+          {showStreamPreview ? <pre className={styles.streamPreview}>{preview}</pre> : null}
+          {!toolCard && preview && preview !== message && !showStreamPreview ? (
+            <pre className={styles.preview}>{preview}</pre>
+          ) : null}
         </div>
       </article>
     )
@@ -202,6 +264,8 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
           {progress?.message ? <span>{progress.message}</span> : null}
         </div>
       ) : null}
+      <p className={styles.permissionHint}>流水线模式：CLI 权限已自动放行（bypassPermissions），无需逐项确认。</p>
+      <RawCliFold detail={detail} cliActive={cliActive} />
       {grouped.roundCount > 1 ? (
         <div className={styles.runToggles}>
           {grouped.groups.map((group) => (
@@ -225,7 +289,11 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
           <div className="empty">
             {cliActive ? (
               <RunningIndicator label={`${presentNodeName(pendingNode)} 正在运行，等待格式化 CLI 事件…`} />
-            ) : stepKey ? '本阶段暂无格式化 CLI 日志' : '暂无格式化 CLI 日志'}
+            ) : stepKey ? (
+              '本阶段暂无格式化 CLI 日志'
+            ) : (
+              '暂无格式化 CLI 日志'
+            )}
           </div>
         )}
       </div>
