@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from .config import settings
+from ..core.config import settings
 
 _PROCESS_LOCK = threading.Lock()
 

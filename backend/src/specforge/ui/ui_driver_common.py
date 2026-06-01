@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from .contracts import UITestResult, UITestSpec, UITestStep
+from ..core.contracts import UITestResult, UITestSpec, UITestStep
 
 
 def target_label(spec: UITestSpec) -> str:

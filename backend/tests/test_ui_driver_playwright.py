@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from specforge.contracts import UITestSpec
-from specforge.ui_driver_playwright import (
+from specforge.core.contracts import UITestSpec
+from specforge.ui.ui_driver_playwright import (
     PLAYWRIGHT_BROWSERS_MISSING,
     PLAYWRIGHT_PACKAGE_MISSING,
     PlaywrightUIDriverRunner,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from specforge.cli_event_presenter import CliEventPresenter
+from specforge.agents.cli_event_presenter import CliEventPresenter
 
 
 def present(payload):

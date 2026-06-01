@@ -19,7 +19,7 @@ SpecForge 的做法是：
 1. **所有决策和产物都落到本地 Markdown 文件**，可以 git 管理
 2. **PRD Planner、Test Planner、Coder、Code Tester 分工**（规划多用 Claude，验证可用 Codex，可在项目里按阶段配置）
 3. **Test Planner 在 Coder 之前写受保护测试**，Coder 不能改 `tests/unit|integration|ui`（checksum 门禁）
-4. **Code Tester 做代码审查；UI Driver 在 `ui_tester` 节点跑 trajectory**（与 CLI 验证分离）
+4. **Code Tester 做代码审查；UI Tester Agent 在 `ui_tester` 节点跑验收场景**（playwright-cli / cua-driver，与代码验证分离）
 5. **LangGraph 编排整条流水线**，失败按 Write Zone 自动回环，超限才阻断
 6. **React 工作台实时展示**当前阶段、Agent 活动、CLI 输出
 
@@ -111,7 +111,7 @@ Project（项目）
 
 ### 写权限分区（Write Zones）
 
-各阶段只能改特定路径；后端在 `write_zones.py` 中按路径推断 **owner**，验证失败时按 owner 选择回环目标（而非一律回 Coder）。
+各阶段只能改特定路径；后端在 `policy/write_zones.py` 中按路径推断 **owner**，验证失败时按 owner 选择回环目标（而非一律回 Coder）。
 
 | 分区 | 路径模式 | Owner | 说明 |
 |------|----------|-------|------|
@@ -128,7 +128,7 @@ Project（项目）
 
 ## 流水线怎么跑（通俗版）
 
-你可以把整个流程想成一条工厂流水线：**需求澄清** → **PRD 规划**（`prd_planner`）→ **测试规划**（`test_planner`，在 Coder 之前写受保护测试）→ **实现** → **代码验证 + UI 验证** → **规格复核** → 你签字交付。下图对应 LangGraph 的真实边（见 `pipeline.py` 的 `_build_graph`）。
+你可以把整个流程想成一条工厂流水线：**需求澄清** → **PRD 规划**（`prd_planner`）→ **测试规划**（`test_planner`，在 Coder 之前写受保护测试）→ **实现** → **代码验证 + UI 验证** → **规格复核** → 你签字交付。下图对应 LangGraph 的真实边（见 `pipeline/graph.py` 的 `_build_graph` 与 `pipeline/routes.py` 的条件路由）。
 
 ```mermaid
 flowchart TB
@@ -138,10 +138,10 @@ flowchart TB
     plannerDiscovery["planner_discovery\n需求澄清 CLI"]
     prdPlanner["prd_planner\nPRD + context manifests"]
     testPlanner["test_planner\n受保护测试（Coder 前）"]
-    coder["Coder\nClaude CLI"]
+    coder["coder\nClaude CLI"]
     plannerClarification["planner_clarification\nClaude CLI"]
     codeTester["code_tester\n代码审查 CLI"]
-    uiTester["ui_tester\n程序节点"]
+    uiTester["ui_tester\nUI 验收 CLI\nplaywright-cli / cua-driver"]
   end
 
   subgraph gateNodes ["程序门禁 / 人工检查点"]
@@ -152,48 +152,81 @@ flowchart TB
     doneNode["done\n写入 iteration_log"]
   end
 
-  plannerDiscovery -->|"status=ask"| requirementsInput
+  plannerDiscovery -->|"ask"| requirementsInput
   requirementsInput --> prdPlanner
-  plannerDiscovery -->|"status=ready"| prdPlanner
-  plannerDiscovery -->|"失败 / 停止"| endBlocked([END\nblocked / stopped])
+  plannerDiscovery -->|"ready"| prdPlanner
+  plannerDiscovery -->|"blocked / stopped"| endBlocked([END])
 
   prdPlanner --> testPlanner
-  prdPlanner -->|"失败 / 停止"| endBlocked
-  testPlanner -->|"测试规划成功"| coder
-  testPlanner -->|"失败 / 停止"| endBlocked
+  prdPlanner -->|"blocked / stopped"| endBlocked
+  testPlanner -->|"coder"| coder
+  testPlanner -->|"test_planner_retry"| testPlanner
+  testPlanner -->|"blocked / stopped"| endBlocked
 
-  coder -->|"clarification_request"| plannerClarification
-  coder -->|"实现完成"| integrityCheck
-  coder -->|"失败 / 停止"| endBlocked
+  coder -->|"clarification"| plannerClarification
+  coder -->|"integrity"| integrityCheck
+  coder -->|"blocked / stopped"| endBlocked
 
-  plannerClarification -->|"Planner 已回答"| coder
-  plannerClarification -->|"澄清超限 → blocked_user"| endBlockedUser([END\nblocked_user])
-  plannerClarification -->|"失败 / 停止"| endBlocked
+  plannerClarification -->|"coder"| coder
+  plannerClarification -->|"blocked / stopped"| endBlocked
 
-  integrityCheck -->|"checksum 通过"| codeTester
-  integrityCheck -->|"测试被篡改"| endBlocked
+  integrityCheck -->|"code_tester"| codeTester
+  integrityCheck -->|"blocked"| endBlocked
 
-  codeTester --> uiTester
-  codeTester -->|"缺陷回环"| coder
-  codeTester -->|"失败 / 停止"| endBlocked
+  codeTester -->|"ui"| uiTester
+  codeTester -->|"retry"| coder
+  codeTester -->|"self_retry"| codeTester
+  codeTester -->|"test_planner_retry"| testPlanner
+  codeTester -->|"blocked"| endBlocked
 
-  uiTester -->|"验证通过\n（UI 失败可带警告）"| plannerVerify
-  uiTester -->|"缺陷 owner=coder"| coder
-  uiTester -->|"缺陷 owner=test_planner"| testPlanner
-  uiTester -->|"缺陷 owner=code_tester"| codeTester
-  uiTester -->|"超重试上限"| endBlocked
+  uiTester -->|"verify"| plannerVerify
+  uiTester -->|"retry"| coder
+  uiTester -->|"self_retry"| codeTester
+  uiTester -->|"test_planner_retry"| testPlanner
+  uiTester -->|"blocked"| endBlocked
 
-  plannerVerify -->|"报告合格"| verifyApproval
-  plannerVerify -->|"驳回且未超上限"| codeTester
-  plannerVerify -->|"驳回且超上限"| endBlocked
+  plannerVerify -->|"approval"| verifyApproval
+  plannerVerify -->|"code_tester"| codeTester
+  plannerVerify -->|"blocked"| endBlocked
 
   verifyApproval --> doneNode
   doneNode --> endDelivered([END\ndelivered])
-
-  uiTester -.->|"ui_tester 内调用"| uiDriver["UI Driver\nCua 优先 · Web 回退 Playwright"]
 ```
 
-**图例：** 实线 = LangGraph 边；虚线 = `ui_tester` 内的 UI Driver。`integrity_check` 与 `planner_verify` 不调用外部 CLI。规划阶段只落盘 `prd.md` 与 `testing_plan.md`（位于 `docs/iterations/iteration_NNN/`）。
+**图例：** 实线 = LangGraph 边；边上标签 = `_route_after_*` 返回值（与 `routes.py` 一致）。七个 **Agent 节点**均通过 CLI 调用外部模型；`ui_tester` 在 prompt 中路由 **playwright-cli**（`kind: web`）与 **cua-driver**（`kind: native`）。`integrity_check`、`planner_verify`、`done` 为后端程序节点，不调用 CLI。规划阶段只落盘 `prd.md` 与 `testing_plan.md`（位于 `docs/iterations/iteration_NNN/`）。
+
+### LangGraph 状态机（开发者）
+
+| 节点 | 类型 | 说明 |
+|------|------|------|
+| `planner_discovery` | CLI | 需求澄清；`route=ask` 时进入人工输入 |
+| `requirements_input` | interrupt | 用户回答 discovery 问题 |
+| `prd_planner` | CLI | PRD + context manifests |
+| `test_planner` | CLI | 测试计划 + 受保护测试 |
+| `coder` | CLI | 实现 `src/**` |
+| `planner_clarification` | CLI | 回答 Coder 澄清 |
+| `integrity_check` | 程序 | 受保护测试 checksum |
+| `code_tester` | CLI | 代码审查、`defects[]`、对抗测试 |
+| `ui_tester` | CLI | UI 场景 + 写盘闸门（build/test） |
+| `planner_verify` | 程序 | 验证报告格式复核 |
+| `verify_approval` | interrupt | 用户确认交付 |
+| `done` | 程序 | 归档 `delivered` |
+
+**条件边（`pipeline/routes.py` → `pipeline/graph.py`）：**
+
+| 源节点 | 路由函数 | 可能目标 |
+|--------|----------|----------|
+| `planner_discovery` | `_route_after_discovery` | `blocked`→END，`ask`→`requirements_input`，`ready`→`prd_planner` |
+| `prd_planner` | `_route_after_prd_planner` | `blocked`→END，`test_planner` |
+| `test_planner` | `_route_after_test_planner` | `blocked`→END，`coder`，`test_planner_retry`→自身 |
+| `coder` | `_route_after_coder` | `blocked`→END，`clarification`→`planner_clarification`，`integrity`→`integrity_check` |
+| `planner_clarification` | `_route_after_clarification` | `blocked`→END，`coder` |
+| `integrity_check` | `_route_after_integrity` | `blocked`→END，`code_tester` |
+| `code_tester` | `_route_after_code_tester` | `blocked`→END，`ui`→`ui_tester`，`retry`→`coder`，`self_retry`→自身，`test_planner_retry`→`test_planner` |
+| `ui_tester` | `_route_after_ui_tester` | `blocked`→END，`retry`→`coder`，`self_retry`→`code_tester`，`test_planner_retry`→`test_planner`，`verify`→`planner_verify` |
+| `planner_verify` | `_route_after_planner_verify` | `blocked`→END，`code_tester`（驳回），`approval`→`verify_approval` |
+
+`LangGraphPipeline` 定义于 `pipeline/orchestrator.py`（MRO：Planning → Implementation → Verification → UiTester → Artifacts → Prompts → Routes → Graph → Runtime）。
 
 ### 各步骤在干什么
 
@@ -207,7 +240,7 @@ flowchart TB
 | 澄清 | `planner_clarification` | Claude CLI | Coder 看不懂时，Planner 正式回答并写入 `clarifications/` |
 | 完整性 | `integrity_check` | 后端程序 | 检查 Test Planner 写的测试有没有被 Coder 偷偷改掉 |
 | 代码验证 | `code_tester` | Codex/Claude CLI | 独立代码审查与测试命令；写 `verify_report.md` 与 `defects[]`（不调用 UI 自动化） |
-| UI 验证 | `ui_tester` | 后端程序 | 执行 `tests/ui/*.json` trajectory，合并 UI 结果并写盘 |
+| UI 验证 | `ui_tester` | Claude/Codex CLI | Agent 执行 `tests/ui/*.json`（web → playwright-cli，native → cua-driver），合并验证产物并写盘 |
 | 复核 | `planner_verify` | 后端程序 | 检查验证报告格式是否合格 |
 | 交付确认 | `verify_approval` | **你** | 在前端点「确认交付」，流水线才归档 |
 | 完成 | `done` | 后端 | 状态变为 `delivered`，写入 iteration_log |
@@ -225,7 +258,7 @@ flowchart TB
 | 实现 | `coder`、`planner_clarification` | 写 `src/**`；澄清回合计入实现阶段 |
 | 测试完整性 | `integrity_check` | 受保护测试 checksum |
 | 代码验证 | `code_tester` | 独立审查、`verify_report`、`defects[]` |
-| UI 验证 | `ui_tester`（内嵌 UI Driver） | trajectory + 写盘闸门 |
+| UI 验证 | `ui_tester` | playwright-cli / cua-driver Agent + 写盘闸门 |
 | 规格复核 | `planner_verify` | 验证报告格式 |
 | 交付确认 | `verify_approval` | 人工确认 |
 | 交付完成 | `done` | `delivered` |
@@ -294,7 +327,7 @@ flowchart LR
 
 **owner=prd_planner**（PRD 范围硬冲突等）不进入自动回环，直接 `blocked`，需人工处理。
 
-**UI Driver** 在 **`ui_tester`** 节点内执行（扫描 `docs/.../tests/ui/*.json`）：含 CSS `selector` 的 **Web** trajectory 走 Playwright；无 selector 的 Web/native 优先 CuaDriver；Cua 不可用时 Web 可回退 Playwright，native 记为 `warning`。**UI 断言失败不触发 ②a/②b/②c**，只写入 `ui_warnings` 与交付建议。
+**UI Tester**（`ui_tester` CLI 阶段）扫描 `docs/.../tests/ui/*.json`：`kind: web` 用 **playwright-cli**（`open` → `snapshot` → `click eN`）；`kind: native` 用 **cua-driver**（`launch_app` → `get_window_state` → `element_index`）。本机 CUA 会话互斥时 native 可记 `warning`。**UI 断言失败不触发 ②a/②b/②c**，只写入 `ui_warnings` 与交付建议。
 
 **Code Tester 容错（`code_tester` 节点；UI 在后续 `ui_tester`）：**
 
@@ -305,7 +338,7 @@ flowchart LR
 | 审查兜底成功 | 进入 `ui_tester` → `planner_verify` |
 | 审查兜底也失败 | 按 `defects`/owner 进入 ②a / ②b / ②c |
 | 写盘后 `build_command` / `test_command` 失败 | 回滚 adversarial，以 `owner=code_tester` 进入 **②b** |
-| UI 自动化断言失败 | `ui_driver.failed`（`blocking: false`）；是否通过以 Code Tester 代码审查无 P0/P1 为准 |
+| UI 自动化断言失败 | `ui_tester.failed`（`blocking: false`）；是否通过以 Code Tester 代码审查无 P0/P1 为准 |
 
 ```mermaid
 sequenceDiagram
@@ -315,7 +348,7 @@ sequenceDiagram
   participant UiTester as ui_tester
   participant TestPlanner as test_planner
   participant Gate as 写盘闸门
-  participant UI as UI Driver
+  participant UI as playwright-cli / cua-driver
   participant Verify as planner_verify
 
   Note over Coder,Verify: 回环 ② — 按 Write Zone owner 分流
@@ -324,7 +357,7 @@ sequenceDiagram
     CodeTester->>CodeTester: review_only 代码审查兜底
   end
   CodeTester->>UiTester: pending artifact
-  UiTester->>UI: run_specs
+  UiTester->>UI: Agent CLI 执行 tests/ui 场景
   UiTester->>Gate: 写盘后 build/test（若已配置）
   alt 闸门失败
     Gate-->>UiTester: 回滚 adversarial → ②b
@@ -358,7 +391,7 @@ flowchart TD
 
   coder --> integrity["integrity_check"]
   integrity --> ct["code_tester"]
-  ct --> uit["ui_tester\n+ UI Driver\n+ 写盘闸门"]
+  ct --> uit["ui_tester\nplaywright-cli / cua-driver\n+ 写盘闸门"]
 
   uit -->|"②a owner=coder\n≤5"| coder
   uit -->|"②b owner=code_tester\n≤3"| ct
@@ -421,8 +454,7 @@ flowchart TD
 | **coder** | Claude CLI | 按 PRD/测试实现 | `src/**`（及 convention 中的源码根） |
 | **planner_clarification** | Claude CLI | 回答 Coder 澄清 | `clarifications/*` |
 | **code_tester** | Codex/Claude CLI（可配置） | 独立代码审查、`defects[]`、对抗测试；无 UI 自动化 | `verify_report.md`、`delivery_advice.md`、`tests/adversarial/` |
-| **ui_tester** | 后端程序 | 跑 UI trajectory、合并结果、写盘闸门 | `ui_results.json`、`ui_report.md`（在 code_tester 产物基础上） |
-| **UI Driver** | Cua / Playwright | 执行 `tests/ui/*.json` | 由 `ui_tester` 调用，非独立 LangGraph CLI 节点 |
+| **ui_tester** | Claude/Codex CLI（可配置） | Agent 执行 `tests/ui/*.json`（playwright-cli / cua-driver）、合并验证产物、写盘闸门 | `ui_results.json`、`ui_report.md`（在 code_tester 产物基础上） |
 
 反串谋：规划与验证可分模型；受保护测试在 Coder **之前**由 Test Planner 写入并建立 checksum；Code Tester 不得改 protected tests。验证回环按 owner 分流：Coder（②a）、Code Tester 自修（②b）、Test Planner 修订测试（②c）。UI 环境不可用走 code_tester 审查兜底；UI 断言失败仅警告，不单独触发实现回环。
 
@@ -431,15 +463,16 @@ flowchart TD
 ## 后端架构（给开发者）
 
 ```text
-FastAPI (HTTP + WebSocket)
+FastAPI (main.py — HTTP + WebSocket)
     │
-    ├── SQLite          业务数据：projects / epics / iterations / events / runs
-    ├── LangGraph       流水线状态机 + SqliteSaver checkpoint
-    │                     ui_tester 条件边：retry→coder | self_retry→code_tester | test_planner_retry
-    ├── write_zones     路径 → owner 推断，决定 retry_target
-    ├── artifact_gate   写盘后 build/test 命令校验
-    ├── Job Queue       单 worker 线程，避免 CLI 阻塞 HTTP
-    └── EventBroker     推 snapshot 和 cli.output 到 WebSocket
+    ├── storage/db          SQLite：projects / epics / iterations / events / runs
+    ├── pipeline/           LangGraph 状态机 + SqliteSaver checkpoint
+    │   ├── graph.py        节点与边
+    │   └── routes.py       条件路由（ui_tester：retry | self_retry | test_planner_retry | verify）
+    ├── policy/write_zones  路径 → owner，决定 retry_target
+    ├── policy/artifact_gate 写盘后 build/test 命令校验
+    ├── runtime/job_queue   单 worker 线程，避免 CLI 阻塞 HTTP
+    └── runtime/events      EventBroker → WebSocket snapshot / cli.output
 ```
 
 创建 Iteration 时：`POST /api/iterations` → 入队 → worker 调用 `pipeline.start()` → LangGraph 从 `planner_discovery` 开始跑。
@@ -474,24 +507,21 @@ cd frontend && npm install && npm run dev:all
 
 CLI 使用 `bypassPermissions` / `--dangerously-bypass-approvals-and-sandbox` 跳过交互式权限确认。测试不可变靠 `test_planner` 写基线 + `integrity_check` 保障。
 
-可选 UI 测试（**`ui_tester`** 节点内 UI Driver）：
+可选 UI 验收（**`ui_tester`** CLI Agent）：
 
-| UI spec 类型 | 驱动 |
-|--------------|------|
-| Web + CSS `selector` | **Playwright**（`pip install -e "backend/.[ui]"` + `playwright install chromium`） |
-| Web 无 selector（`assert_text` / `click_text` 等） | 优先 **CuaDriver**；Cua 不可用时回退 Playwright |
-| `native` | **CuaDriver**（本机 `cua-driver` CLI） |
+| UI spec `kind` | Agent 工具链 |
+|----------------|--------------|
+| `web` | **playwright-cli**（`backend/prompts/skills/playwright/scripts/playwright_cli.sh` 包装 `npx @playwright/cli`） |
+| `native` | **cua-driver** CLI（与 computer-use `--host` 相同；禁止 `open -a` 抢焦点） |
 
-**Cua 全局单会话**：本机同时只允许一个 CUA UI 会话（文件锁 `.specforge/cua-driver.session.lock`）。若锁被占用，Web 无 selector 用例会回退 Playwright；native 或未回退用例记为 `warning`，不阻断交付，依赖 Code Tester 代码审查结论。
-
-CuaDriver 安装器 vendored 在 [`computer-use/backend/install_cua_driver.py`](computer-use/backend/install_cua_driver.py)（与 computer-use `--host` 单机路径相同；**不需要**跑 `analyze_product.py`）。macOS 安装后请在系统设置授予 CuaDriver **辅助功能**与**屏幕录制**权限。
+**Cua 全局单会话**：本机同时只允许一个 CUA UI 会话（文件锁 `.specforge/cua-driver.session.lock`）。锁被占用时 native 场景记为 `warning`，不阻断交付，依赖 Code Tester 代码审查结论。
 
 ```bash
-pip install -e "backend/.[ui]" && playwright install chromium
+npx --yes --package @playwright/cli playwright-cli install-browser
 python computer-use/backend/install_cua_driver.py
 ```
 
-`./scripts/dev.sh` installs Playwright and runs the CuaDriver installer by default. Set `SPECFORGE_SKIP_UI=1` or `SPECFORGE_SKIP_CUA=1` to skip either stack.
+`./scripts/dev.sh` 默认安装 playwright-cli 浏览器并运行 CuaDriver 安装器。`SPECFORGE_SKIP_UI=1` / `SPECFORGE_SKIP_CUA=1` 可跳过。
 
 `GET /api/health` includes `ui.playwright`, `ui.cua`, `ui.cua_session` (`idle` or `busy:<iteration_id>`), and install hints.
 
@@ -529,7 +559,7 @@ python computer-use/backend/install_cua_driver.py
 - 默认测试命令（`default_test_command`）与构建命令（`default_build_command`，如 `npm run build`、`cargo check`）
 - Coder↔验证 重试上限（`max_coder_tester_retries`，默认 5）
 - Code Tester 自修与 Test Planner 测试修订上限（共用 `max_tester_self_retries`，默认 3；计数键分别为 `code_tester_self`、`test_planner_self`）
-- 各阶段 CLI 提供商（`planner_discovery`、`prd_planner`、`test_planner`、`planner_clarification`、`coder`、`code_tester`；无 `planner`/`tester` 绑定别名）
+- 各阶段 CLI 提供商（`planner_discovery`、`prd_planner`、`test_planner`、`planner_clarification`、`coder`、`code_tester`、`ui_tester`；无 `planner`/`tester` 绑定别名）
 - Coder 澄清上限（默认 3）
 - Planner 验证驳回上限（默认 2）
 
@@ -541,23 +571,33 @@ python computer-use/backend/install_cua_driver.py
 
 ```text
 spec-forge/
-├── backend/              FastAPI + LangGraph + SQLite
-│   ├── prompts/stages/   planner_discovery、prd_planner、test_planner、
-│   │                     planner_clarification、coder、code_tester
+├── backend/                    FastAPI + LangGraph + SQLite
+│   ├── prompts/stages/         各阶段 SKILL（含 ui_tester）
 │   └── src/specforge/
-│       ├── pipeline.py       流水线状态机（核心）
-│       ├── write_zones.py    Write Zone owner 推断与 retry_target
-│       ├── artifact_gate.py  写盘闸门（build/test 命令）
-│       ├── docs_scaffold.py  文档目录初始化（种子文件 + 程序审计日志）
-│       ├── cli_runner.py     CLI 进程管理
-│       └── ...
-├── frontend/             React 工作台
+│       ├── main.py             FastAPI 入口（uvicorn specforge.main:app）
+│       ├── core/               config、models、contracts
+│       ├── storage/            db.py
+│       ├── documents/          docs_io、docs_scaffold、project_paths
+│       ├── agents/             cli_commands、cli_runner、prompt_loader
+│       ├── policy/             write_zones、artifact_gate、context_manifest
+│       ├── ui/                 ui_runtime、playwright_cli、cua_*、ui_driver*（legacy 测试）
+│       ├── runtime/            events、job_queue
+│       ├── pipeline/           LangGraph 编排（graph / routes / orchestrator）
+│       │   ├── graph.py          节点与边（状态机真源）
+│       │   ├── routes.py         条件路由
+│       │   ├── orchestrator.py   LangGraphPipeline 公开 API
+│       │   ├── mixins/           runtime、prompts、artifacts、ui_tester
+│       │   └── nodes/            planning、implementation、verification
+│       └── *.py                兼容 shim（如 contracts.py → core/contracts）
+├── frontend/                   React 工作台
 │   └── src/features/
-│       ├── pipeline/     侧边栏、阶段面板
-│       └── iteration/    日志、文档、实时订阅
-├── docs/                 本仓库的设计文档
-└── scripts/dev.sh        本地启动脚本
+│       ├── pipeline/           侧边栏、阶段面板
+│       └── iteration/          日志、文档、实时订阅
+├── docs/                       本仓库的设计文档
+└── scripts/dev.sh              本地启动脚本
 ```
+
+推荐 import：`from specforge.pipeline import LangGraphPipeline`、`from specforge.core.contracts import ...`。根目录 shim（`from specforge.contracts import ...`）仍可用。
 
 ---
 
@@ -576,4 +616,4 @@ spec-forge/
 ## 进一步阅读
 
 - [docs/development_plan.md](docs/development_plan.md) — 开发计划
-- [docs/system_design.md](docs/system_design.md) — 本仓库早期内部设计笔记（部分内容已过时，以 README 与 `pipeline.py` 为准）
+- [docs/system_design.md](docs/system_design.md) — 本仓库早期内部设计笔记（部分内容已过时，以 README 与 `pipeline/graph.py` 为准）

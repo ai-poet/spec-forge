@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-_FRAMEWORK_CONVENTIONS_PATH = Path(__file__).resolve().parents[2] / "prompts" / "framework_conventions.md"
+_FRAMEWORK_CONVENTIONS_PATH = Path(__file__).resolve().parents[3] / "prompts" / "framework_conventions.md"
 
 
 def run_project_commands(repo_root: Path, *, build_command: str | None, test_command: str | None) -> tuple[bool, str]:

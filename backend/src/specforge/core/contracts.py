@@ -40,7 +40,7 @@ class PlannerDiscoveryArtifact(BaseModel):
     def validate_ask_options(self) -> "PlannerDiscoveryArtifact":
         if self.status != "ask":
             return self
-        from .discovery_options import DISCOVERY_CUSTOM_OPTION_LABEL, normalize_discovery_options
+        from ..policy.discovery_options import DISCOVERY_CUSTOM_OPTION_LABEL, normalize_discovery_options
 
         if not (self.question or "").strip():
             raise ValueError("ask status requires question")

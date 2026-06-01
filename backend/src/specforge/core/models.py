@@ -26,6 +26,7 @@ class CliBindings(BaseModel):
     planner_clarification: CliProviderName = CliProviderName.claude
     coder: CliProviderName = CliProviderName.claude
     code_tester: CliProviderName = CliProviderName.claude
+    ui_tester: CliProviderName = CliProviderName.claude
 
 
 class IterationStatus(str, Enum):

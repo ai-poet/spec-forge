@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from specforge.docs_io import checksum, checksum_paths
+from specforge.documents.docs_io import checksum, checksum_paths
 
 
 def test_checksum(tmp_path: Path):

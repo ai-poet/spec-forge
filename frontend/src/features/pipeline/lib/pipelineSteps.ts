@@ -17,7 +17,7 @@ export const PIPELINE_STEPS: { key: PipelineStepKey; label: string; hint: string
   { key: 'coder', label: '实现', hint: '写入代码变更' },
   { key: 'integrity_check', label: '测试完整性', hint: '保护测试基线' },
   { key: 'code_tester', label: '代码验证', hint: '独立代码审查与测试命令' },
-  { key: 'ui_tester', label: 'UI 验证', hint: '执行 UI trajectory' },
+  { key: 'ui_tester', label: 'UI 验证', hint: 'playwright-cli / cua-driver Agent' },
   { key: 'planner_verify', label: '规格复核', hint: '机械检查报告' },
   { key: 'verify_approval', label: '交付确认', hint: '人工确认交付' },
   { key: 'done', label: '交付完成', hint: '归档本轮结果' },

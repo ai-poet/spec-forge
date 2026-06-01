@@ -1,7 +1,7 @@
 import pytest
 
-from specforge.contracts import PlannerDiscoveryArtifact
-from specforge.discovery_options import DISCOVERY_CUSTOM_OPTION_LABEL, normalize_discovery_options
+from specforge.core.contracts import PlannerDiscoveryArtifact
+from specforge.policy.discovery_options import DISCOVERY_CUSTOM_OPTION_LABEL, normalize_discovery_options
 
 
 def test_normalize_discovery_options_appends_custom_last():

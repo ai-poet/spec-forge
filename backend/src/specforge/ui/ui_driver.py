@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
-from .config import settings
-from .contracts import UIArtifactLink, UIDriverRunResult, UITestResult, UITestSpec, UITestStep
+from ..core.config import settings
+from ..core.contracts import UIArtifactLink, UIDriverRunResult, UITestResult, UITestSpec, UITestStep
 from .ui_driver_common import (
     artifact_path,
     parse_window_size,

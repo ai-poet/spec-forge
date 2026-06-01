@@ -5,11 +5,11 @@ from pathlib import Path
 from contextlib import contextmanager
 from typing import Iterator
 
-from specforge.contracts import UIDriverRunResult, UITestResult, UITestSpec
-from specforge import ui_driver as ui_driver_module
-from specforge.ui_driver import CuaCliTransport, CuaUIDriverRunner, UIDriverRunner
-from specforge.ui_driver_playwright import PlaywrightUIDriverRunner
-from specforge import cua_session
+from specforge.core.contracts import UIDriverRunResult, UITestResult, UITestSpec
+from specforge.ui import ui_driver as ui_driver_module
+from specforge.ui.ui_driver import CuaCliTransport, CuaUIDriverRunner, UIDriverRunner
+from specforge.ui.ui_driver_playwright import PlaywrightUIDriverRunner
+from specforge.ui import cua_session
 
 
 class UnavailableCuaTransport(CuaCliTransport):

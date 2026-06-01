@@ -9,13 +9,13 @@ from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnec
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from .cli_commands import parse_cli_bindings, serialize_cli_bindings
-from .cli_runner import DryRunRunner, RealCLIRunner
-from .config import settings
-from .db import Database
-from .events import EventBroker, EventEnvelope
-from .job_queue import PipelineJobQueue
-from .models import (
+from specforge.agents.cli_commands import parse_cli_bindings, serialize_cli_bindings
+from specforge.agents.cli_runner import DryRunRunner, RealCLIRunner
+from specforge.core.config import settings
+from specforge.storage.db import Database
+from specforge.runtime.events import EventBroker, EventEnvelope
+from specforge.runtime.job_queue import PipelineJobQueue
+from specforge.core.models import (
     AnswerRequirementsRequest,
     ApproveRequest,
     CreateEpicRequest,
@@ -37,11 +37,11 @@ from .models import (
     BrowseDirectoryResponse,
     PickFolderResponse,
 )
-from .pipeline import LangGraphPipeline
-from .docs_scaffold import ensure_project_docs
-from .ui_runtime import log_ui_runtime_status, ui_runtime_status
-from .native_dialog import pick_folder, resolve_picked_folder
-from .project_paths import ProjectPathError, browse_directory, prepare_project_root, validate_project_root
+from specforge.pipeline import LangGraphPipeline
+from specforge.documents.docs_scaffold import ensure_project_docs
+from specforge.ui.ui_runtime import log_ui_runtime_status, ui_runtime_status
+from specforge.ui.native_dialog import pick_folder, resolve_picked_folder
+from specforge.documents.project_paths import ProjectPathError, browse_directory, prepare_project_root, validate_project_root
 
 
 db = Database(settings.db_path)

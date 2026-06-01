@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from specforge.ui_runtime import log_ui_runtime_status, ui_runtime_status
+from specforge.ui.ui_runtime import log_ui_runtime_status, ui_runtime_status
 
 
 def test_ui_runtime_status_shape() -> None:
@@ -11,7 +11,7 @@ def test_ui_runtime_status_shape() -> None:
     assert "playwright_install_hint" in status
     assert "cua_install_hint" in status
     assert "cua_session" in status
-    assert "pip install" in status["playwright_install_hint"]
+    assert "playwright-cli" in status["playwright_install_hint"]
     assert "install_cua_driver" in status["cua_install_hint"]
 
 

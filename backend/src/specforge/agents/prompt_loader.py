@@ -10,9 +10,10 @@ StageName = Literal[
     "planner_clarification",
     "coder",
     "code_tester",
+    "ui_tester",
 ]
 
-_PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
+_PROMPTS_DIR = Path(__file__).resolve().parents[3] / "prompts"
 _STAGES_DIR = _PROMPTS_DIR / "stages"
 _PROJECT_SKILLS_DIR = ".specforge/skills"
 

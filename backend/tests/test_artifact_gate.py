@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from specforge.artifact_gate import read_convention_excerpt, read_framework_conventions, read_spec_index
+from specforge.policy.artifact_gate import read_convention_excerpt, read_framework_conventions, read_spec_index
 
 
 def test_read_framework_conventions_returns_rules() -> None:

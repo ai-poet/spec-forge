@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from specforge.docs_scaffold import append_iteration_log, ensure_iteration_docs, ensure_project_docs, iteration_docs_root
+from specforge.documents.docs_scaffold import append_iteration_log, ensure_iteration_docs, ensure_project_docs, iteration_docs_root
 
 
 def test_ensure_project_docs_creates_tree(tmp_path: Path):

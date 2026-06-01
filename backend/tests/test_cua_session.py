@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from specforge import cua_session
+from specforge.ui import cua_session
 
 
 def test_read_holder_after_acquire(tmp_path: Path, monkeypatch) -> None:

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Protocol
 
-from .contracts import ContextManifestEntry
+from ..core.contracts import ContextManifestEntry
 
 
 CONTEXT_DIR = "context"

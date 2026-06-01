@@ -4,7 +4,7 @@ import sys
 import time
 from threading import Thread
 
-from specforge.cli_runner import RealCLIRunner
+from specforge.agents.cli_runner import RealCLIRunner
 
 
 def test_real_cli_runner_streams_stdout_and_stderr():

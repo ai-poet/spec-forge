@@ -183,7 +183,7 @@ class Database:
         max_tester_self_retries: int = 3,
         max_discovery_rounds: int = 8,
     ) -> str:
-        from .project_paths import prepare_project_root
+        from ..documents.project_paths import prepare_project_root
 
         resolved = prepare_project_root(root_path, create_if_missing)
         resolved_str = str(resolved)
@@ -372,7 +372,7 @@ class Database:
         if project_id:
             resolved_project_id = project_id
         else:
-            from .config import settings
+            from ..core.config import settings
 
             legacy_root = str((settings.projects_dir / f"legacy_{project_name}").resolve())
             resolved_project_id = self.create_project(

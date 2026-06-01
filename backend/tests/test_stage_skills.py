@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from specforge.prompt_loader import (
+from specforge.agents.prompt_loader import (
     compose_stage_prompt,
     compose_stage_prompt_modules,
     list_stage_modules,
@@ -122,6 +122,26 @@ def test_compose_code_tester_includes_verify_and_execution_mode() -> None:
     assert "tests/adversarial" in text
     assert "pytest." in text
     assert "Run verification" in text
+
+
+def test_compose_ui_tester_includes_tool_routing() -> None:
+    text = compose_stage_prompt(
+        "ui_tester",
+        variables={
+            "repo_root": "/proj",
+            "docs_root": "/proj/docs/iter",
+            "schema_hint": "{passed:boolean}",
+            "pwcli_wrapper": "/proj/backend/prompts/skills/playwright/scripts/playwright_cli.sh",
+            "playwright_install_hint": "npx playwright-cli install-browser",
+            "cua_install_hint": "install cua-driver",
+            "code_tester_artifact_json": '{"passed": true}',
+            "ui_specs_section": "### web_smoke (web)",
+            "cua_session_section": "CuaDriver session: available",
+        },
+    )
+    assert "playwright-cli" in text
+    assert "cua-driver" in text
+    assert "web_smoke" in text
 
 
 def test_compose_unknown_stage_raises() -> None:

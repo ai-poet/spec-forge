@@ -7,25 +7,23 @@ from threading import Thread
 from uuid import uuid4
 from fastapi.testclient import TestClient
 
-from specforge import contracts as contract_models
-from specforge.cli_runner import CLIResult
-from specforge.contracts import (
+from specforge.core import contracts as contract_models
+from specforge.agents.cli_runner import CLIResult
+from specforge.core.contracts import (
     ArtifactFile,
     CodeTesterArtifact,
     CoderArtifact,
     ContextManifestEntry,
     PrdPlannerArtifact,
     TestPlannerArtifact,
-    UIDriverRunResult,
-    UITestResult,
     UITestSpec,
     verification_from_code,
     parse_json_artifact,
     validate_ui_spec_content,
 )
-from specforge.docs_io import IterationDocs, compare_test_integrity, test_integrity_manifest as build_test_integrity_manifest
+from specforge.documents.docs_io import IterationDocs, compare_test_integrity, test_integrity_manifest as build_test_integrity_manifest
 from specforge.main import app, job_queue, pipeline
-from specforge.models import IterationStatus
+from specforge.core.models import IterationStatus
 
 
 client = TestClient(app)
@@ -1278,11 +1276,9 @@ def test_tester_failure_retries_until_blocked(tmp_path):
     assert "forced tester failure" in payload["last_error"]
 
 
-def test_ui_driver_playwright_fallback_passes_web():
+def test_ui_tester_playwright_passes_web():
     original_planner = pipeline._test_planner_artifact
-    original_ui_driver = pipeline.ui_driver
     pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
-    pipeline.ui_driver = FakeUIDriver("playwright_fallback")
     try:
         resp = client.post(
             "/api/iterations",
@@ -1293,20 +1289,16 @@ def test_ui_driver_playwright_fallback_passes_web():
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
-        pipeline.ui_driver = original_ui_driver
 
     assert detail["status"] == "awaiting_verify_approval"
-    assert any(event["type"] == "ui_driver.fallback" for event in detail["events"])
-    assert not any(event["type"] == "ui_driver.warning" for event in detail["events"])
+    assert any(event["type"] == "ui_tester.completed" for event in detail["events"])
     assert detail["ui_results"][0]["status"] == "passed"
     assert detail["ui_results"][0]["driver"] == "playwright"
 
 
-def test_ui_driver_cua_unavailable_native_warns_web_playwright():
+def test_ui_tester_cua_unavailable_native_warns_web_pass():
     original_planner = pipeline._test_planner_artifact
-    original_ui_driver = pipeline.ui_driver
     pipeline._test_planner_artifact = make_test_planner_ui_and_native_spec  # type: ignore[method-assign]
-    pipeline.ui_driver = FakeUIDriver("mixed_fallback")
     try:
         resp = client.post(
             "/api/iterations",
@@ -1317,22 +1309,18 @@ def test_ui_driver_cua_unavailable_native_warns_web_playwright():
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
-        pipeline.ui_driver = original_ui_driver
 
     assert detail["status"] == "awaiting_verify_approval"
-    assert any(event["type"] == "ui_driver.fallback" for event in detail["events"])
-    assert any(event["type"] == "ui_driver.warning" for event in detail["events"])
+    assert any(event["type"] == "ui_tester.warning" for event in detail["events"])
     by_id = {item["id"]: item for item in detail["ui_results"]}
     assert by_id["web_smoke"]["status"] == "passed"
     assert by_id["web_smoke"]["driver"] == "playwright"
     assert by_id["native_smoke"]["status"] == "warning"
 
 
-def test_ui_driver_playwright_unavailable_web_warns():
+def test_ui_tester_playwright_unavailable_web_warns():
     original_planner = pipeline._test_planner_artifact
-    original_ui_driver = pipeline.ui_driver
     pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
-    pipeline.ui_driver = FakeUIDriver("dual_unavailable")
     try:
         resp = client.post(
             "/api/iterations",
@@ -1343,18 +1331,15 @@ def test_ui_driver_playwright_unavailable_web_warns():
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
-        pipeline.ui_driver = original_ui_driver
 
     assert detail["status"] == "awaiting_verify_approval"
-    assert any(event["type"] == "ui_driver.warning" for event in detail["events"])
+    assert any(event["type"] == "ui_tester.warning" for event in detail["events"])
     assert detail["ui_results"][0]["status"] == "warning"
 
 
-def test_ui_driver_pass_writes_results_and_artifacts():
+def test_ui_tester_pass_writes_results_and_artifacts():
     original_planner = pipeline._test_planner_artifact
-    original_ui_driver = pipeline.ui_driver
     pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
-    pipeline.ui_driver = FakeUIDriver("passed")
     try:
         resp = client.post(
             "/api/iterations",
@@ -1365,7 +1350,6 @@ def test_ui_driver_pass_writes_results_and_artifacts():
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
-        pipeline.ui_driver = original_ui_driver
 
     assert detail["status"] == "awaiting_verify_approval"
     assert detail["ui_results"][0]["status"] == "passed"
@@ -1374,11 +1358,9 @@ def test_ui_driver_pass_writes_results_and_artifacts():
     assert client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").status_code == 200
 
 
-def test_ui_driver_failure_warns_without_retry(tmp_path):
+def test_ui_tester_failure_warns_without_retry(tmp_path):
     original_planner = pipeline._test_planner_artifact
-    original_ui_driver = pipeline.ui_driver
     pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
-    pipeline.ui_driver = FakeUIDriver("failed")
     try:
         project = post_project(tmp_path, "ui-fail-project", default_mode="dry-run", max_coder_tester_retries=1)
         project_id = project.json()["id"]
@@ -1391,18 +1373,17 @@ def test_ui_driver_failure_warns_without_retry(tmp_path):
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
-        pipeline.ui_driver = original_ui_driver
 
     assert detail["status"] == "awaiting_verify_approval"
     assert detail["retry_counts"] == {}
     ui_progress = [
         event
         for event in detail["events"]
-        if event["type"] == "node.progress" and event["payload"].get("node") == "ui_driver"
+        if event["type"] == "node.progress" and event["payload"].get("node") == "ui_tester"
     ]
     assert ui_progress[-1]["payload"]["severity"] == "warning"
     assert "非阻断" in ui_progress[-1]["payload"]["message"]
-    failed_event = next(event for event in detail["events"] if event["type"] == "ui_driver.failed")
+    failed_event = next(event for event in detail["events"] if event["type"] == "ui_tester.failed")
     assert failed_event["payload"]["blocking"] is False
     assert detail["ui_results"][0]["status"] == "failed"
     ui_payload = client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").json()
@@ -1443,116 +1424,3 @@ def make_test_planner_ui_and_native_spec(state, run_result):
             ArtifactFile(path="tests/ui/native_smoke.json", content=native_spec),
         ],
     )
-
-
-class FakeUIDriver:
-    def __init__(self, status: str) -> None:
-        self.status = status
-        self.last_specs: list[UITestSpec] = []
-
-    def run_specs(self, specs: list[UITestSpec], docs_root, *, iteration_id: str | None = None):
-        self.last_specs = specs
-        if self.status == "playwright_fallback":
-            return UIDriverRunResult(
-                available=True,
-                fallback="playwright",
-                results=[
-                    UITestResult(
-                        id=specs[0].id,
-                        title=specs[0].title,
-                        kind=specs[0].kind,
-                        status="passed",
-                        target=specs[0].target.url or "",
-                        driver="playwright",
-                        observations=["找到文本: SpecForge"],
-                    )
-                ],
-            )
-        if self.status == "mixed_fallback":
-            web = next(spec for spec in specs if spec.kind == "web")
-            native = next(spec for spec in specs if spec.kind == "native")
-            return UIDriverRunResult(
-                available=True,
-                fallback="playwright",
-                warning="CuaDriver unavailable for native UI",
-                results=[
-                    UITestResult(
-                        id=web.id,
-                        title=web.title,
-                        kind=web.kind,
-                        status="passed",
-                        target=web.target.url or "",
-                        driver="playwright",
-                        observations=["找到文本: SpecForge"],
-                    ),
-                    UITestResult(
-                        id=native.id,
-                        title=native.title,
-                        kind=native.kind,
-                        status="warning",
-                        target=native.target.bundle_id or "",
-                        driver="cua",
-                        error="CuaDriver unavailable for native UI",
-                    ),
-                ],
-            )
-        if self.status == "dual_unavailable":
-            return UIDriverRunResult(
-                available=False,
-                warning="CuaDriver missing permissions; Playwright is not installed",
-                results=[
-                    UITestResult(
-                        id=specs[0].id,
-                        title=specs[0].title,
-                        kind=specs[0].kind,
-                        status="warning",
-                        target=specs[0].target.url or "",
-                        driver="playwright",
-                        error="CuaDriver missing permissions; Playwright is not installed",
-                    )
-                ],
-            )
-        if self.status == "warning":
-            return UIDriverRunResult(
-                available=False,
-                warning="CuaDriver missing permissions",
-                results=[
-                    UITestResult(
-                        id=specs[0].id,
-                        title=specs[0].title,
-                        kind=specs[0].kind,
-                        status="warning",
-                        target=specs[0].target.url or "",
-                        error="CuaDriver missing permissions",
-                    )
-                ],
-            )
-        if self.status == "failed":
-            return UIDriverRunResult(
-                available=True,
-                results=[
-                    UITestResult(
-                        id=specs[0].id,
-                        title=specs[0].title,
-                        kind=specs[0].kind,
-                        status="failed",
-                        target=specs[0].target.url or "",
-                        driver="cua",
-                        error="SpecForge text not found",
-                    )
-                ],
-            )
-        return UIDriverRunResult(
-            available=True,
-            results=[
-                UITestResult(
-                    id=specs[0].id,
-                    title=specs[0].title,
-                    kind=specs[0].kind,
-                    status="passed",
-                    target=specs[0].target.url or "",
-                    driver="cua",
-                    observations=["找到文本: SpecForge"],
-                )
-            ],
-        )

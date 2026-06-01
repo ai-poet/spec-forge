@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from specforge import cua_bootstrap
+from specforge.ui import cua_bootstrap
 
 
 def test_cua_driver_installed_detects_app_bundle(tmp_path: Path, monkeypatch) -> None:

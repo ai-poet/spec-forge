@@ -1,5 +1,5 @@
-from specforge.contracts import VerificationArtifact as VerificationArtifactModel
-from specforge.write_zones import owner_for_path, retry_target
+from specforge.core.contracts import VerificationArtifact as VerificationArtifactModel
+from specforge.policy.write_zones import owner_for_path, retry_target
 
 
 def test_owner_for_path_zones():

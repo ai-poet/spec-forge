@@ -17,6 +17,7 @@ const STAGE_LABELS: { key: keyof CliBindings; label: string }[] = [
   { key: 'planner_clarification', label: '规划澄清' },
   { key: 'coder', label: '实现 (Coder)' },
   { key: 'code_tester', label: '代码验证' },
+  { key: 'ui_tester', label: 'UI 验证' },
 ]
 
 function mergeBindings(project: ProjectSummary | null): CliBindings {

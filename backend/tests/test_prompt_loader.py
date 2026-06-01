@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from specforge.prompt_loader import compose_stage_prompt
+from specforge.agents.prompt_loader import compose_stage_prompt
 
 
 def test_render_coder_prompt_includes_placeholders() -> None:

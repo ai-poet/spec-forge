@@ -72,6 +72,7 @@ export interface CliBindings {
   planner_clarification: CliBindingProvider
   coder: CliBindingProvider
   code_tester: CliBindingProvider
+  ui_tester: CliBindingProvider
 }
 
 export const DEFAULT_CLI_BINDINGS: CliBindings = {
@@ -81,6 +82,7 @@ export const DEFAULT_CLI_BINDINGS: CliBindings = {
   planner_clarification: 'claude',
   coder: 'claude',
   code_tester: 'claude',
+  ui_tester: 'claude',
 }
 
 export interface ProjectSummary {

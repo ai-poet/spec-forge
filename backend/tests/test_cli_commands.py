@@ -1,4 +1,4 @@
-from specforge.cli_commands import (
+from specforge.agents.cli_commands import (
     DEFAULT_CLI_BINDINGS,
     build_cli_command,
     parse_cli_bindings,

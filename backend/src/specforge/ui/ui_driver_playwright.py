@@ -5,8 +5,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from .config import settings
-from .contracts import UIArtifactLink, UITestResult, UITestSpec, UITestStep
+from ..core.config import settings
+from ..core.contracts import UIArtifactLink, UITestResult, UITestSpec, UITestStep
 from .ui_driver_common import (
     artifact_path,
     parse_window_size,

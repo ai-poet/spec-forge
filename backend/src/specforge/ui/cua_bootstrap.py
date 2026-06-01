@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .config import REPO_ROOT
+from ..core.config import REPO_ROOT
 
 SWIFT_APP_BUNDLE = Path("/Applications/CuaDriver.app")
 RS_APP_BUNDLE = Path("/Applications/CuaDriverRs.app")

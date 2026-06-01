@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from specforge.context_manifest import append_manifest_lines, read_jsonl, resolve_coder_manifest, resolve_tester_manifest, write_jsonl
-from specforge.context_manifest import ManifestLine
-from specforge.contracts import ContextManifestEntry, PrdPlannerArtifact
+from specforge.policy.context_manifest import append_manifest_lines, read_jsonl, resolve_coder_manifest, resolve_tester_manifest, write_jsonl
+from specforge.policy.context_manifest import ManifestLine
+from specforge.core.contracts import ContextManifestEntry, PrdPlannerArtifact
 
 
 def test_write_and_read_jsonl(tmp_path: Path) -> None:

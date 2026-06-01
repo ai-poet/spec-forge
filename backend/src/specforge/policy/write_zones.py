@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Literal, Optional
 
-from .contracts import Defect, VerificationArtifact
+from ..core.contracts import Defect, VerificationArtifact
 
 WriteZoneOwner = Literal["coder", "code_tester", "test_planner", "prd_planner"]
 RetryTarget = Literal["coder", "code_tester", "test_planner", "blocked"]

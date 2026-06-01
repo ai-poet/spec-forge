@@ -6,6 +6,6 @@ For UI tests, write JSON specs under `tests/ui/*.json` with shape {ui_spec_hint}
 
 Allowed UI actions (snake_case only): {ui_actions}.
 
-Prefer `assert_text` / visible-label steps for Web UI when Playwright may be unavailable. Use CSS `selector` only when DOM-level targeting is required (SpecForge runs selector Web specs via Playwright: `pip install -e "backend/.[ui]"` and `playwright install chromium`).
+Prefer scenario steps that an Agent can execute with **playwright-cli** (`open` → `snapshot` → `click eN`) for `kind: web`, or **cua-driver** (`launch_app` → `get_window_state` → `element_index`) for `kind: native`. Steps are acceptance hints — UI Tester may adapt using live snapshots. Use CSS `selector` only when DOM refs from snapshot are insufficient.
 
 Each test entry must include concrete assertions — not placeholders.
