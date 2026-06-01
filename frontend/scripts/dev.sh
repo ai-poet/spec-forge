@@ -100,13 +100,28 @@ if [[ -d "$ROOT_DIR/backend/.venv" ]] && ! is_py312_plus "$ROOT_DIR/backend/.ven
   rm -rf "$ROOT_DIR/backend/.venv"
 fi
 
-if [[ ! -d "$ROOT_DIR/backend/.venv" ]]; then
-  "$PYTHON_BIN" -m venv "$ROOT_DIR/backend/.venv"
-fi
+ensure_backend_deps() {
+  if command -v uv >/dev/null 2>&1; then
+    echo "Syncing backend dependencies with uv..."
+    (cd "$ROOT_DIR/backend" && uv sync --extra dev)
+    return 0
+  fi
 
+  if [[ ! -d "$ROOT_DIR/backend/.venv" ]]; then
+    "$PYTHON_BIN" -m venv "$ROOT_DIR/backend/.venv"
+  fi
+
+  source "$ROOT_DIR/backend/.venv/bin/activate"
+  if ! python -m pip --version >/dev/null 2>&1; then
+    echo "Bootstrapping pip into backend/.venv..."
+    python -m ensurepip --upgrade
+  fi
+  python -m pip install -q --upgrade pip setuptools wheel
+  pip install -q -e "$ROOT_DIR/backend"[dev]
+}
+
+ensure_backend_deps
 source "$ROOT_DIR/backend/.venv/bin/activate"
-python -m pip install -q --upgrade pip setuptools wheel
-pip install -q -e "$ROOT_DIR/backend"[dev]
 
 if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
   (cd "$FRONTEND_DIR" && npm install)
