@@ -51,9 +51,9 @@ Epic 状态由关联 iteration 汇总：
 
 | 原始边 | 当前实现 |
 |---|---|
-| User ↔ Node 1 | Epic/Iteration 创建 + 设计审批 interrupt/resume |
-| User ← Node 1 | `design_approval` 和 `verify_approval` 两个固定检查点 |
-| Node 1 → Node 2 | Planner artifact 落盘后，设计审批通过进入 `coder` |
+| User ↔ Node 1 | Epic/Iteration 创建 + 需求澄清 / 交付确认 interrupt/resume |
+| User ← Node 1 | `requirements_input` 与 `verify_approval` 两个人工检查点 |
+| Node 1 → Node 2 | Planner artifact 落盘后直接进入 `coder` |
 | Node 2 → Node 1 | `planner_clarification` 保留为受限澄清回路 |
 | Node 2 ↔ Node 3 | `coder -> integrity_check -> tester -> coder` 的失败重试回路 |
 | Node 3 → Node 4 | Tester 扫描 `docs/tests/ui/*.json` 并调用 CuaDriver；Node 4 是工具面，不是 LangGraph 节点 |
@@ -76,9 +76,8 @@ Epic 状态由关联 iteration 汇总：
 ```text
 START
   -> planner_discovery
-  -> [ask] requirements_input interrupt -> planner_discovery
+  -> [ask] requirements_input interrupt -> planner
   -> [ready] planner
-  -> design_approval interrupt
   -> coder
   -> integrity_check
   -> tester
@@ -167,7 +166,6 @@ Iteration API：
 - `GET /api/iterations/{id}`
 - `POST /api/iterations/{id}/answer-requirements`
 - `POST /api/iterations/{id}/skip-discovery`
-- `POST /api/iterations/{id}/approve-design`
 - `POST /api/iterations/{id}/approve-verify`
 - `POST /api/iterations/{id}/stop`
 - `GET /api/iterations/{id}/documents/{name}`

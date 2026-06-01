@@ -40,7 +40,7 @@ def drain_jobs():
 
 
 def advance_through_planning_gates(iteration_id: str) -> None:
-    """Answer discovery and approve design so dry-run can reach coder/tester."""
+    """Answer discovery so dry-run can reach coder/tester."""
     for _ in range(12):
         drain_jobs()
         detail = client.get(f"/api/iterations/{iteration_id}").json()
@@ -50,9 +50,6 @@ def advance_through_planning_gates(iteration_id: str) -> None:
                 f"/api/iterations/{iteration_id}/answer-requirements",
                 json={"answer": "Ship a minimal vertical slice first"},
             )
-            continue
-        if status == "awaiting_design_approval":
-            client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "approved"})
             continue
         return
 
@@ -334,7 +331,7 @@ def test_epic_status_delivered_after_all_iterations_deliver(tmp_path):
     assert detail.json()["delivered_count"] == 1
 
 
-def test_discovery_answer_and_design_approval(tmp_path):
+def test_discovery_answer_then_planner(tmp_path):
     project = post_project(tmp_path, "discovery-flow")
     project_id = project.json()["id"]
     resp = client.post(
@@ -353,16 +350,11 @@ def test_discovery_answer_and_design_approval(tmp_path):
         json={"answer": "Prioritize admin users first"},
     )
     assert answer.status_code == 200
+    advance_through_planning_gates(iteration_id)
     drain_jobs()
     detail = client.get(f"/api/iterations/{iteration_id}").json()
-    assert detail["status"] == "awaiting_design_approval"
     assert any(doc["name"] == "system_design" for doc in detail["documents"])
     assert len(detail["discovery_history"]) == 1
-
-    approve = client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "looks good"})
-    assert approve.status_code == 200
-    drain_jobs()
-    detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert detail["status"] == "awaiting_verify_approval"
 
 
@@ -451,9 +443,6 @@ def test_invalid_approval_returns_409():
     )
     iteration_id = resp.json()["id"]
     drain_jobs()
-
-    invalid_design = client.post(f"/api/iterations/{iteration_id}/approve-design", json={"note": "removed checkpoint"})
-    assert invalid_design.status_code == 409
 
     advance_through_planning_gates(iteration_id)
     client.post(f"/api/iterations/{iteration_id}/approve-verify", json={"note": "ok"})

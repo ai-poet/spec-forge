@@ -195,13 +195,6 @@ export function skipDiscovery(id: string, note?: string): Promise<IterationDetai
   })
 }
 
-export function approveDesign(id: string, note?: string): Promise<IterationSummary> {
-  return request(`/api/iterations/${id}/approve-design`, {
-    method: 'POST',
-    body: JSON.stringify({ note }),
-  })
-}
-
 export function approveVerify(id: string, note?: string): Promise<IterationSummary> {
   return request(`/api/iterations/${id}/approve-verify`, {
     method: 'POST',

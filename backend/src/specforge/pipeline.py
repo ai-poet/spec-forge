@@ -92,7 +92,6 @@ class PipelineState(TypedDict, total=False):
     status: Annotated[str, _last_str]
     route: Annotated[str | None, _last_str]
     current_node: Optional[str]
-    design_approval: Optional[str]
     verify_approval: Optional[str]
     blocked_reason: Optional[str]
     failure_notes: Optional[str]
@@ -204,9 +203,6 @@ class LangGraphPipeline:
     def skip_discovery(self, iteration_id: str, note: Optional[str] = None) -> None:
         self.resume(iteration_id, "requirements_input", f"SKIP:{note or 'proceed with documented assumptions'}")
 
-    def approve_design(self, iteration_id: str, note: Optional[str] = None) -> None:
-        self.resume(iteration_id, "design_approval", note or "approved")
-
     def approve_verify(self, iteration_id: str, note: Optional[str] = None) -> None:
         self.resume(iteration_id, "verify_approval", note or "approved")
 
@@ -268,9 +264,6 @@ class LangGraphPipeline:
 
         if resume_node == "requirements_input" and self.can_resume(iteration_id, "requirements_input"):
             self.resume(iteration_id, "requirements_input", note or "resumed")
-            return
-        if resume_node == "design_approval" and self.can_resume(iteration_id, "design_approval"):
-            self.approve_design(iteration_id, note=note)
             return
         if resume_node == "verify_approval" and self.can_resume(iteration_id, "verify_approval"):
             self._update_iteration(
@@ -334,7 +327,6 @@ class LangGraphPipeline:
             "created": NodeName.planner.value,
             "planning": NodeName.planner_discovery.value,
             "awaiting_requirements_input": "requirements_input",
-            "awaiting_design_approval": "design_approval",
             "coding": NodeName.coder.value,
             "retrying": NodeName.coder.value,
             "testing": NodeName.tester.value,
@@ -347,7 +339,6 @@ class LangGraphPipeline:
             NodeName.planner.value: IterationStatus.planning,
             NodeName.planner_clarification.value: IterationStatus.retrying,
             "requirements_input": IterationStatus.awaiting_requirements_input,
-            "design_approval": IterationStatus.awaiting_design_approval,
             NodeName.coder.value: IterationStatus.coding,
             NodeName.integrity_check.value: IterationStatus.testing,
             NodeName.tester.value: IterationStatus.testing,
@@ -487,7 +478,6 @@ class LangGraphPipeline:
         builder.add_node("planner_discovery", self._planner_discovery_node)
         builder.add_node("requirements_input", self._requirements_input_node)
         builder.add_node("planner", self._planner_node)
-        builder.add_node("design_approval", self._design_approval_node)
         builder.add_node("coder", self._coder_node)
         builder.add_node("planner_clarification", self._planner_clarification_node)
         builder.add_node("integrity_check", self._integrity_check_node)
@@ -501,9 +491,8 @@ class LangGraphPipeline:
             self._route_after_discovery,
             {"blocked": END, "ask": "requirements_input", "ready": "planner"},
         )
-        builder.add_edge("requirements_input", "planner_discovery")
-        builder.add_conditional_edges("planner", self._route_after_planner, {"blocked": END, "approval": "design_approval"})
-        builder.add_conditional_edges("design_approval", self._route_after_design_approval, {"blocked": END, "coder": "coder"})
+        builder.add_edge("requirements_input", "planner")
+        builder.add_conditional_edges("planner", self._route_after_planner, {"blocked": END, "coder": "coder"})
         builder.add_conditional_edges(
             "coder",
             self._route_after_coder,
@@ -714,44 +703,40 @@ class LangGraphPipeline:
             event_type="discovery.answered",
             payload={"round": round_num, "question": question, "answer": str(answer)},
         )
-        self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.planner_discovery.value)
+        assumptions = list(state.get("pending_discovery_assumptions") or [])
+        requirements_brief = self._synthesize_requirements_brief(
+            state,
+            discovery_qa=discovery_qa,
+            assumptions=assumptions,
+        )
+        brief_path = docs.write_text(
+            "discovery/requirements_brief.md",
+            self._discovery_brief_markdown(requirements_brief, assumptions, "moderate"),
+        )
+        self._record_document(iteration_id, "requirements_brief", brief_path)
+        self._add_event(
+            iteration_id,
+            event_type="discovery.ready",
+            payload={"source": "user_answer", "rounds": len(discovery_qa)},
+        )
+        self._node_event(
+            iteration_id,
+            "node.completed",
+            NodeName.planner_discovery.value,
+            "需求已确认",
+            "用户已回答澄清问题，进入终局规划。",
+            severity="success",
+        )
+        self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.planner.value)
         return {
             "discovery_qa": discovery_qa,
+            "requirements_brief": requirements_brief,
             "pending_discovery_question": None,
             "pending_discovery_options": [],
             "pending_discovery_assumptions": [],
             "status": IterationStatus.planning.value,
             "route": "",
-            "current_node": NodeName.planner_discovery.value,
-        }
-
-    def _design_approval_node(self, state: PipelineState) -> PipelineState:
-        iteration_id = state["iteration_id"]
-        self._update_iteration(iteration_id, status=IterationStatus.awaiting_design_approval.value, current_node=None)
-        self._add_event(iteration_id, event_type="design.pending", payload={"checkpoint": "design_approval"})
-        self._node_event(
-            iteration_id,
-            "node.progress",
-            "design_approval",
-            "等待设计审批",
-            "规划文档已生成，请审阅系统设计、修改计划与测试方案后批准进入实现。",
-            severity="info",
-            action_hint="在工作台批准设计，或停止迭代后修改 Epic/文档。",
-        )
-        answer = interrupt({"checkpoint": "design_approval", "iteration_id": iteration_id})
-        self._add_event(iteration_id, event_type="design.approved", payload={"note": answer})
-        self._node_event(
-            iteration_id,
-            "node.completed",
-            "design_approval",
-            "设计已批准",
-            "用户已批准本轮规划，进入实现。",
-            severity="success",
-        )
-        return {
-            "design_approval": str(answer),
-            "status": IterationStatus.coding.value,
-            "current_node": None,
+            "current_node": NodeName.planner.value,
         }
 
     def _planner_node(self, state: PipelineState) -> PipelineState:
@@ -800,15 +785,15 @@ class LangGraphPipeline:
                 "node.completed",
                 NodeName.planner.value,
                 "规划完成",
-                f"已根据澄清后的需求生成 3 份规划文档和 {len(artifact.tests)} 个测试文件，等待设计审批。",
+                f"已根据澄清后的需求一次性生成 3 份规划文档和 {len(artifact.tests)} 个测试文件，进入实现。",
                 severity="success",
                 run_id=run_id,
             )
             return {
-                "status": IterationStatus.planning.value,
+                "status": IterationStatus.coding.value,
                 "current_node": None,
                 "planner_run_id": run_id,
-                "route": "approval",
+                "route": "coder",
             }
         except Exception as exc:
             event_type = ui_spec_error_type(str(exc))
@@ -1222,12 +1207,7 @@ class LangGraphPipeline:
             return "ask"
         return "ready"
 
-    def _route_after_planner(self, state: PipelineState) -> Literal["blocked", "approval"]:
-        if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
-            return "blocked"
-        return "approval"
-
-    def _route_after_design_approval(self, state: PipelineState) -> Literal["blocked", "coder"]:
+    def _route_after_planner(self, state: PipelineState) -> Literal["blocked", "coder"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
         return "coder"
@@ -1523,6 +1503,26 @@ class LangGraphPipeline:
             lines.append(f"Round {round_num} Q: {question}")
             lines.append(f"Round {round_num} A: {answer}")
         return "\n".join(lines)
+
+    def _synthesize_requirements_brief(
+        self,
+        state: PipelineState,
+        *,
+        discovery_qa: list[dict[str, Any]],
+        assumptions: list[str],
+    ) -> str:
+        goal = state["goal"]
+        parts = [f"Goal: {goal}"]
+        prior = (state.get("requirements_brief") or "").strip()
+        if prior and prior not in parts[0]:
+            parts.append(f"\nPrior brief notes:\n{prior}")
+        qa_text = self._format_discovery_qa_for_prompt(discovery_qa)
+        if qa_text:
+            parts.append(f"\nDiscovery Q&A:\n{qa_text}")
+        if assumptions:
+            parts.append("\nAssumptions:\n" + "\n".join(f"- {item}" for item in assumptions))
+        parts.append("\nProceed to system design, modification plan, testing plan, and protected tests in one planning pass.")
+        return "\n".join(parts).strip()
 
     @staticmethod
     def _discovery_brief_markdown(brief: str, assumptions: list[str], complexity: str) -> str:

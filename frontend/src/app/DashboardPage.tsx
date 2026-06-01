@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
   answerRequirements,
-  approveDesign,
   approveVerify,
   createIteration,
   listIterationsForProject,
@@ -151,20 +150,6 @@ export function DashboardPage() {
       await skipDiscovery(selectedIterationId, '按当前假设继续')
       await live.loadDetail()
       await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleApproveDesign() {
-    if (!selectedIterationId) return
-    setBusy(true)
-    try {
-      await approveDesign(selectedIterationId, 'approved')
-      await live.loadDetail()
-      await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId)
-      await epics.refreshEpics(epics.selectedEpicId ?? undefined)
-      await projects.refreshProjects()
     } finally {
       setBusy(false)
     }
@@ -359,7 +344,6 @@ export function DashboardPage() {
                   onLoadDocument={live.loadDocument}
                   onAnswerRequirements={handleAnswerRequirements}
                   onSkipDiscovery={handleSkipDiscovery}
-                  onApproveDesign={handleApproveDesign}
                   onApproveVerify={handleApproveVerify}
                   onStop={handleStop}
                   onResume={handleResume}

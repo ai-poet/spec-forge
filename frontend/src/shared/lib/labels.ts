@@ -5,7 +5,6 @@ export const iterationStatusLabel: Record<IterationStatus, string> = {
   queued: '已排队',
   planning: '正在规划',
   awaiting_requirements_input: '等待需求澄清',
-  awaiting_design_approval: '等待设计审批',
   coding: '正在实现',
   retrying: '自动重试中',
   testing: '正在验证',
@@ -54,7 +53,6 @@ export const timelineFilterLabel: Record<TimelineFilter, string> = {
 export function graphNodeLabel(value: string) {
   if (value in nodeLabel) return nodeLabel[value as NodeName]
   if (value === 'requirements_input') return '需求回答'
-  if (value === 'design_approval') return '设计审批'
   if (value === 'verify_approval') return '交付确认'
   if (value === 'done') return '交付完成'
   if (value === 'END') return '结束'

@@ -140,7 +140,6 @@ flowchart TB
 
   subgraph gateNodes ["程序门禁 / 人工检查点"]
     requirementsInput["requirements_input\ninterrupt：你回答问题"]
-    designApproval["design_approval\ninterrupt：你批准设计"]
     integrityCheck["integrity_check\n受保护测试 checksum"]
     plannerVerify["planner_verify\n验证报告格式复核"]
     verifyApproval["verify_approval\ninterrupt：你点「确认交付」"]
@@ -148,14 +147,12 @@ flowchart TB
   end
 
   plannerDiscovery -->|"status=ask"| requirementsInput
-  requirementsInput --> plannerDiscovery
+  requirementsInput --> planner
   plannerDiscovery -->|"status=ready"| planner
   plannerDiscovery -->|"失败 / 停止"| endBlocked([END\nblocked / stopped])
 
-  planner -->|"规划成功"| designApproval
+  planner -->|"规划成功"| coder
   planner -->|"失败 / 停止"| endBlocked
-
-  designApproval -->|"已批准"| coder
 
   coder -->|"clarification_request"| plannerClarification
   coder -->|"实现完成"| integrityCheck
@@ -191,8 +188,7 @@ flowchart TB
 |------|------|--------|--------|
 | 需求澄清 | `planner_discovery` | Claude CLI | 在终局规划前澄清模糊需求（auto：清晰则直接 ready，否则一次一问） |
 | 需求回答 | `requirements_input` | **你** | 在工作台回答 Planner 问题；写入 `discovery/*` |
-| 规划 | `planner` | Claude CLI | 基于澄清后的 brief 产出设计/计划/测试文件 |
-| 设计审批 | `design_approval` | **你** | 批准 `system_design` / `modification_plan` / `testing_plan` 后进入实现 |
+| 规划 | `planner` | Claude CLI | 需求确认后**一次**产出设计/计划/测试文件，并直接进入实现 |
 | 实现 | `coder` | Claude CLI | 只改 `src/**`，根据规划写代码 |
 | 澄清 | `planner_clarification` | Claude CLI | Coder 看不懂时，Planner 正式回答并写入 `clarifications/` |
 | 完整性 | `integrity_check` | 后端程序 | 检查 Planner 写的测试有没有被 Coder 偷偷改掉 |
@@ -201,7 +197,7 @@ flowchart TB
 | 交付确认 | `verify_approval` | **你** | 在前端点「确认交付」，流水线才归档 |
 | 完成 | `done` | 后端 | 状态变为 `delivered`，写入 iteration_log |
 
-**注意：** 规划前有**需求澄清**（可多轮，默认上限 `max_discovery_rounds`），规划后有**设计审批**，交付前还有**最终确认**。实现中 Coder 仍可通过 `planner_clarification` 请求补充澄清（与规划前 discovery 分离）。
+**注意：** 规划前有**需求澄清**（一次一问；回答后直接进入终局规划，不再额外跑一轮 discovery CLI）。交付前仍有**最终确认**。实现中 Coder 仍可通过 `planner_clarification` 请求补充澄清（与规划前 discovery 分离）。
 
 ---
 

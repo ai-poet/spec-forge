@@ -3,7 +3,6 @@ export type IterationStatus =
   | 'queued'
   | 'planning'
   | 'awaiting_requirements_input'
-  | 'awaiting_design_approval'
   | 'coding'
   | 'retrying'
   | 'testing'

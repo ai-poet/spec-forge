@@ -29,7 +29,7 @@ export const stepStateLabel: Record<string, string> = {
 export function nodesForStep(step: PipelineStepKey): string[] {
   switch (step) {
     case 'planner':
-      return ['planner_discovery', 'planner', 'planner_clarification', 'requirements_input', 'design_approval']
+      return ['planner_discovery', 'planner', 'planner_clarification', 'requirements_input']
     case 'coder':
       return ['coder', 'coder_retry']
     case 'integrity_check':
@@ -56,7 +56,6 @@ export function pipelineStepState(key: string, detail: IterationDetail | null): 
   if (currentNode === key) return 'active'
   if (key === 'verify_approval' && status === 'awaiting_verify_approval') return 'waiting'
   if (key === 'planner' && status === 'awaiting_requirements_input') return 'waiting'
-  if (key === 'planner' && status === 'awaiting_design_approval') return 'waiting'
   if (key === 'done' && status === 'delivered') return 'complete'
   if (key === 'planner' && ['planning', 'queued'].includes(status)) return 'active'
   if (key === 'coder' && ['coding', 'retrying'].includes(status)) return 'active'
@@ -88,12 +87,11 @@ export function inferFocusStep(detail: IterationDetail): PipelineStepKey {
       || detail.stopped_at_node === 'planner_discovery'
       || detail.stopped_at_node === 'planner_clarification'
       || detail.stopped_at_node === 'requirements_input'
-      || detail.stopped_at_node === 'design_approval'
     ) {
       return 'planner'
     }
   }
-  if (status === 'awaiting_requirements_input' || status === 'awaiting_design_approval') return 'planner'
+  if (status === 'awaiting_requirements_input') return 'planner'
   if (['queued', 'planning', 'created'].includes(status)) return 'planner'
   if (['coding', 'retrying'].includes(status)) return 'coder'
   if (status === 'testing') {

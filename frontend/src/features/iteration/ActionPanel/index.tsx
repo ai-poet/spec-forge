@@ -19,7 +19,6 @@ interface Props {
   busy: boolean
   onAnswerRequirements: (answer: string) => Promise<void>
   onSkipDiscovery: () => Promise<void>
-  onApproveDesign: () => Promise<void>
   onApproveVerify: () => Promise<void>
   onStop: () => Promise<void>
   onResume: () => Promise<void>
@@ -29,7 +28,6 @@ const readable: Record<string, { title: string; body: string }> = {
   queued: { title: '已排队', body: '后台执行器会开始运行规划节点。' },
   planning: { title: '正在规划', body: '规划节点正在根据大需求拆分任务并生成设计文档、修改计划和测试。' },
   awaiting_requirements_input: { title: '等待需求澄清', body: 'Planner 需要你回答一个问题，以便在生成设计文档前把需求具体化。' },
-  awaiting_design_approval: { title: '等待设计审批', body: '规划文档已生成，请审阅系统设计、修改计划与测试方案后批准进入实现。' },
   coding: { title: '正在写代码', body: '实现节点正在根据规划产出的规格实现代码。' },
   retrying: { title: '正在自动修复', body: '上一轮验证失败，系统正在带着失败信息回到实现节点。' },
   testing: { title: '正在验证', body: '独立验证和完整性检查正在执行。' },
@@ -42,7 +40,6 @@ const readable: Record<string, { title: string; body: string }> = {
 
 const BAR_STATUS_CLASS: Record<string, string> = {
   awaiting_requirements_input: styles.barAwaitingApproval,
-  awaiting_design_approval: styles.barAwaitingApproval,
   awaiting_verify_approval: styles.barAwaitingApproval,
   blocked: styles.barBlocked,
   blocked_user: styles.barBlocked,
@@ -52,7 +49,6 @@ const BAR_STATUS_CLASS: Record<string, string> = {
 const RUNNING_BAR_CLASS: Record<string, string> = {
   queued: styles.barRunning,
   planning: styles.barRunning,
-  awaiting_design_approval: styles.barRunning,
   coding: styles.barRunning,
   retrying: styles.barRunning,
   testing: styles.barRunning,
@@ -102,7 +98,6 @@ export function ActionPanel({
   busy,
   onAnswerRequirements,
   onSkipDiscovery,
-  onApproveDesign,
   onApproveVerify,
   onStop,
   onResume,
@@ -156,19 +151,6 @@ export function ActionPanel({
             onSkip={onSkipDiscovery}
           />
         ) : null}
-        {detail?.status === 'awaiting_design_approval' ? (
-          <div className={styles.approvalChecklist}>
-            <span className={detail.documents.some((doc) => doc.name === 'system_design') ? 'ok-text' : 'muted'}>
-              {detail.documents.some((doc) => doc.name === 'system_design') ? '✓' : '○'} 系统设计
-            </span>
-            <span className={detail.documents.some((doc) => doc.name === 'modification_plan') ? 'ok-text' : 'muted'}>
-              {detail.documents.some((doc) => doc.name === 'modification_plan') ? '✓' : '○'} 修改计划
-            </span>
-            <span className={detail.documents.some((doc) => doc.name === 'testing_plan') ? 'ok-text' : 'muted'}>
-              {detail.documents.some((doc) => doc.name === 'testing_plan') ? '✓' : '○'} 测试计划
-            </span>
-          </div>
-        ) : null}
         {detail?.status === 'awaiting_verify_approval' ? (
           <div className={styles.approvalChecklist}>
             <span className={verifyReady ? 'ok-text' : 'muted'}>{verifyReady ? '✓' : '○'} 验证报告</span>
@@ -183,14 +165,6 @@ export function ActionPanel({
         ) : null}
       </div>
       <div className={styles.actions}>
-        <button
-          type="button"
-          className="btn primary"
-          onClick={onApproveDesign}
-          disabled={busy || detail?.status !== 'awaiting_design_approval'}
-        >
-          批准设计
-        </button>
         <button type="button" className="btn primary" onClick={onApproveVerify} disabled={busy || detail?.status !== 'awaiting_verify_approval'}>
           确认交付
         </button>

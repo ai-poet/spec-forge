@@ -409,16 +409,6 @@ def skip_discovery(iteration_id: str, payload: ApproveRequest) -> IterationDetai
     return get_iteration(iteration_id)
 
 
-@app.post("/api/iterations/{iteration_id}/approve-design", response_model=IterationSummary)
-def approve_design(iteration_id: str, payload: ApproveRequest) -> IterationSummary:
-    if not pipeline.can_resume(iteration_id, "design_approval"):
-        raise HTTPException(status_code=409, detail="iteration is not awaiting design_approval")
-    db.add_event(iteration_id, event_type="resume.queued", payload={"checkpoint": "design_approval"})
-    job_queue.enqueue_resume(iteration_id, "design_approval", payload.note)
-    refresh_iteration_epic(iteration_id)
-    return get_iteration(iteration_id)
-
-
 @app.post("/api/iterations/{iteration_id}/approve-verify", response_model=IterationSummary)
 def approve_verify(iteration_id: str, payload: ApproveRequest) -> IterationSummary:
     if not pipeline.can_resume(iteration_id, "verify_approval"):

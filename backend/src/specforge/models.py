@@ -32,7 +32,6 @@ class IterationStatus(str, Enum):
     queued = "queued"
     planning = "planning"
     awaiting_requirements_input = "awaiting_requirements_input"
-    awaiting_design_approval = "awaiting_design_approval"
     coding = "coding"
     retrying = "retrying"
     testing = "testing"

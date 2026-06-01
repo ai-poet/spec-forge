@@ -25,4 +25,4 @@ Return only JSON matching this shape:
 
 When `status` is `ask`, `question` is required. When `status` is `ready`, `requirements_brief` must be complete enough for final planning (goal, scope, acceptance hints, out-of-scope, technical constraints).
 
-Do not produce system_design, modification_plan, testing_plan, or test files in this stage.
+Do not produce system_design, modification_plan, testing_plan, or test files in this stage. After the user answers (or skips), the pipeline runs **planner** once to emit all planning artifacts — do not expect another discovery CLI round for the same Q&A.
