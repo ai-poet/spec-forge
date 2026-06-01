@@ -53,9 +53,15 @@ def serialize_cli_bindings(bindings: Optional[dict[str, str]]) -> Optional[str]:
     return json.dumps(cleaned, ensure_ascii=False) if cleaned else None
 
 
-def _claude_command(prompt: str, schema: str | Path) -> list[str]:
+def _claude_command(
+    prompt: str,
+    schema: str | Path,
+    *,
+    session_id: Optional[str] = None,
+    resume: bool = False,
+) -> list[str]:
     schema_arg = str(schema)
-    return [
+    cmd: list[str] = [
         "claude",
         "-p",
         "--output-format",
@@ -67,13 +73,36 @@ def _claude_command(prompt: str, schema: str | Path) -> list[str]:
         "--verbose",
         "--include-partial-messages",
         "--include-hook-events",
-        "--json-schema",
-        schema_arg,
-        prompt,
     ]
+    if session_id:
+        if resume:
+            cmd.extend(["--resume", session_id])
+        else:
+            cmd.extend(["--session-id", session_id])
+    cmd.extend(["--json-schema", schema_arg, prompt])
+    return cmd
 
 
-def _codex_command(prompt: str, schema_file: Path) -> list[str]:
+def _codex_command(
+    prompt: str,
+    schema_file: Path,
+    *,
+    session_id: Optional[str] = None,
+    resume: bool = False,
+) -> list[str]:
+    if session_id and resume:
+        return [
+            "codex",
+            "exec",
+            "resume",
+            session_id,
+            "--json",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--output-schema",
+            str(schema_file),
+            "--skip-git-repo-check",
+            prompt,
+        ]
     return [
         "codex",
         "exec",
@@ -86,7 +115,15 @@ def _codex_command(prompt: str, schema_file: Path) -> list[str]:
     ]
 
 
-def build_cli_command(*, provider: CliProvider, prompt: str, schema_inline: str, schema_file: Path) -> list[str]:
+def build_cli_command(
+    *,
+    provider: CliProvider,
+    prompt: str,
+    schema_inline: str,
+    schema_file: Path,
+    session_id: Optional[str] = None,
+    resume: bool = False,
+) -> list[str]:
     if provider == "codex":
-        return _codex_command(prompt, schema_file)
-    return _claude_command(prompt, schema_inline)
+        return _codex_command(prompt, schema_file, session_id=session_id, resume=resume)
+    return _claude_command(prompt, schema_inline, session_id=session_id, resume=resume)

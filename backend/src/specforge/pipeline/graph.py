@@ -27,7 +27,7 @@ class PipelineGraphMixin:
             self._route_after_discovery,
             {"blocked": END, "ask": "requirements_input", "ready": "prd_planner"},
         )
-        builder.add_edge("requirements_input", "prd_planner")
+        builder.add_edge("requirements_input", "planner_discovery")
         builder.add_conditional_edges("prd_planner", self._route_after_prd_planner, {"blocked": END, "test_planner": "test_planner"})
         builder.add_conditional_edges("test_planner", self._route_after_test_planner, {"blocked": END, "coder": "coder", "test_planner_retry": "test_planner"})
         builder.add_conditional_edges(

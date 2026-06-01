@@ -45,14 +45,15 @@ class PlanningNodesMixin:
             current_node=NodeName.planner_discovery.value,
             last_error=None,
         )
-        self._reset_live_cli(iteration_id, NodeName.planner_discovery.value)
+        is_continuing = self._planning_session_started(state)
+        self._reset_live_cli(iteration_id, NodeName.planner_discovery.value, continuing=is_continuing)
         self._publish_snapshot(iteration_id)
         self._node_event(
             iteration_id,
             "node.started",
             NodeName.planner_discovery.value,
-            "需求澄清已启动",
-            "Planner 正在分析大需求，必要时将向您提出单个澄清问题。",
+            "需求澄清已启动" if not is_continuing else "需求澄清续接中",
+            "Planner 正在分析大需求，必要时将向您提出单个澄清问题。" if not is_continuing else "Planner 正在根据用户答案继续澄清。",
         )
         run_result = self._execute(
             state,
@@ -201,47 +202,26 @@ class PlanningNodesMixin:
             event_type="discovery.answered",
             payload={"round": round_num, "question": question, "answer": str(answer)},
         )
-        assumptions = list(state.get("pending_discovery_assumptions") or [])
-        requirements_brief = self._synthesize_requirements_brief(
-            state,
-            discovery_qa=discovery_qa,
-            assumptions=assumptions,
-        )
-        brief_path = docs.write_text(
-            "discovery/requirements_brief.md",
-            self._discovery_brief_markdown(requirements_brief, assumptions, "moderate"),
-        )
-        self._record_document(iteration_id, "requirements_brief", brief_path)
-        self._add_event(
+        self._update_iteration(
             iteration_id,
-            event_type="discovery.ready",
-            payload={"source": "user_answer", "rounds": len(discovery_qa)},
+            status=IterationStatus.planning.value,
+            current_node=NodeName.planner_discovery.value,
         )
-        self._node_event(
-            iteration_id,
-            "node.completed",
-            NodeName.planner_discovery.value,
-            "需求已确认",
-            "用户已回答澄清问题，进入终局规划。",
-            severity="success",
-        )
-        self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.prd_planner.value)
         return {
             "discovery_qa": discovery_qa,
-            "requirements_brief": requirements_brief,
             "pending_discovery_question": None,
             "pending_discovery_options": [],
             "pending_discovery_assumptions": [],
             "status": IterationStatus.planning.value,
             "route": "",
-            "current_node": NodeName.prd_planner.value,
+            "current_node": NodeName.planner_discovery.value,
         }
 
 
     def _prd_planner_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
         self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.prd_planner.value, last_error=None)
-        self._reset_live_cli(iteration_id, NodeName.prd_planner.value)
+        self._reset_live_cli(iteration_id, NodeName.prd_planner.value, continuing=True)
         self._publish_snapshot(iteration_id)
         self._node_event(
             iteration_id,
@@ -280,7 +260,7 @@ class PlanningNodesMixin:
         retry_counts = dict(state.get("retry_counts") or {})
         is_retry = retry_counts.get("test_planner_self", 0) > 0
         self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.test_planner.value, retry_counts=retry_counts, last_error=None)
-        self._reset_live_cli(iteration_id, NodeName.test_planner.value)
+        self._reset_live_cli(iteration_id, NodeName.test_planner.value, continuing=True)
         self._publish_snapshot(iteration_id)
         self._node_event(
             iteration_id,

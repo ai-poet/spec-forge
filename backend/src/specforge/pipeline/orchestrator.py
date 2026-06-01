@@ -129,6 +129,8 @@ class LangGraphPipeline(
             "max_discovery_rounds": int(project["max_discovery_rounds"]) if project and "max_discovery_rounds" in project.keys() else 8,
             "discovery_qa": [],
             "requirements_brief": "",
+            "planning_cli_session_id": None,
+            "planning_cli_session_started": False,
         }
 
 

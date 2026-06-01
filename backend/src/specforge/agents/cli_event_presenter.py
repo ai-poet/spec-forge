@@ -131,6 +131,12 @@ class ClaudeCodeEventPresenter:
             if model or tool_count:
                 message = f"模型: {model or '未知'}，可用工具: {tool_count} 个。"
             return CliDisplayEvent("claude_code", node, "session", "Claude Code 会话已初始化", message, raw_event=payload)
+        if event_type == "system" and subtype == "resume":
+            model = str(payload.get("model") or "")
+            message = "Claude Code 会话已恢复（规划续接）。"
+            if model:
+                message = f"模型: {model}，会话已恢复（规划续接）。"
+            return CliDisplayEvent("claude_code", node, "session", "会话已恢复（规划续接）", message, raw_event=payload)
         if event_type == "system" and subtype == "api_retry":
             attempt = payload.get("attempt") or payload.get("retry_count")
             max_attempts = payload.get("max_attempts") or payload.get("max_retries")

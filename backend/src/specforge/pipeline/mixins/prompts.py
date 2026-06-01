@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 from pydantic import BaseModel
 
@@ -182,10 +183,29 @@ class PipelinePromptsMixin:
         return resolve_cli_provider(bindings, stage)
 
 
+    def _ensure_planning_session_id(self, state: PipelineState) -> str:
+        existing = state.get("planning_cli_session_id")
+        if existing:
+            return existing
+        session_id = uuid4().hex
+        state["planning_cli_session_id"] = session_id
+        return session_id
+
+
+    def _planning_session_started(self, state: PipelineState) -> bool:
+        return bool(state.get("planning_cli_session_started"))
+
+
+    def _mark_planning_session_started(self, state: PipelineState) -> None:
+        state["planning_cli_session_started"] = True
+
+
     def _planner_discovery_command(self, state: PipelineState) -> list[str]:
         iteration_id = state["iteration_id"]
         if self._is_real_cli(state.get("mode")):
             repo_root = self.project_repo_root(iteration_id)
+            session_id = self._ensure_planning_session_id(state)
+            resume = self._planning_session_started(state)
             prompt = compose_stage_prompt(
                 "planner_discovery",
                 repo_root=repo_root,
@@ -201,6 +221,7 @@ class PipelinePromptsMixin:
                     "framework_conventions": read_framework_conventions(),
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.planner_discovery.value),
+                    "session_continuation": self._discovery_continuation_hint(state, resume=resume),
                 },
             )
             provider = self._cli_provider(state, "planner_discovery")
@@ -209,8 +230,26 @@ class PipelinePromptsMixin:
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(PlannerDiscoveryArtifact),
                 schema_file=self._artifact_schema_file(iteration_id, "planner_discovery_artifact", PlannerDiscoveryArtifact),
+                session_id=session_id,
+                resume=resume,
             )
         return ["specforge", "planner_discovery", iteration_id]
+
+
+    def _discovery_continuation_hint(self, state: PipelineState, *, resume: bool) -> str:
+        if not resume:
+            return "(first discovery turn — produce a question or mark ready based on the brief above)"
+        discovery_qa = state.get("discovery_qa") or []
+        if not discovery_qa:
+            return "(continuing planning session)"
+        latest = discovery_qa[-1]
+        return (
+            "Continuation of the same planning session. The user just answered:\n"
+            f"  Q{latest.get('round', '?')}: {latest.get('question', '')}\n"
+            f"  A{latest.get('round', '?')}: {latest.get('answer', '')}\n"
+            "Decide whether to ask another high-value clarifying question (status=ask) "
+            "or proceed (status=ready). Do not repeat earlier answers — refine the brief."
+        )
 
 
     def _prd_planner_command(self, state: PipelineState) -> list[str]:
@@ -220,6 +259,8 @@ class PipelinePromptsMixin:
         discovery_qa = self._format_discovery_qa_for_prompt(state.get("discovery_qa") or []) or "(none)"
         if self._is_real_cli(state.get("mode")):
             repo_root = self.project_repo_root(iteration_id)
+            session_id = self._ensure_planning_session_id(state)
+            resume = self._planning_session_started(state)
             prompt = compose_stage_prompt(
                 "prd_planner",
                 repo_root=repo_root,
@@ -235,6 +276,7 @@ class PipelinePromptsMixin:
                     "framework_conventions": read_framework_conventions(),
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.prd_planner.value),
+                    "session_continuation": self._stage_continuation_hint(stage="prd_planner", resume=resume),
                 },
             )
             provider = self._cli_provider(state, "prd_planner")
@@ -243,6 +285,8 @@ class PipelinePromptsMixin:
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(PrdPlannerArtifact),
                 schema_file=self._artifact_schema_file(iteration_id, "prd_planner_artifact", PrdPlannerArtifact),
+                session_id=session_id,
+                resume=resume,
             )
         return ["specforge", "prd_planner", iteration_id]
 
@@ -253,6 +297,8 @@ class PipelinePromptsMixin:
         requirements_brief = (state.get("requirements_brief") or "").strip() or "(see prd.md)"
         if self._is_real_cli(state.get("mode")):
             repo_root = self.project_repo_root(iteration_id)
+            session_id = self._ensure_planning_session_id(state)
+            resume = self._planning_session_started(state)
             prompt = compose_stage_prompt(
                 "test_planner",
                 repo_root=repo_root,
@@ -269,6 +315,7 @@ class PipelinePromptsMixin:
                     "framework_conventions": read_framework_conventions(),
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.test_planner.value),
+                    "session_continuation": self._stage_continuation_hint(stage="test_planner", resume=resume),
                 },
             )
             provider = self._cli_provider(state, "test_planner")
@@ -277,8 +324,28 @@ class PipelinePromptsMixin:
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(TestPlannerArtifact),
                 schema_file=self._artifact_schema_file(iteration_id, "test_planner_artifact", TestPlannerArtifact),
+                session_id=session_id,
+                resume=resume,
             )
         return ["specforge", "test_planner", iteration_id]
+
+
+    @staticmethod
+    def _stage_continuation_hint(*, stage: str, resume: bool) -> str:
+        if not resume:
+            return "(starting planning session — produce only this stage's artifact)"
+        if stage == "prd_planner":
+            return (
+                "Same planning session as discovery. Discovery context (brief and Q&A) is already in this session — "
+                "do not re-summarize it. Produce ONLY the PRD artifact for this turn."
+            )
+        if stage == "test_planner":
+            return (
+                "Same planning session as discovery and PRD. The PRD is already in this session — "
+                "do not regenerate it. Produce ONLY the testing_plan and protected tests for this turn. "
+                "If this turn is a retry after a verification failure, focus on the failure notes."
+            )
+        return "(continuation of planning session)"
 
 
     def _planner_clarification_command(self, state: PipelineState, clarification_request: str) -> list[str]:

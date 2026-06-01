@@ -26,9 +26,15 @@ class PipelineRuntimeMixin:
             return {"node": live["node"], "stdout": live["stdout"], "stderr": live["stderr"]}
 
 
-    def _reset_live_cli(self, iteration_id: str, node: str) -> None:
+    def _reset_live_cli(self, iteration_id: str, node: str, *, continuing: bool = False) -> None:
         with self._live_cli_lock:
-            self._live_cli[iteration_id] = {"node": node, "stdout": "", "stderr": ""}
+            if continuing and iteration_id in self._live_cli:
+                existing = self._live_cli[iteration_id]
+                existing["node"] = node
+                existing["stdout"] += f"\n--- {node} ---\n"
+                existing["stderr"] += f"\n--- {node} ---\n"
+            else:
+                self._live_cli[iteration_id] = {"node": node, "stdout": "", "stderr": ""}
             self._live_cli_last_publish.pop(iteration_id, None)
 
 
@@ -198,7 +204,6 @@ class PipelineRuntimeMixin:
             current_node = row["current_node"] or "agent"
         else:
             current_node = node
-        self._reset_live_cli(iteration_id, current_node)
         self._publish_snapshot(iteration_id)
         seen_output = {"stdout": False, "stderr": False}
         seen_cli_events: set[str] = set()

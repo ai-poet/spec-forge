@@ -12,3 +12,5 @@ Epic / goal:
 {convention_excerpt}
 
 {workflow_state}
+
+{session_continuation}

@@ -46,6 +46,8 @@ class PipelineState(TypedDict, total=False):
     pending_discovery_question: Optional[str]
     pending_discovery_options: list[str]
     pending_discovery_assumptions: list[str]
+    planning_cli_session_id: Optional[str]
+    planning_cli_session_started: bool
     prd_planner_run_id: Optional[str]
     test_planner_run_id: Optional[str]
     coder_run_id: Optional[str]
