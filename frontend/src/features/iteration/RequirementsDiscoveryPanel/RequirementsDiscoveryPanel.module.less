@@ -18,6 +18,7 @@
   margin: 0;
   font-size: 15px;
   line-height: 1.5;
+  color: var(--text-primary);
 }
 
 .assumptions ul {
@@ -118,7 +119,19 @@
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
+  background: var(--bg-inset);
+  color: var(--text-primary);
+  caret-color: var(--text-primary);
+
+  &::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.85;
+  }
+
+  &:focus {
+    outline: 2px solid var(--accent-soft);
+    border-color: rgba(59, 130, 246, 0.45);
+  }
 }
 
 .actions {
