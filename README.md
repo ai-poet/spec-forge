@@ -1,8 +1,8 @@
 # SpecForge
 
-SpecForge 是一个**本地优先**的 agent 工程工作台。你用自然语言描述一个大需求，系统会自动跑一条「规划 → 实现 → 验证」流水线，把结果写进文档和代码，并在关键节点请你确认。
+SpecForge 是一个**本地优先**的 agent 工程工作台。你用自然语言描述一个大需求，系统会自动跑一条「需求澄清 → PRD 规划 → 测试规划 → 实现 → 验证」流水线，把结果写进文档和代码，并在关键节点请你确认。
 
-一句话理解：**文档是事实源，测试先于实现，规划与验证分角色、分模型，人类只在最后拍板。**
+一句话理解：**文档是事实源，测试先于实现，PRD/测试/实现/验证分角色、分模型，人类只在最后拍板。**
 
 ---
 
@@ -128,7 +128,7 @@ Project（项目）
 
 ## 流水线怎么跑（通俗版）
 
-你可以把整个流程想成一条工厂流水线：四个规划/验证 Agent、两个程序门禁、一个规格复核、最后由你签字交付。下图对应 LangGraph 的真实边（见 `pipeline.py` 的 `_build_graph`）。
+你可以把整个流程想成一条工厂流水线：**需求澄清** → **PRD 规划**（`prd_planner`）→ **测试规划**（`test_planner`，在 Coder 之前写受保护测试）→ **实现** → **代码验证 + UI 验证** → **规格复核** → 你签字交付。下图对应 LangGraph 的真实边（见 `pipeline.py` 的 `_build_graph`）。
 
 ```mermaid
 flowchart TB
@@ -212,7 +212,23 @@ flowchart TB
 | 交付确认 | `verify_approval` | **你** | 在前端点「确认交付」，流水线才归档 |
 | 完成 | `done` | 后端 | 状态变为 `delivered`，写入 iteration_log |
 
-**注意：** 规划分两阶段：**prd_planner**（PRD + context）→ **test_planner**（测试计划 + 受保护测试），之后才进入 Coder。需求澄清仍是一次一问；回答后不再额外跑 discovery CLI。无单独的设计审批节点。交付前仍有**最终确认**。Coder 仍可通过 `planner_clarification` 向规划侧补问（与 discovery 分离）。
+**注意：** 规划分两阶段：**prd_planner**（PRD + context）→ **test_planner**（测试计划 + 受保护测试），之后才进入 Coder。需求澄清仍是一次一问；回答后不再额外跑 discovery CLI。无单独的设计审批节点，**不生成** `system_design.md` / `modification_plan.md`，事实源为 `prd.md` 与 `testing_plan.md`。交付前仍有**最终确认**。Coder 仍可通过 `planner_clarification` 向规划侧补问（与 discovery 分离）。
+
+### 工作台阶段条（前端）
+
+侧边栏与宏观流程图按下列 **9 个步骤** 展示（与 LangGraph 节点一一对应，不再合并为单一「规划」）：
+
+| 步骤 | 对应节点 | 说明 |
+|------|----------|------|
+| PRD 规划 | `planner_discovery`、`requirements_input`、`prd_planner` | 需求澄清 + `prd.md` + context manifests |
+| 测试规划 | `test_planner` | `testing_plan.md` + 受保护 `tests/**` |
+| 实现 | `coder`、`planner_clarification` | 写 `src/**`；澄清回合计入实现阶段 |
+| 测试完整性 | `integrity_check` | 受保护测试 checksum |
+| 代码验证 | `code_tester` | 独立审查、`verify_report`、`defects[]` |
+| UI 验证 | `ui_tester`（内嵌 UI Driver） | trajectory + 写盘闸门 |
+| 规格复核 | `planner_verify` | 验证报告格式 |
+| 交付确认 | `verify_approval` | 人工确认 |
+| 交付完成 | `done` | `delivered` |
 
 ---
 
@@ -386,8 +402,8 @@ flowchart TD
 
 你在界面上能看到：
 
-- **流水线阶段条**：规划（含需求澄清）/ 实现 / 测试完整性 / 代码验证 / UI 验证 / 规格复核 / 交付确认
-- **Agent 活动**：语义化事件（「PRD 规划已启动」「Code Tester 自修」「验证失败，回到实现节点」…）
+- **流水线阶段条**：PRD 规划 / 测试规划 / 实现 / 测试完整性 / 代码验证 / UI 验证 / 规格复核 / 交付确认 / 交付完成（可点击回顾各阶段历史）
+- **Agent 活动**：语义化事件（`prd_planner.completed`、`test_planner.completed`、`code_tester.retry_to_coder` 等，无旧版 `planner`/`tester` 节点别名）
 - **本阶段 CLI 日志**：各阶段 CLI 的实时终端输出（stream-json 原始流）
 - **文档面板**：`prd.md`、`testing_plan.md`、`verify_report.md` 等
 - **运行日志**：每个节点 CLI 的完整 stdout/stderr 归档
@@ -512,8 +528,8 @@ python computer-use/backend/install_cua_driver.py
 
 - 默认测试命令（`default_test_command`）与构建命令（`default_build_command`，如 `npm run build`、`cargo check`）
 - Coder↔验证 重试上限（`max_coder_tester_retries`，默认 5）
-- Code Tester 自修 / Test Planner 测试修订上限（共用 `max_tester_self_retries`，默认 3）
-- 各阶段 CLI 提供商（`prd_planner`、`test_planner`、`planner_discovery`、`coder`、`code_tester` 等）
+- Code Tester 自修与 Test Planner 测试修订上限（共用 `max_tester_self_retries`，默认 3；计数键分别为 `code_tester_self`、`test_planner_self`）
+- 各阶段 CLI 提供商（`planner_discovery`、`prd_planner`、`test_planner`、`planner_clarification`、`coder`、`code_tester`；无 `planner`/`tester` 绑定别名）
 - Coder 澄清上限（默认 3）
 - Planner 验证驳回上限（默认 2）
 
@@ -526,7 +542,8 @@ python computer-use/backend/install_cua_driver.py
 ```text
 spec-forge/
 ├── backend/              FastAPI + LangGraph + SQLite
-│   ├── prompts/stages/   prd_planner、test_planner、code_tester、… 内置 prompt
+│   ├── prompts/stages/   planner_discovery、prd_planner、test_planner、
+│   │                     planner_clarification、coder、code_tester
 │   └── src/specforge/
 │       ├── pipeline.py       流水线状态机（核心）
 │       ├── write_zones.py    Write Zone owner 推断与 retry_target
