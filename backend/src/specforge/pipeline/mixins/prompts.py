@@ -16,7 +16,6 @@ from ...core.contracts import (
     PlannerDiscoveryArtifact,
     PrdPlannerArtifact,
     TestPlannerArtifact,
-    UI_TEST_ACTIONS,
 )
 from ...core.models import NodeName
 from ...policy.artifact_gate import read_convention_excerpt, read_framework_conventions, read_spec_index
@@ -303,12 +302,7 @@ class PipelinePromptsMixin:
                 "test_planner",
                 repo_root=repo_root,
                 variables={
-                    "schema_hint": "{testing_plan:string, tests:[{path:string, content:string}]}",
-                    "ui_spec_hint": (
-                        "{id,title,kind:web|native,target:{url|bundle_id|app_name},"
-                        "steps:[{action,text,value,selector,key,keys,direction,amount}]}"
-                    ),
-                    "ui_actions": ", ".join(UI_TEST_ACTIONS),
+                    "schema_hint": "{testing_plan:string}",
                     "brief": brief,
                     "requirements_brief": requirements_brief,
                     "failure_notes": state.get("failure_notes") or "(none)",
@@ -482,7 +476,8 @@ class PipelinePromptsMixin:
                     "{verify_report:string, passed:boolean, failure_notes?:string, "
                     "defects:[{severity:'P0'|'P1'|'P2', path?:string, owner?:'coder'|'code_tester'|'test_planner', message:string}], "
                     "ux_notes:[string], delivery_recommendations:[string], "
-                    "adversarial_tests:[{path:string, content:string}]}"
+                    "adversarial_tests:[{path:string, content:string}], "
+                    "test_files:[{path:string, content:string}]}"
                 ),
                 "test_command_section": test_command_section,
                 "build_command_section": build_command_section,

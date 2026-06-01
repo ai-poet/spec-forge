@@ -95,12 +95,6 @@ class PipelineArtifactsMixin:
             return parse_json_artifact(raw, TestPlannerArtifact)  # type: ignore[return-value]
         return TestPlannerArtifact(
             testing_plan="""---\ndoc: testing_plan\niteration: 1\nstatus: draft\nowner: test_planner\n---\n\n# Iteration 1 - Testing Plan\n\n- T01: dry-run reaches delivery approval.\n""",
-            tests=[
-                ArtifactFile(
-                    path="tests/unit/test_transitions.py",
-                    content="from specforge.models import IterationStatus\n\n\ndef test_status_names_exist():\n    assert IterationStatus.created.value == 'created'\n",
-                )
-            ],
         )
 
 
@@ -207,18 +201,8 @@ class PipelineArtifactsMixin:
         self._record_document(iteration_id, "testing_plan", plan_path)
         self._node_event(iteration_id, "artifact.created", NodeName.test_planner.value, "测试计划已生成", "testing_plan.md 已写入。", severity="success", document="testing_plan", run_id=run_id)
         test_lines: list[ManifestLine] = [
-            ManifestLine(file="testing_plan.md", reason="Protected test strategy"),
+            ManifestLine(file="testing_plan.md", reason="Test strategy for Code Tester"),
         ]
-        for file in artifact.tests:
-            relative = safe_relative_path(file.path)
-            if not relative.parts or relative.parts[0] != "tests" or (len(relative.parts) > 1 and relative.parts[1] == "adversarial"):
-                raise ValueError(f"test_planner test path not allowed: {file.path}")
-            if len(relative.parts) >= 3 and relative.parts[1] == "ui" and relative.suffix == ".json":
-                validate_ui_spec_content(relative.as_posix(), file.content)
-            path = docs.write_text(relative.as_posix(), file.content)
-            self._record_document(iteration_id, relative.as_posix(), path)
-            self._node_event(iteration_id, "artifact.created", NodeName.test_planner.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
-            test_lines.append(ManifestLine(file=relative.as_posix(), reason="Protected test for Coder and Tester"))
         context_root = docs.root / "context"
         append_manifest_lines(context_root / "for_coder.jsonl", test_lines)
         append_manifest_lines(context_root / "for_tester.jsonl", test_lines)
@@ -268,6 +252,15 @@ class PipelineArtifactsMixin:
                 event_type="code_tester.delivery_advice",
                 payload={"ux_notes": artifact.ux_notes, "delivery_recommendations": artifact.delivery_recommendations},
             )
+        for file in artifact.test_files:
+            relative = safe_relative_path(file.path)
+            if not relative.parts or relative.parts[0] != "tests" or (len(relative.parts) > 1 and relative.parts[1] == "adversarial"):
+                raise ValueError(f"tester test_files path not allowed: {file.path}")
+            if len(relative.parts) >= 3 and relative.parts[1] == "ui" and relative.suffix == ".json":
+                validate_ui_spec_content(relative.as_posix(), file.content)
+            path = docs.write_text(relative.as_posix(), file.content)
+            self._record_document(iteration_id, relative.as_posix(), path)
+            self._node_event(iteration_id, "artifact.created", NodeName.code_tester.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
         for file in artifact.adversarial_tests:
             relative = safe_relative_path(file.path)
             if relative.parts[:2] != ("tests", "adversarial"):

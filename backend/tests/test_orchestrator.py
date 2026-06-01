@@ -1128,8 +1128,8 @@ def test_validate_ui_spec_content_rejects_invalid_action():
         )
 
 
-def test_test_planner_write_rejects_invalid_ui_spec(tmp_path):
-    project = post_project(tmp_path, "ui-spec-planner")
+def test_tester_write_rejects_invalid_ui_spec(tmp_path):
+    project = post_project(tmp_path, "ui-spec-tester")
     project_id = project.json()["id"]
     resp = client.post(
         "/api/iterations",
@@ -1141,12 +1141,13 @@ def test_test_planner_write_rejects_invalid_ui_spec(tmp_path):
     docs = IterationDocs(pipeline.docs_root(iteration_id))
     docs.ensure()
     bad_spec = '{"id":"bad","kind":"web","target":{"url":"http://127.0.0.1:5178"},"steps":[{"action":"click","text":"Go"}]}'
-    artifact = TestPlannerArtifact(
-        testing_plan="---\n\n# Tests\n",
-        tests=[ArtifactFile(path="tests/ui/bad.json", content=bad_spec)],
+    artifact = CodeTesterArtifact(
+        verify_report="# Verify Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
+        passed=False,
+        test_files=[ArtifactFile(path="tests/ui/bad.json", content=bad_spec)],
     )
     with pytest.raises(ValueError, match="invalid UI spec"):
-        pipeline._write_test_planner_artifact(iteration_id, docs, artifact)
+        pipeline._write_tester_artifact(iteration_id, docs, artifact)
 
 
 def test_ui_spec_invalid_blocks_tester_with_classified_error(tmp_path, monkeypatch):
@@ -1288,6 +1289,8 @@ def test_ui_tester_playwright_passes_web():
         )
         iteration_id = resp.json()["id"]
         advance_through_planning_gates(iteration_id)
+        _create_ui_spec(iteration_id, "web_smoke")
+        drain_jobs()
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1308,6 +1311,9 @@ def test_ui_tester_cua_unavailable_native_warns_web_pass():
         )
         iteration_id = resp.json()["id"]
         advance_through_planning_gates(iteration_id)
+        _create_ui_spec(iteration_id, "web_smoke")
+        _create_ui_spec(iteration_id, "native_smoke", kind="native", target_key="bundle_id", target_value="com.example.app")
+        drain_jobs()
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1330,6 +1336,8 @@ def test_ui_tester_playwright_unavailable_web_warns():
         )
         iteration_id = resp.json()["id"]
         advance_through_planning_gates(iteration_id)
+        _create_ui_spec(iteration_id, "web_smoke")
+        drain_jobs()
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1349,6 +1357,8 @@ def test_ui_tester_pass_writes_results_and_artifacts():
         )
         iteration_id = resp.json()["id"]
         advance_through_planning_gates(iteration_id)
+        _create_ui_spec(iteration_id, "web_smoke")
+        drain_jobs()
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1372,6 +1382,8 @@ def test_ui_tester_failure_warns_without_retry(tmp_path):
         )
         iteration_id = resp.json()["id"]
         advance_through_planning_gates(iteration_id)
+        _create_ui_spec(iteration_id, "web_smoke")
+        drain_jobs()
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1392,39 +1404,27 @@ def test_ui_tester_failure_warns_without_retry(tmp_path):
     assert "UI 自动化测试失败" in ui_payload["warnings"][0]
 
 
-def make_test_planner_ui_spec(state, run_result):
+def _create_ui_spec(iteration_id: str, spec_id: str, kind: str = "web", target_key: str = "url", target_value: str = "http://127.0.0.1:5178") -> None:
+    """Create a UI spec file directly in the iteration docs directory."""
     ui_spec = (
-        '{"id":"web_smoke","title":"SpecForge smoke","kind":"web",'
-        '"target":{"url":"http://127.0.0.1:5178"},'
+        f'{{"id":"{spec_id}","title":"{spec_id} test","kind":"{kind}",'
+        f'"target":{{"{target_key}":"{target_value}"}},'
         '"steps":[{"action":"assert_text","text":"SpecForge"}]}'
     )
+    ui_path = pipeline.docs_root(iteration_id) / "tests" / "ui" / f"{spec_id}.json"
+    ui_path.parent.mkdir(parents=True, exist_ok=True)
+    ui_path.write_text(ui_spec, encoding="utf-8")
+
+
+def make_test_planner_ui_spec(state, run_result):
     return TestPlannerArtifact(
         testing_plan="# Tests\n\n- UI smoke.",
-        tests=[
-            ArtifactFile(path="tests/unit/test_transitions.py", content="def test_ok():\n    assert True\n"),
-            ArtifactFile(path="tests/ui/web_smoke.json", content=ui_spec),
-        ],
     )
 
 
 def make_test_planner_ui_and_native_spec(state, run_result):
-    web_spec = (
-        '{"id":"web_smoke","title":"SpecForge smoke","kind":"web",'
-        '"target":{"url":"http://127.0.0.1:5178"},'
-        '"steps":[{"action":"assert_text","text":"SpecForge"}]}'
-    )
-    native_spec = (
-        '{"id":"native_smoke","title":"Native smoke","kind":"native",'
-        '"target":{"bundle_id":"com.example.app"},'
-        '"steps":[{"action":"assert_text","text":"Example"}]}'
-    )
     return TestPlannerArtifact(
         testing_plan="# Tests\n\n- UI smoke.",
-        tests=[
-            ArtifactFile(path="tests/unit/test_transitions.py", content="def test_ok():\n    assert True\n"),
-            ArtifactFile(path="tests/ui/web_smoke.json", content=web_spec),
-            ArtifactFile(path="tests/ui/native_smoke.json", content=native_spec),
-        ],
     )
 
 

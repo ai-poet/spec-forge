@@ -24,7 +24,6 @@ class PrdPlannerArtifact(BaseModel):
 
 class TestPlannerArtifact(BaseModel):
     testing_plan: str
-    tests: list[ArtifactFile] = Field(default_factory=list)
 
 
 class PlannerDiscoveryArtifact(BaseModel):
@@ -175,6 +174,7 @@ class CodeTesterArtifact(BaseModel):
     ux_notes: list[str] = Field(default_factory=list)
     delivery_recommendations: list[str] = Field(default_factory=list)
     adversarial_tests: list[ArtifactFile] = Field(default_factory=list)
+    test_files: list[ArtifactFile] = Field(default_factory=list)
 
 
 def verification_from_code(artifact: CodeTesterArtifact) -> "VerificationArtifact":
@@ -191,6 +191,7 @@ class VerificationArtifact(BaseModel):
     ui_results: list[UITestResult] = Field(default_factory=list)
     ui_warnings: list[str] = Field(default_factory=list)
     adversarial_tests: list[ArtifactFile] = Field(default_factory=list)
+    test_files: list[ArtifactFile] = Field(default_factory=list)
 
     @property
     def ui_failed(self) -> bool:

@@ -283,13 +283,13 @@ class PlanningNodesMixin:
             self._write_test_planner_artifact(iteration_id, docs, artifact, run_id=run_id)
             baseline = test_integrity_manifest(docs.root)
             self._update_iteration(iteration_id, status=IterationStatus.coding.value, current_node=None, test_integrity_baseline=baseline, last_error=None)
-            self._add_event(iteration_id, event_type="test_planner.completed", payload={"documents": 1 + len(artifact.tests), "run_id": run_id})
+            self._add_event(iteration_id, event_type="test_planner.completed", payload={"documents": 1, "run_id": run_id})
             self._node_event(
                 iteration_id,
                 "node.completed",
                 NodeName.test_planner.value,
                 "测试规划完成",
-                f"已生成 testing_plan 与 {len(artifact.tests)} 个受保护测试，进入实现。",
+                "已生成 testing_plan，测试文件将由 Code Tester 在实现后编写，进入实现。",
                 severity="success",
                 run_id=run_id,
             )

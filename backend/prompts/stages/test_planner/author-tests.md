@@ -1,11 +1,20 @@
-## Author protected tests
+## Testing plan content
 
-Use code test paths under `tests/unit` or `tests/integration`.
+The testing_plan must be detailed enough for Code Tester to write tests after implementation. Include:
 
-For UI tests, write JSON specs under `tests/ui/*.json` with shape {ui_spec_hint}.
+1. **Unit tests**: List specific functions/methods to test, with:
+   - Input examples and expected outputs
+   - Boundary conditions (empty, null, max values, etc.)
+   - Error cases and expected exceptions
 
-Allowed UI actions (snake_case only): {ui_actions}.
+2. **Integration tests**: Describe component interactions:
+   - API endpoints with request/response examples
+   - Database operations and expected state changes
+   - External service interactions (mocked)
 
-Prefer scenario steps that an Agent can execute with **playwright-cli** (`open` → `snapshot` → `click eN`) for `kind: web`, or **cua-driver** (`launch_app` → `get_window_state` → `element_index`) for `kind: native`. Steps are acceptance hints — UI Tester may adapt using live snapshots. Use CSS `selector` only when DOM refs from snapshot are insufficient.
+3. **UI tests** (if applicable): Describe user scenarios:
+   - User flows and steps
+   - Expected page states after each action
+   - Assertions for visible text, elements, navigation
 
-Each test entry must include concrete assertions — not placeholders.
+Do NOT write actual test code. Write the plan in Markdown format within the testing_plan field.
