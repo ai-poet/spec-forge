@@ -1426,3 +1426,150 @@ def make_test_planner_ui_and_native_spec(state, run_result):
             ArtifactFile(path="tests/ui/native_smoke.json", content=native_spec),
         ],
     )
+
+
+def test_planning_session_id_in_state_after_discovery(tmp_path, monkeypatch):
+    project = post_project(tmp_path, "planning-session")
+    project_id = project.json()["id"]
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        goal="session test",
+        mode="real-cli",
+        test_command=None,
+        project_id=project_id,
+    )
+    runner = SequenceRunner([CLIResult(command=[], returncode=0, stdout="ok", stderr="")])
+    monkeypatch.setattr(pipeline, "real_runner", runner)
+
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id}
+    cmd = pipeline._planner_discovery_command(state)
+    assert any(part.startswith("--session-id") or part == "--session-id" for part in cmd)
+    session_id = state.get("planning_cli_session_id")
+    assert session_id is not None
+
+    pipeline._mark_planning_session_started(state)
+    assert state["planning_cli_session_started"] is True
+
+    cmd2 = pipeline._prd_planner_command(state)
+    assert "--resume" in cmd2
+    assert session_id in cmd2
+
+
+def test_discovery_routes_back_to_itself_after_answer(tmp_path):
+    project = post_project(tmp_path, "discovery-loop")
+    project_id = project.json()["id"]
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "goal": "ambiguous dashboard", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "awaiting_requirements_input"
+    assert detail["graph_next"] == ["requirements_input"]
+
+    answer = client.post(
+        f"/api/iterations/{iteration_id}/answer-requirements",
+        json={"answer": "Prioritize admin users first"},
+    )
+    assert answer.status_code == 200
+    drain_jobs()
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "awaiting_verify_approval"
+    assert len(detail["discovery_history"]) == 1
+
+
+def test_multi_round_discovery_with_resume(monkeypatch):
+    from specforge.core.contracts import PlannerDiscoveryArtifact
+
+    call_count = {"n": 0}
+    original = pipeline._planner_discovery_artifact
+
+    def multi_discovery(state, run_result):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return PlannerDiscoveryArtifact(
+                status="ask",
+                complexity="moderate",
+                question="Which tech stack?",
+                options=["React", "Vue", "其他（请说明）"],
+                assumptions=["web app"],
+                requirements_brief="Goal: build a dashboard",
+                rationale="Need stack info",
+            )
+        if call_count["n"] == 2:
+            return PlannerDiscoveryArtifact(
+                status="ask",
+                complexity="moderate",
+                question="Auth provider?",
+                options=["OAuth", "SAML", "其他（请说明）"],
+                assumptions=["web app", "React"],
+                requirements_brief="Goal: build a React dashboard",
+                rationale="Need auth info",
+            )
+        return PlannerDiscoveryArtifact(
+            status="ready",
+            complexity="moderate",
+            assumptions=["web app", "React", "OAuth"],
+            requirements_brief="Goal: build a React dashboard with OAuth",
+            rationale="All clear",
+        )
+
+    monkeypatch.setattr(pipeline, "_planner_discovery_artifact", multi_discovery)
+
+    resp = client.post(
+        "/api/iterations",
+        json={"project_name": "multi-discovery", "goal": "build dashboard", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "awaiting_requirements_input"
+    assert detail["pending_discovery"]["question"] == "Which tech stack?"
+
+    client.post(
+        f"/api/iterations/{iteration_id}/answer-requirements",
+        json={"answer": "React"},
+    )
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "awaiting_requirements_input"
+    assert detail["pending_discovery"]["question"] == "Auth provider?"
+    assert len(detail["discovery_history"]) == 1
+
+    client.post(
+        f"/api/iterations/{iteration_id}/answer-requirements",
+        json={"answer": "OAuth"},
+    )
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "awaiting_verify_approval"
+    assert len(detail["discovery_history"]) == 2
+
+    monkeypatch.setattr(pipeline, "_planner_discovery_artifact", original)
+
+
+def test_reset_live_cli_continuing_preserves_output():
+    iteration_id = create_manual_iteration("live-cli-continue", mode="dry-run")
+    pipeline._reset_live_cli(iteration_id, "planner_discovery")
+    pipeline._append_live_cli(iteration_id, "stdout", "discovery output\n")
+
+    pipeline._reset_live_cli(iteration_id, "prd_planner", continuing=True)
+    snapshot = pipeline._live_cli_snapshot(iteration_id)
+    assert snapshot is not None
+    assert "discovery output" in snapshot["stdout"]
+    assert "--- prd_planner ---" in snapshot["stdout"]
+    assert snapshot["node"] == "prd_planner"
+
+
+def test_reset_live_cli_non_continuing_clears_output():
+    iteration_id = create_manual_iteration("live-cli-clear", mode="dry-run")
+    pipeline._reset_live_cli(iteration_id, "planner_discovery")
+    pipeline._append_live_cli(iteration_id, "stdout", "discovery output\n")
+
+    pipeline._reset_live_cli(iteration_id, "coder")
+    snapshot = pipeline._live_cli_snapshot(iteration_id)
+    assert snapshot is not None
+    assert snapshot["stdout"] == ""
+    assert snapshot["node"] == "coder"
