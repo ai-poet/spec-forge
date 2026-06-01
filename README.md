@@ -17,7 +17,7 @@ SpecForge 是一个**本地优先**的 agent 工程工作台。你用自然语�
 SpecForge 的做法是：
 
 1. **所有决策和产物都落到本地 Markdown 文件**，可以 git 管理
-2. **PRD Planner、Test Planner、Coder、Code Tester 分工**（规划多用 Claude，验证可用 Codex，可在项目里按阶段配置）
+2. **PRD Planner、Test Planner、Coder、Code Tester 分工**（规划三阶段共用一条 Claude CLI session；验证可用 Codex，可在项目里按阶段配置）
 3. **Test Planner 在 Coder 之前写受保护测试**，Coder 不能改 `tests/unit|integration|ui`（checksum 门禁）
 4. **Code Tester 做代码审查；UI Tester Agent 在 `ui_tester` 节点跑验收场景**（playwright-cli / cua-driver，与代码验证分离）
 5. **LangGraph 编排整条流水线**，失败按 Write Zone 自动回环，超限才阻断
@@ -153,7 +153,7 @@ flowchart TB
   end
 
   plannerDiscovery -->|"ask"| requirementsInput
-  requirementsInput --> prdPlanner
+  requirementsInput --> plannerDiscovery
   plannerDiscovery -->|"ready"| prdPlanner
   plannerDiscovery -->|"blocked / stopped"| endBlocked([END])
 
@@ -199,7 +199,7 @@ flowchart TB
 
 | 节点 | 类型 | 说明 |
 |------|------|------|
-| `planner_discovery` | CLI | 需求澄清；`route=ask` 时进入人工输入 |
+| `planner_discovery` | CLI | 需求澄清；`route=ask` 时进入人工输入，回答后 `--resume` 续接同一会话继续澄清 |
 | `requirements_input` | interrupt | 用户回答 discovery 问题 |
 | `prd_planner` | CLI | PRD + context manifests |
 | `test_planner` | CLI | 测试计划 + 受保护测试 |
@@ -216,7 +216,7 @@ flowchart TB
 
 | 源节点 | 路由函数 | 可能目标 |
 |--------|----------|----------|
-| `planner_discovery` | `_route_after_discovery` | `blocked`→END，`ask`→`requirements_input`，`ready`→`prd_planner` |
+| `planner_discovery` | `_route_after_discovery` | `blocked`→END，`ask`→`requirements_input`（回答后回到 discovery），`ready`→`prd_planner` |
 | `prd_planner` | `_route_after_prd_planner` | `blocked`→END，`test_planner` |
 | `test_planner` | `_route_after_test_planner` | `blocked`→END，`coder`，`test_planner_retry`→自身 |
 | `coder` | `_route_after_coder` | `blocked`→END，`clarification`→`planner_clarification`，`integrity`→`integrity_check` |
@@ -232,7 +232,7 @@ flowchart TB
 
 | 阶段 | 节点 | 谁在做 | 做什么 |
 |------|------|--------|--------|
-| 需求澄清 | `planner_discovery` | Claude CLI | 在终局规划前澄清模糊需求（auto：清晰则直接 ready，否则一次一问） |
+| 需求澄清 | `planner_discovery` | Claude CLI | 在终局规划前澄清模糊需求（auto：清晰则直接 ready，否则一次一问；可多轮，通过 `--resume` 续接同一会话） |
 | 需求回答 | `requirements_input` | **你** | 在工作台回答 Planner 问题；写入 `discovery/*` |
 | PRD 规划 | `prd_planner` | Claude CLI | 产出 `prd.md` 与 context manifests |
 | 测试规划 | `test_planner` | Claude CLI | 产出 `testing_plan.md` 与受保护 `tests/**`（建立 checksum 基线） |
@@ -245,7 +245,7 @@ flowchart TB
 | 交付确认 | `verify_approval` | **你** | 在前端点「确认交付」，流水线才归档 |
 | 完成 | `done` | 后端 | 状态变为 `delivered`，写入 iteration_log |
 
-**注意：** 规划分两阶段：**prd_planner**（PRD + context）→ **test_planner**（测试计划 + 受保护测试），之后才进入 Coder。需求澄清仍是一次一问；回答后不再额外跑 discovery CLI。无单独的设计审批节点，**不生成** `system_design.md` / `modification_plan.md`，事实源为 `prd.md` 与 `testing_plan.md`。交付前仍有**最终确认**。Coder 仍可通过 `planner_clarification` 向规划侧补问（与 discovery 分离）。
+**注意：** 规划三阶段共用一条 CLI session：**planner_discovery**（需求澄清）→ **prd_planner**（PRD + context）→ **test_planner**（测试计划 + 受保护测试），之后才进入 Coder。需求澄清可多轮：每次回答通过 `--resume` 接回同一会话，Planner 可继续 ask 或返回 ready；ready 后仍在同一会话内依次产出 PRD、测试规划。前端 CLI 日志在规划阶段连续展示，不再每步清空。无单独的设计审批节点，**不生成** `system_design.md` / `modification_plan.md`，事实源为 `prd.md` 与 `testing_plan.md`。交付前仍有**最终确认**。Coder 仍可通过 `planner_clarification` 向规划侧补问（与 discovery 分离，clarification 仍各自开 session）。
 
 ### 工作台阶段条（前端）
 
@@ -253,7 +253,7 @@ flowchart TB
 
 | 步骤 | 对应节点 | 说明 |
 |------|----------|------|
-| PRD 规划 | `planner_discovery`、`requirements_input`、`prd_planner` | 需求澄清 + `prd.md` + context manifests |
+| PRD 规划 | `planner_discovery`（可多轮）、`requirements_input`、`prd_planner` | 需求澄清（`--resume` 续接）+ `prd.md` + context manifests |
 | 测试规划 | `test_planner` | `testing_plan.md` + 受保护 `tests/**` |
 | 实现 | `coder`、`planner_clarification` | 写 `src/**`；澄清回合计入实现阶段 |
 | 测试完整性 | `integrity_check` | 受保护测试 checksum |
@@ -468,7 +468,13 @@ FastAPI (main.py — HTTP + WebSocket)
     ├── storage/db          SQLite：projects / epics / iterations / events / runs
     ├── pipeline/           LangGraph 状态机 + SqliteSaver checkpoint
     │   ├── graph.py        节点与边
-    │   └── routes.py       条件路由（ui_tester：retry | self_retry | test_planner_retry | verify）
+    │   ├── routes.py       条件路由（ui_tester：retry | self_retry | test_planner_retry | verify）
+    │   ├── state.py        PipelineState（含 planning_cli_session_id 等 checkpoint 字段）
+    │   ├── mixins/
+    │   │   ├── prompts.py    CLI 命令组装（session-id / resume）
+    │   │   ├── runtime.py    live_cli、事件发布
+    │   │   └── artifacts.py  产物解析与落盘
+    │   └── nodes/          planning / implementation / verification
     ├── policy/write_zones  路径 → owner，决定 retry_target
     ├── policy/artifact_gate 写盘后 build/test 命令校验
     ├── runtime/job_queue   单 worker 线程，避免 CLI 阻塞 HTTP
@@ -476,6 +482,13 @@ FastAPI (main.py — HTTP + WebSocket)
 ```
 
 创建 Iteration 时：`POST /api/iterations` → 入队 → worker 调用 `pipeline.start()` → LangGraph 从 `planner_discovery` 开始跑。
+
+**规划阶段 Session 管理：**
+- `planner_discovery`、`prd_planner`、`test_planner` 三节点共用一条 CLI session
+- 首次 discovery 前生成 UUID → `--session-id`；后续 discovery 续轮及 prd/test 阶段 → `--resume`
+- session ID 存入 `PipelineState.planning_cli_session_id`，随 LangGraph checkpoint 持久化
+- 每 iteration 独立 UUID，避免并发串会话
+- 进入 coder 后 `_reset_live_cli(..., continuing=False)` 新开日志，规划阶段日志连续保留
 
 ---
 
@@ -608,6 +621,7 @@ spec-forge/
 - CSS selector Web UI 由 Playwright 执行；CuaDriver 不可用时无 selector 的 Web UI 也可回退 Playwright；仅 native UI 或未安装 Playwright 时记为未执行（warning）
 - UI 自动化断言失败仅记为 warning；交付门槛以 Code Tester 代码审查无 P0/P1 缺陷为准
 - 迭代产物目录为 `docs/iterations/iteration_NNN/`（旧路径 `docs/system_design/` 已废弃）；API 文档键为 `prd`、`testing_plan` 等，无 `system_design` / `modification_plan` 别名
+- 规划三阶段共 session 的上下文较长；若后续遇 token 问题，可在 test_planner 前 fork 会话（`--fork-session`）— 暂不实现
 - 渐进式 checkpoint 策略（前 N 轮强制审批）尚未实现
 - 生产部署、成本监控、量化成功标准留待后续
 
