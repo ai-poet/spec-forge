@@ -16,13 +16,15 @@ class ContextManifestEntry(BaseModel):
     reason: str = ""
 
 
-class PlannerArtifact(BaseModel):
-    system_design: str
-    modification_plan: str
-    testing_plan: str
-    tests: list[ArtifactFile] = Field(default_factory=list)
+class PrdPlannerArtifact(BaseModel):
+    prd: str
     context_for_coder: list[ContextManifestEntry] = Field(default_factory=list)
     context_for_tester: list[ContextManifestEntry] = Field(default_factory=list)
+
+
+class TestPlannerArtifact(BaseModel):
+    testing_plan: str
+    tests: list[ArtifactFile] = Field(default_factory=list)
 
 
 class PlannerDiscoveryArtifact(BaseModel):
@@ -161,8 +163,22 @@ class UIDriverRunResult(BaseModel):
 class Defect(BaseModel):
     severity: Literal["P0", "P1", "P2"] = "P1"
     path: Optional[str] = None
-    owner: Optional[Literal["coder", "tester", "planner"]] = None
+    owner: Optional[Literal["coder", "tester", "test_planner", "planner"]] = None
     message: str = Field(min_length=1)
+
+
+class CodeTesterArtifact(BaseModel):
+    verify_report: str
+    passed: bool
+    failure_notes: Optional[str] = None
+    defects: list[Defect] = Field(default_factory=list)
+    ux_notes: list[str] = Field(default_factory=list)
+    delivery_recommendations: list[str] = Field(default_factory=list)
+    adversarial_tests: list[ArtifactFile] = Field(default_factory=list)
+
+
+def code_tester_to_tester(artifact: CodeTesterArtifact) -> TesterArtifact:
+    return TesterArtifact.model_validate(artifact.model_dump())
 
 
 class TesterArtifact(BaseModel):

@@ -58,7 +58,11 @@ export function AgentExecutionFlow({
   const execCount = detail?.runs.filter((run) => {
     if (selectedStepKey === 'tester') return run.node === 'tester'
     if (selectedStepKey === 'coder') return run.node === 'coder'
-    if (selectedStepKey === 'planner') return run.node === 'planner' || run.node === 'planner_clarification'
+    if (selectedStepKey === 'planning') {
+      return ['prd_planner', 'test_planner', 'planner', 'planner_clarification'].includes(run.node)
+    }
+    if (selectedStepKey === 'code_tester') return run.node === 'code_tester' || run.node === 'tester'
+    if (selectedStepKey === 'ui_tester') return run.node === 'ui_tester' || run.node === 'ui_driver'
     return false
   }).length
   const countLabel = micro.runs.length > 1

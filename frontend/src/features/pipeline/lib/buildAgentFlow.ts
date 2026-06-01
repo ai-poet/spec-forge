@@ -70,7 +70,7 @@ export function buildMacroFlow(detail: IterationDetail | null): MacroFlowModel {
   const nodes: FlowNode[] = PIPELINE_STEPS.map((step) => {
     const state = pipelineStepState(step.key, detail) as FlowNodeState
     const failed = state === 'idle' && detail.last_error
-      && (step.key === 'tester' || step.key === 'coder' || step.key === 'planner')
+      && (step.key === 'code_tester' || step.key === 'ui_tester' || step.key === 'coder' || step.key === 'planning')
     return {
       id: stepNodeId(step.key),
       label: step.label,
@@ -96,15 +96,15 @@ export function buildMacroFlow(detail: IterationDetail | null): MacroFlowModel {
     edges.push({
       id: 'clarify:coder->planner',
       from: stepNodeId('coder'),
-      to: stepNodeId('planner'),
+      to: stepNodeId('planning'),
       kind: 'clarify',
       label: '① 澄清',
     })
   }
   if ((retry.coder_tester ?? 0) > 0 || hasRetryEvent(detail, 'tester.retry_to_coder') || hasRetryEvent(detail, 'tester.failed_retry')) {
     edges.push({
-      id: 'retry:coder->tester',
-      from: stepNodeId('tester'),
+      id: 'retry:coder->code_tester',
+      from: stepNodeId('code_tester'),
       to: stepNodeId('coder'),
       kind: 'retry_coder',
       label: '②a',
@@ -112,18 +112,18 @@ export function buildMacroFlow(detail: IterationDetail | null): MacroFlowModel {
   }
   if ((retry.tester_self ?? 0) > 0 || hasRetryEvent(detail, 'tester.retry_to_self')) {
     edges.push({
-      id: 'retry:tester->tester',
-      from: stepNodeId('tester'),
-      to: stepNodeId('tester'),
+      id: 'retry:code_tester->code_tester',
+      from: stepNodeId('code_tester'),
+      to: stepNodeId('code_tester'),
       kind: 'retry_self',
       label: '②b',
     })
   }
   if ((retry.planner_verify_reject ?? 0) > 0 || hasRetryEvent(detail, 'planner_verify.rejected')) {
     edges.push({
-      id: 'retry:planner_verify->tester',
+      id: 'retry:planner_verify->code_tester',
       from: stepNodeId('planner_verify'),
-      to: stepNodeId('tester'),
+      to: stepNodeId('code_tester'),
       kind: 'verify_reject',
       label: '③',
     })

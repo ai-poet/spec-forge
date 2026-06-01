@@ -27,12 +27,15 @@ from .cli_event_presenter import CliDisplayEvent, CliEventPresenter
 from .config import settings
 from .contracts import (
     ArtifactFile,
+    CodeTesterArtifact,
     CoderArtifact,
     ContextManifestEntry,
     Defect,
-    PlannerArtifact,
     PlannerClarificationArtifact,
     PlannerDiscoveryArtifact,
+    PrdPlannerArtifact,
+    TestPlannerArtifact,
+    code_tester_to_tester,
     TesterArtifact,
     UIDriverRunResult,
     UITestResult,
@@ -52,6 +55,8 @@ from .context_manifest import (
     FOR_CODER,
     FOR_TESTER,
     RUNTIME_NOTES,
+    ManifestLine,
+    append_manifest_lines,
     append_runtime_note,
     format_manifest_for_prompt,
     format_runtime_notes_section,
@@ -108,9 +113,13 @@ class PipelineState(TypedDict, total=False):
     pending_discovery_question: Optional[str]
     pending_discovery_options: list[str]
     pending_discovery_assumptions: list[str]
+    prd_planner_run_id: Optional[str]
+    test_planner_run_id: Optional[str]
     planner_run_id: Optional[str]
     coder_run_id: Optional[str]
+    code_tester_run_id: Optional[str]
     tester_run_id: Optional[str]
+    pending_code_tester_json: Optional[str]
 
 
 class LangGraphPipeline:
@@ -323,24 +332,28 @@ class LangGraphPipeline:
 
     def _infer_node_from_status(self, status: str) -> Optional[str]:
         return {
-            "queued": NodeName.planner.value,
-            "created": NodeName.planner.value,
+            "queued": NodeName.prd_planner.value,
+            "created": NodeName.prd_planner.value,
             "planning": NodeName.planner_discovery.value,
             "awaiting_requirements_input": "requirements_input",
             "coding": NodeName.coder.value,
             "retrying": NodeName.coder.value,
-            "testing": NodeName.tester.value,
+            "testing": NodeName.code_tester.value,
             "awaiting_verify_approval": "verify_approval",
         }.get(status)
 
     def _status_for_node(self, node: str) -> IterationStatus:
         mapping = {
             NodeName.planner_discovery.value: IterationStatus.planning,
+            NodeName.prd_planner.value: IterationStatus.planning,
+            NodeName.test_planner.value: IterationStatus.planning,
             NodeName.planner.value: IterationStatus.planning,
             NodeName.planner_clarification.value: IterationStatus.retrying,
             "requirements_input": IterationStatus.awaiting_requirements_input,
             NodeName.coder.value: IterationStatus.coding,
             NodeName.integrity_check.value: IterationStatus.testing,
+            NodeName.code_tester.value: IterationStatus.testing,
+            NodeName.ui_tester.value: IterationStatus.testing,
             NodeName.tester.value: IterationStatus.testing,
             NodeName.planner_verify.value: IterationStatus.testing,
             "verify_approval": IterationStatus.awaiting_verify_approval,
@@ -477,11 +490,13 @@ class LangGraphPipeline:
         builder = StateGraph(PipelineState)
         builder.add_node("planner_discovery", self._planner_discovery_node)
         builder.add_node("requirements_input", self._requirements_input_node)
-        builder.add_node("planner", self._planner_node)
+        builder.add_node("prd_planner", self._prd_planner_node)
+        builder.add_node("test_planner", self._test_planner_node)
         builder.add_node("coder", self._coder_node)
         builder.add_node("planner_clarification", self._planner_clarification_node)
         builder.add_node("integrity_check", self._integrity_check_node)
-        builder.add_node("tester", self._tester_node)
+        builder.add_node("code_tester", self._code_tester_node)
+        builder.add_node("ui_tester", self._ui_tester_node)
         builder.add_node("planner_verify", self._planner_verify_node)
         builder.add_node("verify_approval", self._verify_approval_node)
         builder.add_node("done", self._done_node)
@@ -489,10 +504,11 @@ class LangGraphPipeline:
         builder.add_conditional_edges(
             "planner_discovery",
             self._route_after_discovery,
-            {"blocked": END, "ask": "requirements_input", "ready": "planner"},
+            {"blocked": END, "ask": "requirements_input", "ready": "prd_planner"},
         )
-        builder.add_edge("requirements_input", "planner")
-        builder.add_conditional_edges("planner", self._route_after_planner, {"blocked": END, "coder": "coder"})
+        builder.add_edge("requirements_input", "prd_planner")
+        builder.add_conditional_edges("prd_planner", self._route_after_prd_planner, {"blocked": END, "test_planner": "test_planner"})
+        builder.add_conditional_edges("test_planner", self._route_after_test_planner, {"blocked": END, "coder": "coder", "test_planner_retry": "test_planner"})
         builder.add_conditional_edges(
             "coder",
             self._route_after_coder,
@@ -503,13 +519,24 @@ class LangGraphPipeline:
             self._route_after_clarification,
             {"blocked": END, "coder": "coder"},
         )
-        builder.add_conditional_edges("integrity_check", self._route_after_integrity, {"blocked": END, "tester": "tester"})
+        builder.add_conditional_edges("integrity_check", self._route_after_integrity, {"blocked": END, "code_tester": "code_tester"})
         builder.add_conditional_edges(
-            "tester",
-            self._route_after_tester,
-            {"blocked": END, "retry": "coder", "self_retry": "tester", "verify": "planner_verify"},
+            "code_tester",
+            self._route_after_code_tester,
+            {
+                "blocked": END,
+                "ui": "ui_tester",
+                "retry": "coder",
+                "self_retry": "code_tester",
+                "test_planner_retry": "test_planner",
+            },
         )
-        builder.add_conditional_edges("planner_verify", self._route_after_planner_verify, {"blocked": END, "tester": "tester", "approval": "verify_approval"})
+        builder.add_conditional_edges(
+            "ui_tester",
+            self._route_after_ui_tester,
+            {"blocked": END, "retry": "coder", "self_retry": "code_tester", "test_planner_retry": "test_planner", "verify": "planner_verify"},
+        )
+        builder.add_conditional_edges("planner_verify", self._route_after_planner_verify, {"blocked": END, "code_tester": "code_tester", "approval": "verify_approval"})
         builder.add_edge("verify_approval", "done")
         builder.add_edge("done", END)
         return builder
@@ -727,7 +754,7 @@ class LangGraphPipeline:
             "用户已回答澄清问题，进入终局规划。",
             severity="success",
         )
-        self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.planner.value)
+        self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.prd_planner.value)
         return {
             "discovery_qa": discovery_qa,
             "requirements_brief": requirements_brief,
@@ -736,75 +763,90 @@ class LangGraphPipeline:
             "pending_discovery_assumptions": [],
             "status": IterationStatus.planning.value,
             "route": "",
-            "current_node": NodeName.planner.value,
+            "current_node": NodeName.prd_planner.value,
         }
 
-    def _planner_node(self, state: PipelineState) -> PipelineState:
+    def _prd_planner_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
-        goal = state["goal"]
-        self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.planner.value, last_error=None)
-        self._reset_live_cli(iteration_id, NodeName.planner.value)
+        self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.prd_planner.value, last_error=None)
+        self._reset_live_cli(iteration_id, NodeName.prd_planner.value)
         self._publish_snapshot(iteration_id)
         self._node_event(
             iteration_id,
             "node.started",
-            NodeName.planner.value,
-            "规划节点已启动",
-            "正在读取大需求并拆分任务，准备生成系统设计、修改计划和测试。",
+            NodeName.prd_planner.value,
+            "PRD 规划已启动",
+            "正在根据澄清后的需求生成 PRD 与上下文清单。",
         )
         self._add_event(iteration_id, event_type="iteration.started", payload={"status": "planning"})
-        run_result = self._execute(
-            state,
-            self._planner_command(state),
-            node=NodeName.planner.value,
-        )
+        run_result = self._execute(state, self._prd_planner_command(state), node=NodeName.prd_planner.value)
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
-        run_id = self._record_run(iteration_id, NodeName.planner.value, run_result)
+        run_id = self._record_run(iteration_id, NodeName.prd_planner.value, run_result)
         if run_result.returncode:
-            self._node_event(iteration_id, "node.failed", NodeName.planner.value, "规划失败", "Planner CLI 执行失败。", severity="error", run_id=run_id, action_hint="查看运行日志，确认 claude CLI 可用并能返回 JSON artifact。")
-            return self._block(iteration_id, "planner.failed", run_id, run_result.stderr)
-
+            self._node_event(iteration_id, "node.failed", NodeName.prd_planner.value, "PRD 规划失败", "PRD Planner CLI 执行失败。", severity="error", run_id=run_id, action_hint="查看运行日志，确认 CLI 可用并能返回 JSON artifact。")
+            return self._block(iteration_id, "prd_planner.failed", run_id, run_result.stderr)
         try:
-            self._node_event(iteration_id, "node.progress", NodeName.planner.value, "正在解析规划产物", "已收到 Planner 输出，正在校验 JSON artifact 并写入文档。", run_id=run_id)
-            artifact = self._planner_artifact(state, run_result)
+            self._node_event(iteration_id, "node.progress", NodeName.prd_planner.value, "正在解析 PRD 产物", "已收到 PRD Planner 输出，正在写入 prd.md 与 context manifests。", run_id=run_id)
+            artifact = self._prd_planner_artifact(state, run_result)
             docs = IterationDocs(self.docs_root(iteration_id))
             docs.ensure()
-            self._write_planner_artifact(iteration_id, docs, artifact, run_id=run_id)
+            self._write_prd_planner_artifact(iteration_id, docs, artifact, run_id=run_id)
+            self._update_iteration(iteration_id, test_integrity_baseline={}, last_error=None)
+            self._add_event(iteration_id, event_type="prd_planner.completed", payload={"run_id": run_id})
+            self._node_event(iteration_id, "node.completed", NodeName.prd_planner.value, "PRD 规划完成", "prd.md 与上下文清单已生成，进入测试规划。", severity="success", run_id=run_id)
+            return {"status": IterationStatus.planning.value, "current_node": None, "prd_planner_run_id": run_id, "route": "test_planner"}
+        except Exception as exc:
+            self._node_event(iteration_id, "node.failed", NodeName.prd_planner.value, "PRD 产物无效", "PRD Planner 输出无法被解析为合法 artifact。", severity="error", run_id=run_id, action_hint="查看 PRD Planner 原始日志，要求模型只输出符合 schema 的 JSON。")
+            return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
+
+    def _test_planner_node(self, state: PipelineState) -> PipelineState:
+        iteration_id = state["iteration_id"]
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
+        retry_counts = dict(state.get("retry_counts") or {})
+        is_retry = retry_counts.get("test_planner_self", 0) > 0
+        self._update_iteration(iteration_id, status=IterationStatus.planning.value, current_node=NodeName.test_planner.value, retry_counts=retry_counts, last_error=None)
+        self._reset_live_cli(iteration_id, NodeName.test_planner.value)
+        self._publish_snapshot(iteration_id)
+        self._node_event(
+            iteration_id,
+            "node.started",
+            NodeName.test_planner.value,
+            "测试规划已启动" if not is_retry else "测试规划正在重试",
+            "正在编写 testing_plan 与受保护测试（Coder 之前）。" if not is_retry else "正在根据验证失败修订受保护测试。",
+        )
+        run_result = self._execute(state, self._test_planner_command(state), node=NodeName.test_planner.value)
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
+        run_id = self._record_run(iteration_id, NodeName.test_planner.value, run_result)
+        if run_result.returncode:
+            self._node_event(iteration_id, "node.failed", NodeName.test_planner.value, "测试规划失败", "Test Planner CLI 执行失败。", severity="error", run_id=run_id, action_hint="查看运行日志。")
+            return self._block(iteration_id, "test_planner.failed", run_id, run_result.stderr)
+        try:
+            artifact = self._test_planner_artifact(state, run_result)
+            docs = IterationDocs(self.docs_root(iteration_id))
+            docs.ensure()
+            self._write_test_planner_artifact(iteration_id, docs, artifact, run_id=run_id)
             baseline = test_integrity_manifest(docs.root)
-            self._update_iteration(
-                iteration_id,
-                status=IterationStatus.coding.value,
-                current_node=None,
-                test_integrity_baseline=baseline,
-                last_error=None,
-            )
-            self._add_event(iteration_id, event_type="planner.completed", payload={"documents": 3 + len(artifact.tests), "run_id": run_id})
+            self._update_iteration(iteration_id, status=IterationStatus.coding.value, current_node=None, test_integrity_baseline=baseline, last_error=None)
+            self._add_event(iteration_id, event_type="test_planner.completed", payload={"documents": 1 + len(artifact.tests), "run_id": run_id})
             self._node_event(
                 iteration_id,
                 "node.completed",
-                NodeName.planner.value,
-                "规划完成",
-                f"已根据澄清后的需求一次性生成 3 份规划文档和 {len(artifact.tests)} 个测试文件，进入实现。",
+                NodeName.test_planner.value,
+                "测试规划完成",
+                f"已生成 testing_plan 与 {len(artifact.tests)} 个受保护测试，进入实现。",
                 severity="success",
                 run_id=run_id,
             )
-            return {
-                "status": IterationStatus.coding.value,
-                "current_node": None,
-                "planner_run_id": run_id,
-                "route": "coder",
-            }
+            return {"status": IterationStatus.coding.value, "current_node": None, "test_planner_run_id": run_id, "route": "coder"}
         except Exception as exc:
             event_type = ui_spec_error_type(str(exc))
-            hint = (
-                "检查 tests/ui/*.json 是否使用 snake_case 动作名，并符合 UITestSpec schema。"
-                if event_type == "ui_spec.invalid"
-                else "查看 Planner 原始日志，要求模型只输出符合 schema 的 JSON。"
-            )
-            title = "UI 测试规格无效" if event_type == "ui_spec.invalid" else "规划产物无效"
-            body = "Planner 写入了无法执行的 UI trajectory。" if event_type == "ui_spec.invalid" else "Planner 输出无法被解析为合法 artifact。"
-            self._node_event(iteration_id, "node.failed", NodeName.planner.value, title, body, severity="error", run_id=run_id, action_hint=hint)
+            hint = "检查 tests/ui/*.json 是否使用 snake_case 动作名，并符合 UITestSpec schema。" if event_type == "ui_spec.invalid" else "查看 Test Planner 原始日志。"
+            title = "UI 测试规格无效" if event_type == "ui_spec.invalid" else "测试规划产物无效"
+            body = "Test Planner 写入了无法执行的 UI trajectory。" if event_type == "ui_spec.invalid" else "Test Planner 输出无法被解析为合法 artifact。"
+            self._node_event(iteration_id, "node.failed", NodeName.test_planner.value, title, body, severity="error", run_id=run_id, action_hint=hint)
             return self._block(iteration_id, event_type, run_id, str(exc))
 
     def _coder_node(self, state: PipelineState) -> PipelineState:
@@ -980,97 +1022,92 @@ class LangGraphPipeline:
             return self._block(iteration_id, "test_integrity.failed", None, "; ".join(problems))
         self._add_event(iteration_id, event_type="test_integrity.passed", payload={"stage": "before_tester"})
         self._node_event(iteration_id, "node.completed", NodeName.integrity_check.value, "测试完整性通过", "受保护测试未被未授权修改，可以进入独立验证。", severity="success")
-        return {"status": IterationStatus.testing.value, "current_node": NodeName.tester.value}
+        return {"status": IterationStatus.testing.value, "current_node": NodeName.code_tester.value}
 
-    def _tester_node(self, state: PipelineState) -> PipelineState:
+    def _code_tester_node(self, state: PipelineState) -> PipelineState:
         iteration_id = state["iteration_id"]
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
-        self._update_iteration(iteration_id, status=IterationStatus.testing.value, current_node=NodeName.tester.value, last_error=None)
-        self._reset_live_cli(iteration_id, NodeName.tester.value)
+        self._update_iteration(iteration_id, status=IterationStatus.testing.value, current_node=NodeName.code_tester.value, last_error=None)
+        self._reset_live_cli(iteration_id, NodeName.code_tester.value)
         self._publish_snapshot(iteration_id)
-        self._node_event(iteration_id, "node.started", NodeName.tester.value, "验证节点已启动", "Tester 正在独立运行验证并准备交付建议。")
-        run_result = self._execute(state, self._tester_command(state), node=NodeName.tester.value)
+        self._node_event(iteration_id, "node.started", NodeName.code_tester.value, "代码验证已启动", "Code Tester 正在独立运行代码审查与测试命令。")
+        run_result = self._execute(state, self._code_tester_command(state), node=NodeName.code_tester.value)
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
-        run_id = self._record_run(iteration_id, NodeName.tester.value, run_result)
+        run_id = self._record_run(iteration_id, NodeName.code_tester.value, run_result)
         try:
-            artifact: TesterArtifact | None = None
+            code_artifact: CodeTesterArtifact | None = None
             if run_result.returncode:
-                artifact = self._try_tester_artifact(state, run_result)
-                if artifact is not None:
+                code_artifact = self._try_code_tester_artifact(state, run_result)
+                if code_artifact is not None:
                     self._node_event(
                         iteration_id,
-                        "tester.nonzero_artifact.accepted",
-                        NodeName.tester.value,
+                        "code_tester.nonzero_artifact.accepted",
+                        NodeName.code_tester.value,
                         "验证命令异常但产物可用",
-                        "Tester CLI 非零退出，但输出了合法验证产物；系统将继续处理报告并把异常记录为警告。",
+                        "Code Tester CLI 非零退出，但输出了合法验证产物。",
                         severity="warning",
                         run_id=run_id,
-                        action_hint="检查 Tester 原始日志，确认非零退出是否只来自自动化工具环境问题。",
                     )
+                    tester_pending = code_tester_to_tester(code_artifact)
                 else:
                     primary_notes = self._tester_failure_notes(run_result)
-                    self._node_event(
-                        iteration_id,
-                        "tester.review_fallback.started",
-                        NodeName.tester.value,
-                        "启动代码审查兜底",
-                        "Tester 自动化验证未能产出合法报告，正在改用禁止 UI 自动化的独立审查。",
-                        severity="warning",
-                        run_id=run_id,
-                        action_hint="Playwright/CUA 等工具不可用不会直接阻断；兜底报告会记录未执行项。",
-                    )
+                    self._node_event(iteration_id, "code_tester.review_fallback.started", NodeName.code_tester.value, "启动代码审查兜底", primary_notes, severity="warning", run_id=run_id)
                     review_result = self._execute(
                         state,
-                        self._tester_command(state, review_only=True, fallback_reason=primary_notes),
-                        node=NodeName.tester.value,
+                        self._code_tester_command(state, review_only=True, fallback_reason=primary_notes),
+                        node=NodeName.code_tester.value,
                     )
                     if self._is_iteration_gone(iteration_id):
                         return self._abort_state()
-                    review_run_id = self._record_run(iteration_id, NodeName.tester.value, review_result)
+                    review_run_id = self._record_run(iteration_id, NodeName.code_tester.value, review_result)
                     run_id = review_run_id
                     if review_result.returncode:
                         notes = self._tester_failure_notes(run_result, review_result)
-                        self._node_event(
-                            iteration_id,
-                            "tester.review_fallback.failed",
-                            NodeName.tester.value,
-                            "代码审查兜底失败",
-                            notes,
-                            severity="error",
-                            run_id=review_run_id,
-                            action_hint="查看 Tester 两次运行日志；若是实现问题将进入自动修复回环。",
-                        )
                         return self._route_tester_failure(
                             state,
                             review_run_id,
-                            TesterArtifact(
-                                verify_report="# Verify Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
-                                passed=False,
-                                failure_notes=notes,
+                            code_tester_to_tester(
+                                CodeTesterArtifact(
+                                    verify_report="# Verify Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
+                                    passed=False,
+                                    failure_notes=notes,
+                                )
                             ),
                         )
-                    artifact = self._tester_artifact(state, review_result)
-                    self._augment_review_fallback_artifact(artifact, primary_notes)
-                    self._node_event(
-                        iteration_id,
-                        "tester.review_fallback.completed",
-                        NodeName.tester.value,
-                        "代码审查兜底完成",
-                        "Tester 已在不调用浏览器或原生自动化工具的前提下完成独立审查。",
-                        severity="success",
-                        run_id=review_run_id,
-                    )
+                    code_artifact = self._code_tester_artifact(state, review_result)
+                    tester_pending = code_tester_to_tester(code_artifact)
+                    self._augment_review_fallback_artifact(tester_pending, primary_notes)
             else:
-                self._node_event(iteration_id, "node.progress", NodeName.tester.value, "正在解析验证结果", "已收到 Tester 输出，正在校验验证报告、交付建议和对抗测试。", run_id=run_id)
-                artifact = self._tester_artifact(state, run_result)
-            if artifact is None:
-                raise ValueError("tester artifact was not resolved")
+                self._node_event(iteration_id, "node.progress", NodeName.code_tester.value, "正在解析验证结果", "已收到 Code Tester 输出。", run_id=run_id)
+                code_artifact = self._code_tester_artifact(state, run_result)
+                tester_pending = code_tester_to_tester(code_artifact)
+            if code_artifact is None:
+                raise ValueError("code tester artifact was not resolved")
             problems = self._integrity_problems(iteration_id)
             if problems:
-                self._node_event(iteration_id, "node.failed", NodeName.tester.value, "验证前测试完整性失败", "; ".join(problems), severity="error", run_id=run_id, action_hint="检查测试目录是否被实现节点修改。")
+                self._node_event(iteration_id, "node.failed", NodeName.code_tester.value, "验证前测试完整性失败", "; ".join(problems), severity="error", run_id=run_id)
                 return self._block(iteration_id, "test_integrity.failed", run_id, "; ".join(problems))
+            self._node_event(iteration_id, "node.completed", NodeName.code_tester.value, "代码验证完成", "进入 UI 自动化验证。", severity="success", run_id=run_id)
+            return {"pending_code_tester_json": tester_pending.model_dump_json(), "code_tester_run_id": run_id, "current_node": NodeName.ui_tester.value}
+        except Exception as exc:
+            self._node_event(iteration_id, "node.failed", NodeName.code_tester.value, "验证产物无效", "Code Tester 输出无法被解析为合法 artifact。", severity="error", run_id=run_id)
+            return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
+
+    def _ui_tester_node(self, state: PipelineState) -> PipelineState:
+        iteration_id = state["iteration_id"]
+        if self._is_iteration_gone(iteration_id):
+            return self._abort_state()
+        pending = state.get("pending_code_tester_json")
+        if not pending:
+            return self._block(iteration_id, "code_tester.missing_artifact", None, "missing code tester artifact")
+        self._update_iteration(iteration_id, status=IterationStatus.testing.value, current_node=NodeName.ui_tester.value, last_error=None)
+        self._publish_snapshot(iteration_id)
+        self._node_event(iteration_id, "node.started", NodeName.ui_tester.value, "UI 验证已启动", "正在执行 tests/ui 中的 trajectory。")
+        run_id = state.get("code_tester_run_id")
+        try:
+            artifact = TesterArtifact.model_validate_json(pending)
             docs = IterationDocs(self.docs_root(iteration_id))
             ui_result = self._run_ui_specs(iteration_id, docs, run_id=run_id)
             if ui_result.results:
@@ -1111,7 +1148,7 @@ class LangGraphPipeline:
                 self._node_event(
                     iteration_id,
                     "node.failed",
-                    NodeName.tester.value,
+                    NodeName.ui_tester.value,
                     "验证产物未通过写盘闸门",
                     gate_msg,
                     severity="error",
@@ -1121,14 +1158,14 @@ class LangGraphPipeline:
                 return self._route_tester_failure(state, run_id, artifact)
             problems = self._integrity_problems(iteration_id)
             if problems:
-                self._node_event(iteration_id, "node.failed", NodeName.tester.value, "验证后测试完整性失败", "; ".join(problems), severity="error", run_id=run_id, action_hint="Tester 只能写入 adversarial 和 UI recordings；请检查异常测试文件。")
+                self._node_event(iteration_id, "node.failed", NodeName.ui_tester.value, "验证后测试完整性失败", "; ".join(problems), severity="error", run_id=run_id, action_hint="Code Tester 只能写入 adversarial 和 UI recordings；请检查异常测试文件。")
                 return self._block(iteration_id, "test_integrity.failed", run_id, "; ".join(problems))
             if not artifact.passed:
                 notes = summarize_failure_notes(self._normalize_tester_artifact(artifact))
                 self._node_event(
                     iteration_id,
                     "node.failed",
-                    NodeName.tester.value,
+                    NodeName.ui_tester.value,
                     "验证未通过",
                     notes,
                     severity="error",
@@ -1138,18 +1175,14 @@ class LangGraphPipeline:
                 return self._route_tester_failure(state, run_id, artifact)
             self._update_iteration(iteration_id, status=IterationStatus.awaiting_verify_approval.value, current_node=None, last_error=None)
             self._add_event(iteration_id, event_type="tester.completed", payload={"result": "passed", "run_id": run_id})
-            self._node_event(iteration_id, "node.completed", NodeName.tester.value, "验证通过", "验证报告和交付建议已生成，等待规格复核和最终确认。", severity="success", run_id=run_id)
+            self._node_event(iteration_id, "node.completed", NodeName.ui_tester.value, "验证通过", "验证报告和交付建议已生成，等待规格复核和最终确认。", severity="success", run_id=run_id)
             return {"status": IterationStatus.awaiting_verify_approval.value, "route": "", "current_node": None, "tester_run_id": run_id}
         except Exception as exc:
             event_type = ui_spec_error_type(str(exc))
-            hint = (
-                "检查 tests/ui/*.json 动作名与字段是否符合 UITestSpec schema。"
-                if event_type == "ui_spec.invalid"
-                else "查看 Tester 原始日志，要求模型只输出符合 schema 的 JSON。"
-            )
+            hint = "检查 tests/ui/*.json 动作名与字段是否符合 UITestSpec schema。" if event_type == "ui_spec.invalid" else "查看验证产物。"
             title = "UI 测试规格无效" if event_type == "ui_spec.invalid" else "验证产物无效"
-            body = "受保护 UI trajectory 无法被 UI Driver 加载。" if event_type == "ui_spec.invalid" else "Tester 输出无法被解析为合法 artifact。"
-            self._node_event(iteration_id, "node.failed", NodeName.tester.value, title, body, severity="error", run_id=run_id, action_hint=hint)
+            body = "受保护 UI trajectory 无法被 UI Driver 加载。" if event_type == "ui_spec.invalid" else "验证产物无法被解析。"
+            self._node_event(iteration_id, "node.failed", NodeName.ui_tester.value, title, body, severity="error", run_id=run_id, action_hint=hint)
             return self._block(iteration_id, event_type, run_id, str(exc))
 
     def _planner_verify_node(self, state: PipelineState) -> PipelineState:
@@ -1207,9 +1240,16 @@ class LangGraphPipeline:
             return "ask"
         return "ready"
 
-    def _route_after_planner(self, state: PipelineState) -> Literal["blocked", "coder"]:
+    def _route_after_prd_planner(self, state: PipelineState) -> Literal["blocked", "test_planner"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
+        return "test_planner"
+
+    def _route_after_test_planner(self, state: PipelineState) -> Literal["blocked", "coder", "test_planner_retry"]:
+        if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
+            return "blocked"
+        if state.get("route") == "test_planner_retry":
+            return "test_planner_retry"
         return "coder"
 
     def _route_after_coder(self, state: PipelineState) -> Literal["blocked", "clarification", "integrity"]:
@@ -1222,23 +1262,37 @@ class LangGraphPipeline:
     def _route_after_clarification(self, state: PipelineState) -> Literal["blocked", "coder"]:
         return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.stopped.value} else "coder"
 
-    def _route_after_integrity(self, state: PipelineState) -> Literal["blocked", "tester"]:
-        return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value} else "tester"
+    def _route_after_integrity(self, state: PipelineState) -> Literal["blocked", "code_tester"]:
+        return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value} else "code_tester"
 
-    def _route_after_tester(self, state: PipelineState) -> Literal["blocked", "retry", "self_retry", "verify"]:
+    def _route_after_code_tester(
+        self, state: PipelineState
+    ) -> Literal["blocked", "ui", "retry", "self_retry", "test_planner_retry"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
+        route = state.get("route")
+        if route in {"retry", "self_retry", "test_planner_retry"}:
+            return route  # type: ignore[return-value]
+        if not state.get("pending_code_tester_json"):
+            return "blocked"
+        return "ui"
+
+    def _route_after_ui_tester(self, state: PipelineState) -> Literal["blocked", "retry", "self_retry", "test_planner_retry", "verify"]:
+        if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
+            return "blocked"
+        if state.get("route") == "test_planner_retry":
+            return "test_planner_retry"
         if state.get("route") == "self_retry":
             return "self_retry"
         if state.get("route") == "retry":
             return "retry"
         return "verify"
 
-    def _route_after_planner_verify(self, state: PipelineState) -> Literal["blocked", "tester", "approval"]:
+    def _route_after_planner_verify(self, state: PipelineState) -> Literal["blocked", "code_tester", "approval"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
         if state.get("route") == "verify_rejected":
-            return "tester"
+            return "code_tester"
         return "approval"
 
     def _config(self, iteration_id: str) -> dict[str, Any]:
@@ -1592,7 +1646,7 @@ class LangGraphPipeline:
             )
         return ["specforge", "planner_discovery", iteration_id]
 
-    def _planner_command(self, state: PipelineState) -> list[str]:
+    def _prd_planner_command(self, state: PipelineState) -> list[str]:
         iteration_id = state["iteration_id"]
         brief = self._planner_brief(state)
         requirements_brief = (state.get("requirements_brief") or "").strip() or "(see iteration goal and discovery docs)"
@@ -1600,15 +1654,42 @@ class LangGraphPipeline:
         if self._is_real_cli(state.get("mode")):
             repo_root = self.project_repo_root(iteration_id)
             prompt = compose_stage_prompt(
-                "planner",
+                "prd_planner",
                 repo_root=repo_root,
                 variables={
                     "schema_hint": (
-                        "{system_design:string, modification_plan:string, testing_plan:string, "
-                        "tests:[{path:string, content:string}], "
+                        "{prd:string, "
                         "context_for_coder:[{file:string, reason:string}], "
                         "context_for_tester:[{file:string, reason:string}]}"
                     ),
+                    "brief": brief,
+                    "requirements_brief": requirements_brief,
+                    "discovery_qa": discovery_qa,
+                    "framework_conventions": read_framework_conventions(),
+                    "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
+                    "workflow_state": self._workflow_state_section(state, node=NodeName.prd_planner.value),
+                },
+            )
+            provider = self._cli_provider(state, "prd_planner")
+            return build_planner_command(
+                provider=provider,
+                prompt=prompt,
+                schema_inline=self._artifact_schema_inline(PrdPlannerArtifact),
+                schema_file=self._artifact_schema_file(iteration_id, "prd_planner_artifact", PrdPlannerArtifact),
+            )
+        return ["specforge", "prd_planner", iteration_id]
+
+    def _test_planner_command(self, state: PipelineState) -> list[str]:
+        iteration_id = state["iteration_id"]
+        brief = self._planner_brief(state)
+        requirements_brief = (state.get("requirements_brief") or "").strip() or "(see prd.md)"
+        if self._is_real_cli(state.get("mode")):
+            repo_root = self.project_repo_root(iteration_id)
+            prompt = compose_stage_prompt(
+                "test_planner",
+                repo_root=repo_root,
+                variables={
+                    "schema_hint": "{testing_plan:string, tests:[{path:string, content:string}]}",
                     "ui_spec_hint": (
                         "{id,title,kind:web|native,target:{url|bundle_id|app_name},"
                         "steps:[{action,text,value,selector,key,keys,direction,amount}]}"
@@ -1616,20 +1697,20 @@ class LangGraphPipeline:
                     "ui_actions": ", ".join(UI_TEST_ACTIONS),
                     "brief": brief,
                     "requirements_brief": requirements_brief,
-                    "discovery_qa": discovery_qa,
+                    "failure_notes": state.get("failure_notes") or "(none)",
                     "framework_conventions": read_framework_conventions(),
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
-                    "workflow_state": self._workflow_state_section(state, node=NodeName.planner.value),
+                    "workflow_state": self._workflow_state_section(state, node=NodeName.test_planner.value),
                 },
             )
-            provider = self._cli_provider(state, "planner")
+            provider = self._cli_provider(state, "test_planner")
             return build_planner_command(
                 provider=provider,
                 prompt=prompt,
-                schema_inline=self._artifact_schema_inline(PlannerArtifact),
-                schema_file=self._artifact_schema_file(iteration_id, "planner_artifact", PlannerArtifact),
+                schema_inline=self._artifact_schema_inline(TestPlannerArtifact),
+                schema_file=self._artifact_schema_file(iteration_id, "test_planner_artifact", TestPlannerArtifact),
             )
-        return ["specforge", "planner", iteration_id]
+        return ["specforge", "test_planner", iteration_id]
 
     def _planner_clarification_command(self, state: PipelineState, clarification_request: str) -> list[str]:
         if self._is_real_cli(state.get("mode")):
@@ -1692,20 +1773,20 @@ class LangGraphPipeline:
             )
         return ["specforge", "coder", iteration_id]
 
-    def _tester_command(self, state: PipelineState, *, review_only: bool = False, fallback_reason: str = "") -> list[str]:
+    def _code_tester_command(self, state: PipelineState, *, review_only: bool = False, fallback_reason: str = "") -> list[str]:
         iteration_id = state["iteration_id"]
         if self._is_real_cli(state.get("mode")):
-            prompt = self._tester_prompt(state, review_only=review_only, fallback_reason=fallback_reason)
-            provider = self._cli_provider(state, "tester")
+            prompt = self._code_tester_prompt(state, review_only=review_only, fallback_reason=fallback_reason)
+            provider = self._cli_provider(state, "code_tester")
             return build_tester_command(
                 provider=provider,
                 prompt=prompt,
-                schema_inline=self._artifact_schema_inline(TesterArtifact),
-                schema_file=self._artifact_schema_file(iteration_id, "tester_artifact", TesterArtifact),
+                schema_inline=self._artifact_schema_inline(CodeTesterArtifact),
+                schema_file=self._artifact_schema_file(iteration_id, "code_tester_artifact", CodeTesterArtifact),
             )
-        return ["specforge", "tester", iteration_id]
+        return ["specforge", "code_tester", iteration_id]
 
-    def _tester_prompt(self, state: PipelineState, *, review_only: bool, fallback_reason: str = "") -> str:
+    def _code_tester_prompt(self, state: PipelineState, *, review_only: bool, fallback_reason: str = "") -> str:
         iteration_id = state["iteration_id"]
         row = self._require_iteration(iteration_id)
         docs_root = self.docs_root(iteration_id)
@@ -1739,35 +1820,30 @@ class LangGraphPipeline:
 
         if review_only:
             execution_mode = (
-                "This is a review-only fallback after the primary Tester run failed before producing a valid artifact. "
+                "This is a review-only fallback after the primary Code Tester run failed before producing a valid artifact. "
                 "Do not invoke Playwright, CUA Driver, browsers, native GUI automation, or screen recording tools. "
-                "Base the verdict on code review, static inspection, available logs, and non-UI checks only. "
-                "The pass/fail verdict must represent whether the code review found P0/P1 bugs. "
-                "If UI automation was skipped because of the primary failure, include that in ui_warnings and delivery_recommendations. "
                 f"Primary failure notes: {fallback_reason}"
             )
         else:
             execution_mode = (
-                "Run verification and inspect user-facing behavior where possible. "
-                "UI automation is best-effort evidence; UI automation failures should be reported as warnings, "
-                "not as passed=false, unless your code review identifies a P0/P1 implementation bug behind them. "
-                "Include practical post-delivery recommendations."
+                "Run configured test/build commands when practical and complete an independent code review. "
+                "Do not invoke Playwright, CUA Driver, browsers, or native GUI automation — UI Driver runs in a later node."
             )
 
         framework = read_framework_conventions()
         framework_block = f"SpecForge framework rules:\n{framework}\n" if framework else ""
 
         return compose_stage_prompt(
-            "tester",
+            "code_tester",
             repo_root=repo_root,
             variables={
                 "repo_root": str(repo_root),
                 "docs_root": str(docs_root),
                 "schema_hint": (
                     "{verify_report:string, passed:boolean, failure_notes?:string, "
-                    "defects:[{severity:'P0'|'P1'|'P2', path?:string, owner?:'coder'|'tester'|'planner', message:string}], "
+                    "defects:[{severity:'P0'|'P1'|'P2', path?:string, owner?:'coder'|'tester'|'test_planner', message:string}], "
                     "ux_notes:[string], delivery_recommendations:[string], "
-                    "ui_results?:[], ui_warnings?:[], adversarial_tests:[{path:string, content:string}]}"
+                    "adversarial_tests:[{path:string, content:string}]}"
                 ),
                 "test_command_section": test_command_section,
                 "build_command_section": build_command_section,
@@ -1836,32 +1912,33 @@ class LangGraphPipeline:
             rationale="Dry-run discovery complete after one Q&A round.",
         )
 
-    def _planner_artifact(self, state: PipelineState, run_result: CLIResult) -> PlannerArtifact:
+    def _prd_planner_artifact(self, state: PipelineState, run_result: CLIResult) -> PrdPlannerArtifact:
         if self._is_real_cli(state.get("mode")):
             raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
-            return parse_json_artifact(raw, PlannerArtifact)  # type: ignore[return-value]
+            return parse_json_artifact(raw, PrdPlannerArtifact)  # type: ignore[return-value]
         goal = state["goal"]
-        return PlannerArtifact(
-            system_design=f"""---\ndoc: system_design\niteration: 1\nstatus: draft\nowner: node1\n---\n\n# Iteration 1 - System Design\n\nGoal: {goal}\n\nThis dry-run design was produced by the LangGraph planner node.\n""",
-            modification_plan="""---\ndoc: modification_plan\niteration: 1\nstatus: draft\nowner: node1\n---\n\n# Iteration 1 - Modification Plan\n\n- Generate a minimal source module.\n- Preserve planner-authored tests.\n- Proceed directly to the coder node after planning.\n""",
-            testing_plan="""---\ndoc: testing_plan\niteration: 1\nstatus: draft\nowner: node1\n---\n\n# Iteration 1 - Testing Plan\n\n- T01: backend health endpoint responds.\n- T02: dry-run reaches delivery approval.\n- T03: delivered status requires final approval.\n""",
+        prd = f"""---\ndoc: prd\niteration: 1\nstatus: draft\nowner: prd_planner\n---\n\n# Iteration 1 - PRD\n\nGoal: {goal}\n\n## System design\nDry-run PRD from prd_planner.\n\n## Modification plan\n- Generate a minimal source module.\n- Satisfy protected tests from test_planner.\n"""
+        return PrdPlannerArtifact(
+            prd=prd,
+            context_for_coder=[
+                ContextManifestEntry(file="prd.md", reason="Approved PRD for Coder"),
+            ],
+            context_for_tester=[
+                ContextManifestEntry(file="prd.md", reason="Product intent for verification"),
+            ],
+        )
+
+    def _test_planner_artifact(self, state: PipelineState, run_result: CLIResult) -> TestPlannerArtifact:
+        if self._is_real_cli(state.get("mode")):
+            raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
+            return parse_json_artifact(raw, TestPlannerArtifact)  # type: ignore[return-value]
+        return TestPlannerArtifact(
+            testing_plan="""---\ndoc: testing_plan\niteration: 1\nstatus: draft\nowner: test_planner\n---\n\n# Iteration 1 - Testing Plan\n\n- T01: dry-run reaches delivery approval.\n""",
             tests=[
                 ArtifactFile(
                     path="tests/unit/test_transitions.py",
                     content="from specforge.models import IterationStatus\n\n\ndef test_status_names_exist():\n    assert IterationStatus.created.value == 'created'\n",
                 )
-            ],
-            context_for_coder=[
-                ContextManifestEntry(file="system_design.md", reason="Approved design for Coder"),
-                ContextManifestEntry(file="modification_plan.md", reason="Implementation scope"),
-                ContextManifestEntry(file="testing_plan.md", reason="Protected test strategy"),
-                ContextManifestEntry(file="tests/unit/test_transitions.py", reason="Protected unit test"),
-            ],
-            context_for_tester=[
-                ContextManifestEntry(file="system_design.md", reason="Design intent for verification"),
-                ContextManifestEntry(file="modification_plan.md", reason="Expected implementation scope"),
-                ContextManifestEntry(file="testing_plan.md", reason="Verification strategy"),
-                ContextManifestEntry(file="tests/unit/test_transitions.py", reason="Protected tests to respect"),
             ],
         )
 
@@ -1973,11 +2050,15 @@ class LangGraphPipeline:
             return parse_json_artifact(raw, CoderArtifact)  # type: ignore[return-value]
         return CoderArtifact(changed_paths=["src/app.py"], summary="dry-run source module generated")
 
-    def _tester_artifact(self, state: PipelineState, run_result: CLIResult) -> TesterArtifact:
+    def _code_tester_artifact(self, state: PipelineState, run_result: CLIResult) -> CodeTesterArtifact:
         if self._is_real_cli(state.get("mode")):
             raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
-            artifact = parse_json_artifact(raw, TesterArtifact)  # type: ignore[assignment]
-            return self._normalize_tester_artifact(artifact)
+            artifact = parse_json_artifact(raw, CodeTesterArtifact)  # type: ignore[assignment]
+            return self._normalize_code_tester_artifact(artifact)
+        tester = self._dry_run_tester_artifact(state)
+        return CodeTesterArtifact.model_validate(tester.model_dump(exclude={"ui_results", "ui_warnings"}))
+
+    def _dry_run_tester_artifact(self, state: PipelineState) -> TesterArtifact:
         if "force tester failure" in state.get("goal", ""):
             return TesterArtifact(
                 verify_report="""---\ndoc: verify_report\niteration: 1\nstatus: draft\nowner: node3\n---\n\n# Iteration 1 - Verify Report\n\n## Summary\n- Tests in plan: 3\n- Tests executed: 3\n- Pass: 0\n- Fail: 3\n""",
@@ -1993,11 +2074,15 @@ class LangGraphPipeline:
             delivery_recommendations=["本轮可以交付；下一步建议补充真实 CLI smoke test。"],
         )
 
-    def _try_tester_artifact(self, state: PipelineState, run_result: CLIResult) -> TesterArtifact | None:
+    def _try_code_tester_artifact(self, state: PipelineState, run_result: CLIResult) -> CodeTesterArtifact | None:
         try:
-            return self._tester_artifact(state, run_result)
+            return self._code_tester_artifact(state, run_result)
         except Exception:
             return None
+
+    def _normalize_code_tester_artifact(self, artifact: CodeTesterArtifact) -> CodeTesterArtifact:
+        tester = self._normalize_tester_artifact(code_tester_to_tester(artifact))
+        return CodeTesterArtifact.model_validate(tester.model_dump(exclude={"ui_results", "ui_warnings"}))
 
     def _augment_review_fallback_artifact(self, artifact: TesterArtifact, primary_notes: str) -> None:
         compact_notes = self._compact_failure_notes(primary_notes)
@@ -2027,29 +2112,36 @@ class LangGraphPipeline:
             return compact
         return compact[: limit - 3] + "..."
 
-    def _write_planner_artifact(self, iteration_id: str, docs: IterationDocs, artifact: PlannerArtifact, *, run_id: Optional[str] = None) -> None:
-        paths = {
-            "system_design": docs.write_text("system_design.md", artifact.system_design),
-            "modification_plan": docs.write_text("modification_plan.md", artifact.modification_plan),
-            "testing_plan": docs.write_text("testing_plan.md", artifact.testing_plan),
-        }
-        for name, path in paths.items():
-            self._record_document(iteration_id, name, path)
-            self._node_event(iteration_id, "artifact.created", NodeName.planner.value, "规划文档已生成", f"{name} 已写入 iteration 文档目录。", severity="success", document=name, run_id=run_id)
-        for file in artifact.tests:
-            relative = safe_relative_path(file.path)
-            if not relative.parts or relative.parts[0] != "tests" or (len(relative.parts) > 1 and relative.parts[1] == "adversarial"):
-                raise ValueError(f"planner test path not allowed: {file.path}")
-            if len(relative.parts) >= 3 and relative.parts[1] == "ui" and relative.suffix == ".json":
-                validate_ui_spec_content(relative.as_posix(), file.content)
-            path = docs.write_text(relative.as_posix(), file.content)
-            self._record_document(iteration_id, relative.as_posix(), path)
-            self._node_event(iteration_id, "artifact.created", NodeName.planner.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
+    def _write_prd_planner_artifact(self, iteration_id: str, docs: IterationDocs, artifact: PrdPlannerArtifact, *, run_id: Optional[str] = None) -> None:
+        path = docs.write_text("prd.md", artifact.prd)
+        self._record_document(iteration_id, "prd", path)
+        self._node_event(iteration_id, "artifact.created", NodeName.prd_planner.value, "PRD 已生成", "prd.md 已写入 iteration 文档目录。", severity="success", document="prd", run_id=run_id)
         context_root = docs.root / "context"
         write_jsonl(context_root / "for_coder.jsonl", resolve_coder_manifest(artifact))
         write_jsonl(context_root / "for_tester.jsonl", resolve_tester_manifest(artifact))
         self._record_document(iteration_id, "context/for_coder.jsonl", context_root / "for_coder.jsonl")
         self._record_document(iteration_id, "context/for_tester.jsonl", context_root / "for_tester.jsonl")
+
+    def _write_test_planner_artifact(self, iteration_id: str, docs: IterationDocs, artifact: TestPlannerArtifact, *, run_id: Optional[str] = None) -> None:
+        plan_path = docs.write_text("testing_plan.md", artifact.testing_plan)
+        self._record_document(iteration_id, "testing_plan", plan_path)
+        self._node_event(iteration_id, "artifact.created", NodeName.test_planner.value, "测试计划已生成", "testing_plan.md 已写入。", severity="success", document="testing_plan", run_id=run_id)
+        test_lines: list[ManifestLine] = [
+            ManifestLine(file="testing_plan.md", reason="Protected test strategy"),
+        ]
+        for file in artifact.tests:
+            relative = safe_relative_path(file.path)
+            if not relative.parts or relative.parts[0] != "tests" or (len(relative.parts) > 1 and relative.parts[1] == "adversarial"):
+                raise ValueError(f"test_planner test path not allowed: {file.path}")
+            if len(relative.parts) >= 3 and relative.parts[1] == "ui" and relative.suffix == ".json":
+                validate_ui_spec_content(relative.as_posix(), file.content)
+            path = docs.write_text(relative.as_posix(), file.content)
+            self._record_document(iteration_id, relative.as_posix(), path)
+            self._node_event(iteration_id, "artifact.created", NodeName.test_planner.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
+            test_lines.append(ManifestLine(file=relative.as_posix(), reason="Protected test for Coder and Tester"))
+        context_root = docs.root / "context"
+        append_manifest_lines(context_root / "for_coder.jsonl", test_lines)
+        append_manifest_lines(context_root / "for_tester.jsonl", test_lines)
 
     def _ensure_verify_report_markers(self, text: str) -> str:
         result = text if text.strip() else "# Verify Report\n\n"
@@ -2199,14 +2291,49 @@ class LangGraphPipeline:
             self._node_event(
                 iteration_id,
                 "node.failed",
-                NodeName.tester.value,
-                "验证失败涉及受保护测试",
+                NodeName.code_tester.value,
+                "验证失败涉及 PRD 范围",
                 notes,
                 severity="error",
                 run_id=run_id,
-                action_hint="受保护测试只能由 Planner 修改；需要人工介入。",
+                action_hint="PRD 范围问题需要人工介入。",
             )
             return self._block(iteration_id, "tester.protected_test_failure", run_id, notes)
+
+        if target == "test_planner":
+            retry_counts = self._increment_count(state, "test_planner_self")
+            max_retries = state.get("max_tester_self_retries", 3)
+            if retry_counts["test_planner_self"] > max_retries:
+                self._update_iteration(iteration_id, retry_counts=retry_counts)
+                return self._block(iteration_id, "test_planner.self_max_retries", run_id, notes)
+            self._update_iteration(
+                iteration_id,
+                status=IterationStatus.planning.value,
+                current_node=None,
+                retry_counts=retry_counts,
+                last_error=notes,
+            )
+            self._add_event(
+                iteration_id,
+                event_type="test_planner.retry",
+                payload={"run_id": run_id, "notes": notes, "count": retry_counts["test_planner_self"]},
+            )
+            self._node_event(
+                iteration_id,
+                "node.progress",
+                NodeName.test_planner.value,
+                "受保护测试需修订",
+                notes,
+                severity="warning",
+                run_id=run_id,
+            )
+            return {
+                "route": "test_planner_retry",
+                "failure_notes": notes,
+                "retry_target": "test_planner",
+                "retry_counts": retry_counts,
+                "pending_code_tester_json": None,
+            }
 
         if target == "tester":
             retry_counts = self._increment_count(state, "tester_self")
@@ -2223,25 +2350,25 @@ class LangGraphPipeline:
             )
             self._add_event(
                 iteration_id,
-                event_type="tester.retry_to_self",
-                payload={"run_id": run_id, "notes": notes, "count": retry_counts["tester_self"], "retry_target": "tester"},
+                event_type="code_tester.retry_to_self",
+                payload={"run_id": run_id, "notes": notes, "count": retry_counts["tester_self"], "retry_target": "code_tester"},
             )
             self._node_event(
                 iteration_id,
                 "node.progress",
-                NodeName.tester.value,
-                "验证产物不合格，Tester 自修",
+                NodeName.code_tester.value,
+                "验证产物不合格，Code Tester 自修",
                 notes,
                 severity="warning",
                 run_id=run_id,
-                action_hint=f"缺陷落在 Tester 写区，无需 Coder 改 src；第 {retry_counts['tester_self']} 次 Tester 自修。",
             )
             return {
                 "route": "self_retry",
                 "failure_notes": notes,
-                "retry_target": "tester",
+                "retry_target": "code_tester",
                 "retry_counts": retry_counts,
-                "tester_run_id": run_id,
+                "code_tester_run_id": run_id,
+                "pending_code_tester_json": None,
             }
 
         retry_counts = self._increment_count(state, "coder_tester")
@@ -2263,7 +2390,7 @@ class LangGraphPipeline:
         self._node_event(
             iteration_id,
             "node.progress",
-            NodeName.tester.value,
+            NodeName.code_tester.value,
             "验证失败，回到实现节点",
             notes,
             severity="warning",
@@ -2275,7 +2402,8 @@ class LangGraphPipeline:
             "failure_notes": notes,
             "retry_target": "coder",
             "retry_counts": retry_counts,
-            "tester_run_id": run_id,
+            "code_tester_run_id": run_id,
+            "pending_code_tester_json": None,
         }
 
     def _tester_retry_or_block(self, state: PipelineState, run_id: str, notes: str) -> PipelineState:

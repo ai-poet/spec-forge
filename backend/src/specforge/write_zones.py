@@ -5,8 +5,8 @@ from typing import Literal, Optional
 
 from .contracts import Defect, TesterArtifact
 
-WriteZoneOwner = Literal["coder", "tester", "planner"]
-RetryTarget = Literal["coder", "tester", "blocked"]
+WriteZoneOwner = Literal["coder", "tester", "test_planner", "prd_planner", "planner"]
+RetryTarget = Literal["coder", "tester", "test_planner", "blocked"]
 
 TESTER_DOC_NAMES = frozenset(
     {
@@ -16,6 +16,8 @@ TESTER_DOC_NAMES = frozenset(
         "ui_results.json",
     }
 )
+
+PRD_DOC_NAMES = frozenset({"prd.md", "system_design.md", "modification_plan.md"})
 
 PATH_LIKE = re.compile(
     r"(?:"
@@ -32,9 +34,13 @@ def owner_for_path(relative_path: str, *, src_roots: tuple[str, ...] = ("src",))
     if normalized.startswith("tests/adversarial/"):
         return "tester"
     if normalized.startswith("tests/"):
-        return "planner"
+        return "test_planner"
     if name in TESTER_DOC_NAMES or name.startswith("ui_"):
         return "tester"
+    if name == "testing_plan.md":
+        return "test_planner"
+    if name in PRD_DOC_NAMES:
+        return "prd_planner"
     for root in src_roots:
         if normalized == root or normalized.startswith(f"{root}/"):
             return "coder"
@@ -42,7 +48,7 @@ def owner_for_path(relative_path: str, *, src_roots: tuple[str, ...] = ("src",))
         if normalized.startswith(root):
             return "coder"
     if normalized.endswith(".md") and name not in TESTER_DOC_NAMES:
-        return "planner"
+        return "prd_planner"
     return "coder"
 
 
@@ -70,11 +76,22 @@ def owners_for_failure_notes(notes: str, extra_paths: Optional[list[str]] = None
     return owners_for_paths(paths)
 
 
+def _normalize_owner(owner: Optional[str]) -> Optional[WriteZoneOwner]:
+    if not owner:
+        return None
+    if owner == "planner":
+        return "test_planner"
+    if owner in ("coder", "tester", "test_planner", "prd_planner"):
+        return owner  # type: ignore[return-value]
+    return None
+
+
 def collect_artifact_owners(artifact: TesterArtifact) -> set[WriteZoneOwner]:
     owners: set[WriteZoneOwner] = set()
     for defect in artifact.defects:
-        if defect.owner:
-            owners.add(defect.owner)
+        normalized = _normalize_owner(defect.owner)
+        if normalized:
+            owners.add(normalized)
         elif defect.path:
             owners.add(owner_for_path(defect.path))
     adversarial_paths = [file.path for file in artifact.adversarial_tests]
@@ -86,7 +103,9 @@ def collect_artifact_owners(artifact: TesterArtifact) -> set[WriteZoneOwner]:
 
 def retry_target(artifact: TesterArtifact) -> RetryTarget:
     owners = collect_artifact_owners(artifact)
-    if "planner" in owners:
+    if "test_planner" in owners or "prd_planner" in owners or "planner" in owners:
+        if "test_planner" in owners or "planner" in owners:
+            return "test_planner"
         return "blocked"
     if owners and owners <= {"tester"}:
         return "tester"
@@ -101,7 +120,7 @@ def enrich_defects(artifact: TesterArtifact) -> list[Defect]:
     if artifact.defects:
         enriched: list[Defect] = []
         for defect in artifact.defects:
-            owner = defect.owner or (owner_for_path(defect.path) if defect.path else None)
+            owner = _normalize_owner(defect.owner) or (owner_for_path(defect.path) if defect.path else None)
             enriched.append(defect.model_copy(update={"owner": owner}))
         return enriched
     if not artifact.passed and artifact.failure_notes:
@@ -113,8 +132,8 @@ def enrich_defects(artifact: TesterArtifact) -> list[Defect]:
             owner = "tester"
         elif "coder" in owners:
             owner = "coder"
-        elif "planner" in owners:
-            owner = "planner"
+        elif "test_planner" in owners or "planner" in owners:
+            owner = "test_planner"
         return [
             Defect(
                 severity="P0",

@@ -11,12 +11,15 @@ from specforge import contracts as contract_models
 from specforge.cli_runner import CLIResult
 from specforge.contracts import (
     ArtifactFile,
+    CodeTesterArtifact,
     CoderArtifact,
     ContextManifestEntry,
-    PlannerArtifact,
+    PrdPlannerArtifact,
+    TestPlannerArtifact,
     UIDriverRunResult,
     UITestResult,
     UITestSpec,
+    code_tester_to_tester,
     parse_json_artifact,
     validate_ui_spec_content,
 )
@@ -83,6 +86,15 @@ class SequenceRunner:
 
     def cancel(self, iteration_id: str) -> bool:
         return False
+
+
+def run_code_and_ui_tester(state: dict) -> dict:
+    code_state = pipeline._code_tester_node(state)
+    if code_state.get("pending_code_tester_json"):
+        merged = dict(state)
+        merged.update(code_state)
+        return pipeline._ui_tester_node(merged)
+    return code_state
 
 
 def make_tester_json(*, passed: bool = True, failure_notes: str | None = None) -> str:
@@ -256,7 +268,7 @@ def test_iteration_workspace_under_project_root(tmp_path):
     workspace = pipeline.project_root(iteration_id)
     docs_root = pipeline.docs_root(iteration_id)
     assert str(workspace).startswith(str((Path(root_path) / ".specforge" / "iterations").resolve()))
-    assert (docs_root / "system_design.md").exists()
+    assert (docs_root / "prd.md").exists()
     assert (Path(root_path) / "docs" / "00_convention.md").exists()
     assert (docs_root / "context" / "for_coder.jsonl").exists()
     assert (docs_root / "context" / "for_tester.jsonl").exists()
@@ -353,7 +365,7 @@ def test_discovery_answer_then_planner(tmp_path):
     advance_through_planning_gates(iteration_id)
     drain_jobs()
     detail = client.get(f"/api/iterations/{iteration_id}").json()
-    assert any(doc["name"] == "system_design" for doc in detail["documents"])
+    assert any(doc["name"] == "prd" for doc in detail["documents"])
     assert len(detail["discovery_history"]) == 1
     assert detail["status"] == "awaiting_verify_approval"
 
@@ -400,7 +412,7 @@ def test_iteration_detail_includes_documents():
     detail = client.get(f"/api/iterations/{iteration_id}")
     assert detail.status_code == 200
     payload = detail.json()
-    assert any(doc["name"] == "system_design" for doc in payload["documents"])
+    assert any(doc["name"] == "prd" for doc in payload["documents"])
     assert payload["runs"]
 
 
@@ -476,20 +488,19 @@ def test_project_config_is_inherited(tmp_path):
 
 
 def test_parse_claude_wrapped_artifact():
-    raw = '{"type":"result","result":"{\\"system_design\\":\\"a\\",\\"modification_plan\\":\\"b\\",\\"testing_plan\\":\\"c\\",\\"tests\\":[{\\"path\\":\\"tests/unit/test_a.py\\",\\"content\\":\\"x\\"}]}"}'
-    artifact = parse_json_artifact(raw, PlannerArtifact)
-    assert artifact.system_design == "a"
-    assert artifact.tests[0].path == "tests/unit/test_a.py"
+    raw = '{"type":"result","result":"{\\"prd\\":\\"a\\",\\"context_for_coder\\":[{\\"file\\":\\"prd.md\\",\\"reason\\":\\"r\\"}],\\"context_for_tester\\":[{\\"file\\":\\"prd.md\\",\\"reason\\":\\"r\\"}]}"}'
+    artifact = parse_json_artifact(raw, PrdPlannerArtifact)
+    assert artifact.prd == "a"
 
 
 def test_parse_artifact_from_stream_json_lines():
     raw = (
         '{"type":"system","subtype":"init"}\n'
         '{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}\n'
-        '{"type":"result","result":"{\\"system_design\\":\\"a\\",\\"modification_plan\\":\\"b\\",\\"testing_plan\\":\\"c\\",\\"tests\\":[]}"}\n'
+        '{"type":"result","result":"{\\"testing_plan\\":\\"c\\",\\"tests\\":[]}"}\n'
     )
-    artifact = parse_json_artifact(raw, PlannerArtifact)
-    assert artifact.system_design == "a"
+    artifact = parse_json_artifact(raw, TestPlannerArtifact)
+    assert artifact.testing_plan == "c"
 
 
 def test_parse_artifact_from_codex_jsonl_item_message():
@@ -629,23 +640,23 @@ def test_tester_command_uses_project_cli_bindings(tmp_path):
         project_id=project_id,
     )
     state = {"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id}
-    command = pipeline._tester_command(state)
+    command = pipeline._code_tester_command(state)
     assert command[0] == "claude"
 
 
-def test_planner_verify_reject_routes_back_to_tester():
+def test_planner_verify_reject_routes_back_to_code_tester():
     state = {"iteration_id": "iter", "route": "verify_rejected"}
-    assert pipeline._route_after_planner_verify(state) == "tester"
+    assert pipeline._route_after_planner_verify(state) == "code_tester"
 
 
-def test_route_after_tester_self_retry():
+def test_route_after_ui_tester_self_retry():
     state = {"iteration_id": "iter", "route": "self_retry"}
-    assert pipeline._route_after_tester(state) == "self_retry"
+    assert pipeline._route_after_ui_tester(state) == "self_retry"
 
 
-def test_route_after_tester_coder_retry():
+def test_route_after_ui_tester_coder_retry():
     state = {"iteration_id": "iter", "route": "retry"}
-    assert pipeline._route_after_tester(state) == "retry"
+    assert pipeline._route_after_ui_tester(state) == "retry"
 
 
 def test_route_tester_failure_routes_adversarial_to_self():
@@ -675,10 +686,10 @@ def test_route_tester_failure_routes_adversarial_to_self():
         artifact,
     )
     assert result["route"] == "self_retry"
-    assert result["retry_target"] == "tester"
+    assert result["retry_target"] == "code_tester"
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert detail["retry_counts"]["tester_self"] == 1
-    assert "tester.retry_to_self" in [event["type"] for event in detail["events"]]
+    assert "code_tester.retry_to_self" in [event["type"] for event in detail["events"]]
 
 
 def test_route_tester_failure_routes_src_to_coder():
@@ -729,7 +740,7 @@ def test_tester_retry_prompt_handles_verify_report_rejection(tmp_path):
         test_command=None,
         project_id=project_id,
     )
-    prompt = pipeline._tester_prompt(
+    prompt = pipeline._code_tester_prompt(
         {
             "iteration_id": iteration_id,
             "mode": "real-cli",
@@ -753,7 +764,7 @@ def test_tester_review_fallback_succeeds_without_retry(monkeypatch):
     )
     monkeypatch.setattr(pipeline, "real_runner", runner)
 
-    result = pipeline._tester_node(
+    result = run_code_and_ui_tester(
         {
             "iteration_id": iteration_id,
             "mode": "real-cli",
@@ -769,8 +780,7 @@ def test_tester_review_fallback_succeeds_without_retry(monkeypatch):
     assert len(runner.commands) == 2
     assert any("Do not invoke Playwright" in part for part in runner.commands[1])
     event_types = [event["type"] for event in detail["events"]]
-    assert "tester.review_fallback.started" in event_types
-    assert "tester.review_fallback.completed" in event_types
+    assert "code_tester.review_fallback.started" in event_types
     ui_payload = client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").json()
     assert "代码审查兜底" in ui_payload["warnings"][0]
 
@@ -780,7 +790,7 @@ def test_tester_accepts_valid_artifact_from_nonzero_exit(monkeypatch):
     runner = SequenceRunner([CLIResult(command=[], returncode=1, stdout=make_tester_json(), stderr="cua-driver exited 1")])
     monkeypatch.setattr(pipeline, "real_runner", runner)
 
-    result = pipeline._tester_node(
+    result = run_code_and_ui_tester(
         {
             "iteration_id": iteration_id,
             "mode": "real-cli",
@@ -794,7 +804,7 @@ def test_tester_accepts_valid_artifact_from_nonzero_exit(monkeypatch):
     assert detail["status"] == "awaiting_verify_approval"
     assert detail["retry_counts"] == {}
     assert len(runner.commands) == 1
-    assert any(event["type"] == "tester.nonzero_artifact.accepted" for event in detail["events"])
+    assert any(event["type"] == "code_tester.nonzero_artifact.accepted" for event in detail["events"])
 
 
 def test_tester_review_fallback_failure_uses_existing_retry_path(monkeypatch):
@@ -807,7 +817,7 @@ def test_tester_review_fallback_failure_uses_existing_retry_path(monkeypatch):
     )
     monkeypatch.setattr(pipeline, "real_runner", runner)
 
-    result = pipeline._tester_node(
+    result = run_code_and_ui_tester(
         {
             "iteration_id": iteration_id,
             "mode": "real-cli",
@@ -821,8 +831,7 @@ def test_tester_review_fallback_failure_uses_existing_retry_path(monkeypatch):
     assert detail["status"] == "blocked"
     assert detail["retry_counts"]["coder_tester"] == 1
     event_types = [event["type"] for event in detail["events"]]
-    assert "tester.review_fallback.started" in event_types
-    assert "tester.review_fallback.failed" in event_types
+    assert "code_tester.review_fallback.started" in event_types
     assert "tester.max_retries" in event_types
 
 
@@ -1119,7 +1128,7 @@ def test_validate_ui_spec_content_rejects_invalid_action():
         )
 
 
-def test_planner_write_rejects_invalid_ui_spec(tmp_path):
+def test_test_planner_write_rejects_invalid_ui_spec(tmp_path):
     project = post_project(tmp_path, "ui-spec-planner")
     project_id = project.json()["id"]
     resp = client.post(
@@ -1132,16 +1141,12 @@ def test_planner_write_rejects_invalid_ui_spec(tmp_path):
     docs = IterationDocs(pipeline.docs_root(iteration_id))
     docs.ensure()
     bad_spec = '{"id":"bad","kind":"web","target":{"url":"http://127.0.0.1:5178"},"steps":[{"action":"click","text":"Go"}]}'
-    artifact = PlannerArtifact(
-        system_design="---\n\n# Design\n",
-        modification_plan="---\n\n# Plan\n",
+    artifact = TestPlannerArtifact(
         testing_plan="---\n\n# Tests\n",
         tests=[ArtifactFile(path="tests/ui/bad.json", content=bad_spec)],
-        context_for_coder=[ContextManifestEntry(file="system_design.md", reason="design")],
-        context_for_tester=[ContextManifestEntry(file="system_design.md", reason="design")],
     )
     with pytest.raises(ValueError, match="invalid UI spec"):
-        pipeline._write_planner_artifact(iteration_id, docs, artifact)
+        pipeline._write_test_planner_artifact(iteration_id, docs, artifact)
 
 
 def test_ui_spec_invalid_blocks_tester_with_classified_error(tmp_path, monkeypatch):
@@ -1166,7 +1171,11 @@ def test_ui_spec_invalid_blocks_tester_with_classified_error(tmp_path, monkeypat
         test_integrity_baseline=build_test_integrity_manifest(docs.root),
     )
 
-    result = pipeline._tester_node({"iteration_id": iteration_id, "mode": "dry-run"})
+    code_result = pipeline._code_tester_node({"iteration_id": iteration_id, "mode": "dry-run"})
+    pending = code_result.get("pending_code_tester_json")
+    result = pipeline._ui_tester_node(
+        {"iteration_id": iteration_id, "mode": "dry-run", "pending_code_tester_json": pending, "code_tester_run_id": code_result.get("code_tester_run_id")}
+    )
     assert result["status"] == "blocked"
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert any(event["type"] == "ui_spec.invalid" for event in detail["events"])
@@ -1222,17 +1231,17 @@ def test_checksum_gate_blocks_modified_protected_tests():
 def test_artifact_invalid_emits_classified_error():
     from specforge.contracts import PlannerDiscoveryArtifact
 
-    original_planner = pipeline._planner_artifact
+    original_prd = pipeline._prd_planner_artifact
     original_discovery = pipeline._planner_discovery_artifact
 
     def ready_discovery(state, run_result):
         return PlannerDiscoveryArtifact(status="ready", requirements_brief="Ready to plan.", complexity="simple")
 
-    def bad_planner_artifact(state, run_result):
-        raise ValueError("planner returned invalid JSON")
+    def bad_prd_artifact(state, run_result):
+        raise ValueError("prd planner returned invalid JSON")
 
     pipeline._planner_discovery_artifact = ready_discovery  # type: ignore[method-assign]
-    pipeline._planner_artifact = bad_planner_artifact  # type: ignore[method-assign]
+    pipeline._prd_planner_artifact = bad_prd_artifact  # type: ignore[method-assign]
     try:
         resp = client.post(
             "/api/iterations",
@@ -1242,7 +1251,7 @@ def test_artifact_invalid_emits_classified_error():
         drain_jobs()
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
-        pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
+        pipeline._prd_planner_artifact = original_prd  # type: ignore[method-assign]
         pipeline._planner_discovery_artifact = original_discovery  # type: ignore[method-assign]
 
     assert detail["status"] == "blocked"
@@ -1270,9 +1279,9 @@ def test_tester_failure_retries_until_blocked(tmp_path):
 
 
 def test_ui_driver_playwright_fallback_passes_web():
-    original_planner = pipeline._planner_artifact
+    original_planner = pipeline._test_planner_artifact
     original_ui_driver = pipeline.ui_driver
-    pipeline._planner_artifact = planner_with_ui_spec  # type: ignore[method-assign]
+    pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
     pipeline.ui_driver = FakeUIDriver("playwright_fallback")
     try:
         resp = client.post(
@@ -1283,7 +1292,7 @@ def test_ui_driver_playwright_fallback_passes_web():
         advance_through_planning_gates(iteration_id)
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
-        pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
+        pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
         pipeline.ui_driver = original_ui_driver
 
     assert detail["status"] == "awaiting_verify_approval"
@@ -1294,9 +1303,9 @@ def test_ui_driver_playwright_fallback_passes_web():
 
 
 def test_ui_driver_cua_unavailable_native_warns_web_playwright():
-    original_planner = pipeline._planner_artifact
+    original_planner = pipeline._test_planner_artifact
     original_ui_driver = pipeline.ui_driver
-    pipeline._planner_artifact = planner_with_ui_and_native_spec  # type: ignore[method-assign]
+    pipeline._test_planner_artifact = make_test_planner_ui_and_native_spec  # type: ignore[method-assign]
     pipeline.ui_driver = FakeUIDriver("mixed_fallback")
     try:
         resp = client.post(
@@ -1307,7 +1316,7 @@ def test_ui_driver_cua_unavailable_native_warns_web_playwright():
         advance_through_planning_gates(iteration_id)
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
-        pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
+        pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
         pipeline.ui_driver = original_ui_driver
 
     assert detail["status"] == "awaiting_verify_approval"
@@ -1320,9 +1329,9 @@ def test_ui_driver_cua_unavailable_native_warns_web_playwright():
 
 
 def test_ui_driver_playwright_unavailable_web_warns():
-    original_planner = pipeline._planner_artifact
+    original_planner = pipeline._test_planner_artifact
     original_ui_driver = pipeline.ui_driver
-    pipeline._planner_artifact = planner_with_ui_spec  # type: ignore[method-assign]
+    pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
     pipeline.ui_driver = FakeUIDriver("dual_unavailable")
     try:
         resp = client.post(
@@ -1333,7 +1342,7 @@ def test_ui_driver_playwright_unavailable_web_warns():
         advance_through_planning_gates(iteration_id)
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
-        pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
+        pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
         pipeline.ui_driver = original_ui_driver
 
     assert detail["status"] == "awaiting_verify_approval"
@@ -1342,9 +1351,9 @@ def test_ui_driver_playwright_unavailable_web_warns():
 
 
 def test_ui_driver_pass_writes_results_and_artifacts():
-    original_planner = pipeline._planner_artifact
+    original_planner = pipeline._test_planner_artifact
     original_ui_driver = pipeline.ui_driver
-    pipeline._planner_artifact = planner_with_ui_spec  # type: ignore[method-assign]
+    pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
     pipeline.ui_driver = FakeUIDriver("passed")
     try:
         resp = client.post(
@@ -1355,7 +1364,7 @@ def test_ui_driver_pass_writes_results_and_artifacts():
         advance_through_planning_gates(iteration_id)
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
-        pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
+        pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
         pipeline.ui_driver = original_ui_driver
 
     assert detail["status"] == "awaiting_verify_approval"
@@ -1366,9 +1375,9 @@ def test_ui_driver_pass_writes_results_and_artifacts():
 
 
 def test_ui_driver_failure_warns_without_retry(tmp_path):
-    original_planner = pipeline._planner_artifact
+    original_planner = pipeline._test_planner_artifact
     original_ui_driver = pipeline.ui_driver
-    pipeline._planner_artifact = planner_with_ui_spec  # type: ignore[method-assign]
+    pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
     pipeline.ui_driver = FakeUIDriver("failed")
     try:
         project = post_project(tmp_path, "ui-fail-project", default_mode="dry-run", max_coder_tester_retries=1)
@@ -1381,7 +1390,7 @@ def test_ui_driver_failure_warns_without_retry(tmp_path):
         advance_through_planning_gates(iteration_id)
         detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
-        pipeline._planner_artifact = original_planner  # type: ignore[method-assign]
+        pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
         pipeline.ui_driver = original_ui_driver
 
     assert detail["status"] == "awaiting_verify_approval"
@@ -1400,36 +1409,22 @@ def test_ui_driver_failure_warns_without_retry(tmp_path):
     assert "UI 自动化测试失败" in ui_payload["warnings"][0]
 
 
-def planner_with_ui_spec(state, run_result):
-    goal = state["goal"]
+def make_test_planner_ui_spec(state, run_result):
     ui_spec = (
         '{"id":"web_smoke","title":"SpecForge smoke","kind":"web",'
         '"target":{"url":"http://127.0.0.1:5178"},'
         '"steps":[{"action":"assert_text","text":"SpecForge"}]}'
     )
-    return PlannerArtifact(
-        system_design=f"# Design\n\n{goal}",
-        modification_plan="# Plan\n\n- Ship UI smoke.",
+    return TestPlannerArtifact(
         testing_plan="# Tests\n\n- UI smoke.",
         tests=[
             ArtifactFile(path="tests/unit/test_transitions.py", content="def test_ok():\n    assert True\n"),
             ArtifactFile(path="tests/ui/web_smoke.json", content=ui_spec),
         ],
-        context_for_coder=[
-            ContextManifestEntry(file="system_design.md", reason="design"),
-            ContextManifestEntry(file="modification_plan.md", reason="scope"),
-            ContextManifestEntry(file="tests/ui/web_smoke.json", reason="protected ui spec"),
-        ],
-        context_for_tester=[
-            ContextManifestEntry(file="system_design.md", reason="design"),
-            ContextManifestEntry(file="modification_plan.md", reason="scope"),
-            ContextManifestEntry(file="tests/ui/web_smoke.json", reason="protected ui spec"),
-        ],
     )
 
 
-def planner_with_ui_and_native_spec(state, run_result):
-    goal = state["goal"]
+def make_test_planner_ui_and_native_spec(state, run_result):
     web_spec = (
         '{"id":"web_smoke","title":"SpecForge smoke","kind":"web",'
         '"target":{"url":"http://127.0.0.1:5178"},'
@@ -1440,24 +1435,12 @@ def planner_with_ui_and_native_spec(state, run_result):
         '"target":{"bundle_id":"com.example.app"},'
         '"steps":[{"action":"assert_text","text":"Example"}]}'
     )
-    return PlannerArtifact(
-        system_design=f"# Design\n\n{goal}",
-        modification_plan="# Plan\n\n- Ship UI smoke.",
+    return TestPlannerArtifact(
         testing_plan="# Tests\n\n- UI smoke.",
         tests=[
             ArtifactFile(path="tests/unit/test_transitions.py", content="def test_ok():\n    assert True\n"),
             ArtifactFile(path="tests/ui/web_smoke.json", content=web_spec),
             ArtifactFile(path="tests/ui/native_smoke.json", content=native_spec),
-        ],
-        context_for_coder=[
-            ContextManifestEntry(file="system_design.md", reason="design"),
-            ContextManifestEntry(file="modification_plan.md", reason="scope"),
-            ContextManifestEntry(file="tests/ui/web_smoke.json", reason="protected ui spec"),
-        ],
-        context_for_tester=[
-            ContextManifestEntry(file="system_design.md", reason="design"),
-            ContextManifestEntry(file="modification_plan.md", reason="scope"),
-            ContextManifestEntry(file="tests/ui/web_smoke.json", reason="protected ui spec"),
         ],
     )
 

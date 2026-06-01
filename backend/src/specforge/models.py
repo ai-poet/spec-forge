@@ -20,10 +20,13 @@ class CliProviderName(str, Enum):
 
 
 class CliBindings(BaseModel):
+    prd_planner: CliProviderName = CliProviderName.claude
+    test_planner: CliProviderName = CliProviderName.claude
     planner: CliProviderName = CliProviderName.claude
     planner_discovery: CliProviderName = CliProviderName.claude
     planner_clarification: CliProviderName = CliProviderName.claude
     coder: CliProviderName = CliProviderName.claude
+    code_tester: CliProviderName = CliProviderName.claude
     tester: CliProviderName = CliProviderName.claude
 
 
@@ -44,11 +47,15 @@ class IterationStatus(str, Enum):
 
 
 class NodeName(str, Enum):
+    prd_planner = "prd_planner"
+    test_planner = "test_planner"
     planner = "planner"
     planner_discovery = "planner_discovery"
     coder = "coder"
     coder_retry = "coder_retry"
     integrity_check = "integrity_check"
+    code_tester = "code_tester"
+    ui_tester = "ui_tester"
     tester = "tester"
     planner_clarification = "planner_clarification"
     planner_verify = "planner_verify"

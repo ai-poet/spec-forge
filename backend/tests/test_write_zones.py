@@ -11,9 +11,10 @@ def test_owner_for_path_zones():
     assert owner_for_path("src/app.ts") == "coder"
     assert owner_for_path("internal/handler.go") == "coder"
     assert owner_for_path("tests/adversarial/edge.test.ts") == "tester"
-    assert owner_for_path("tests/unit/foo.py") == "planner"
+    assert owner_for_path("tests/unit/foo.py") == "test_planner"
     assert owner_for_path("verify_report.md") == "tester"
-    assert owner_for_path("system_design.md") == "planner"
+    assert owner_for_path("prd.md") == "prd_planner"
+    assert owner_for_path("testing_plan.md") == "test_planner"
 
 
 def test_retry_target_tester_only_defects():
@@ -52,12 +53,12 @@ def test_retry_target_inferred_from_failure_notes():
     assert retry_target(artifact) == "tester"
 
 
-def test_retry_target_blocked_for_protected_tests():
+def test_retry_target_test_planner_for_protected_tests():
     owners = owners_for_failure_notes("modified protected test: tests/unit/a.py")
-    assert "planner" in owners
+    assert "test_planner" in owners
     artifact = TesterArtifactModel(
         verify_report="# Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n",
         passed=False,
-        defects=[Defect(severity="P0", path="tests/unit/a.py", owner="planner", message="tampered")],
+        defects=[Defect(severity="P0", path="tests/unit/a.py", owner="test_planner", message="tampered")],
     )
-    assert retry_target(artifact) == "blocked"
+    assert retry_target(artifact) == "test_planner"

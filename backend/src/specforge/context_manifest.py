@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Protocol
 
-from .contracts import ContextManifestEntry, PlannerArtifact
+from .contracts import ContextManifestEntry
 
 
 CONTEXT_DIR = "context"
@@ -23,6 +23,11 @@ class ManifestLine:
         return {"file": self.file, "reason": self.reason}
 
 
+class _ManifestSource(Protocol):
+    context_for_coder: list[ContextManifestEntry]
+    context_for_tester: list[ContextManifestEntry]
+
+
 def _entries_to_lines(entries: Iterable[ContextManifestEntry | ManifestLine]) -> list[ManifestLine]:
     lines: list[ManifestLine] = []
     for entry in entries:
@@ -33,16 +38,24 @@ def _entries_to_lines(entries: Iterable[ContextManifestEntry | ManifestLine]) ->
     return lines
 
 
-def resolve_coder_manifest(artifact: PlannerArtifact) -> list[ManifestLine]:
+def resolve_coder_manifest(artifact: _ManifestSource) -> list[ManifestLine]:
     if not artifact.context_for_coder:
         raise ValueError("planner artifact must include non-empty context_for_coder")
     return _entries_to_lines(artifact.context_for_coder)
 
 
-def resolve_tester_manifest(artifact: PlannerArtifact) -> list[ManifestLine]:
+def resolve_tester_manifest(artifact: _ManifestSource) -> list[ManifestLine]:
     if not artifact.context_for_tester:
         raise ValueError("planner artifact must include non-empty context_for_tester")
     return _entries_to_lines(artifact.context_for_tester)
+
+
+def append_manifest_lines(path: Path, extra: Iterable[ManifestLine]) -> None:
+    existing = read_jsonl(path)
+    merged = {line.file: line for line in existing}
+    for line in extra:
+        merged[line.file] = line
+    write_jsonl(path, merged.values())
 
 
 def write_jsonl(path: Path, lines: Iterable[ManifestLine]) -> None:

@@ -460,15 +460,22 @@ def add_runtime_note(iteration_id: str, payload: RetryRequest) -> IterationSumma
     return get_iteration(iteration_id)
 
 
+_DOCUMENT_ALIASES = {
+    "system_design": "prd",
+    "modification_plan": "prd",
+}
+
+
 @app.get("/api/iterations/{iteration_id}/documents/{name}")
 def get_document(iteration_id: str, name: str) -> dict[str, str]:
+    resolved = _DOCUMENT_ALIASES.get(name, name)
     docs = db.list_documents(iteration_id)
     for doc in docs:
-        if doc["name"] == name:
+        if doc["name"] == resolved:
             from pathlib import Path
 
             path = Path(doc["path"])
-            return {"name": name, "content": path.read_text(encoding="utf-8"), "checksum": doc["checksum"]}
+            return {"name": name, "content": path.read_text(encoding="utf-8"), "checksum": doc["checksum"], "resolved_name": resolved}
     raise HTTPException(status_code=404, detail="document not found")
 
 
