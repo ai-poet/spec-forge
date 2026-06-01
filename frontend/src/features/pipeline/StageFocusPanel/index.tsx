@@ -59,7 +59,8 @@ export function StageFocusPanel({
   function renderStepExtras(step: PipelineStepKey) {
     if (!detail) return null
     switch (step) {
-      case 'planning':
+      case 'prd_planning':
+      case 'test_planning':
         return <DocumentPanel detail={detail} docText={docText} onLoadDocument={onLoadDocument} />
       case 'coder':
         return <IterationSummaryPanel detail={detail} />

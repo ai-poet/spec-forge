@@ -64,6 +64,7 @@ export function graphNodeLabel(value: string) {
 export function retryLabel(value: string) {
   if (value === 'coder_tester') return '实现/验证重试'
   if (value === 'code_tester_self') return 'Code Tester 自修'
+  if (value === 'test_planner_self') return '测试规划修订'
   if (value === 'coder_planner_clarify') return '实现澄清'
   if (value === 'discovery_round') return '需求澄清轮次'
   if (value === 'planner_verify_reject') return '规格复核驳回'
@@ -79,6 +80,7 @@ export function eventLabel(value: string) {
     'discovery.ready': '需求已足够清晰',
     'prd_planner.completed': 'PRD 规划完成',
     'test_planner.completed': '测试规划完成',
+    'test_planner.retry': '受保护测试需修订',
     'coder.completed': '实现完成',
     'test_integrity.passed': '测试完整性通过',
     'ui_tester.completed': '验证完成',

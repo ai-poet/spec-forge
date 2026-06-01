@@ -70,7 +70,7 @@ export function buildMacroFlow(detail: IterationDetail | null): MacroFlowModel {
   const nodes: FlowNode[] = PIPELINE_STEPS.map((step) => {
     const state = pipelineStepState(step.key, detail) as FlowNodeState
     const failed = state === 'idle' && detail.last_error
-      && (step.key === 'code_tester' || step.key === 'ui_tester' || step.key === 'coder' || step.key === 'planning')
+      && (step.key === 'code_tester' || step.key === 'ui_tester' || step.key === 'coder' || step.key === 'prd_planning' || step.key === 'test_planning')
     return {
       id: stepNodeId(step.key),
       label: step.label,
@@ -96,7 +96,7 @@ export function buildMacroFlow(detail: IterationDetail | null): MacroFlowModel {
     edges.push({
       id: 'clarify:coder->planner',
       from: stepNodeId('coder'),
-      to: stepNodeId('planning'),
+      to: stepNodeId('prd_planning'),
       kind: 'clarify',
       label: '① 澄清',
     })
@@ -117,6 +117,15 @@ export function buildMacroFlow(detail: IterationDetail | null): MacroFlowModel {
       to: stepNodeId('code_tester'),
       kind: 'retry_self',
       label: '②b',
+    })
+  }
+  if ((retry.test_planner_self ?? 0) > 0 || hasRetryEvent(detail, 'test_planner.retry')) {
+    edges.push({
+      id: 'retry:verify->test_planning',
+      from: stepNodeId('ui_tester'),
+      to: stepNodeId('test_planning'),
+      kind: 'retry_coder',
+      label: '②c',
     })
   }
   if ((retry.planner_verify_reject ?? 0) > 0 || hasRetryEvent(detail, 'planner_verify.rejected')) {

@@ -56,10 +56,13 @@ export function AgentExecutionFlow({
 
   const stepMeta = PIPELINE_STEPS.find((step) => step.key === selectedStepKey)
   const execCount = detail?.runs.filter((run) => {
-    if (selectedStepKey === 'coder') return run.node === 'coder'
-    if (selectedStepKey === 'planning') {
-      return ['prd_planner', 'test_planner', 'planner_discovery', 'planner_clarification'].includes(run.node)
+    if (selectedStepKey === 'coder') {
+      return ['coder', 'coder_retry', 'planner_clarification'].includes(run.node)
     }
+    if (selectedStepKey === 'prd_planning') {
+      return ['prd_planner', 'planner_discovery'].includes(run.node)
+    }
+    if (selectedStepKey === 'test_planning') return run.node === 'test_planner'
     if (selectedStepKey === 'code_tester') return run.node === 'code_tester'
     if (selectedStepKey === 'ui_tester') return run.node === 'ui_tester' || run.node === 'ui_driver'
     return false

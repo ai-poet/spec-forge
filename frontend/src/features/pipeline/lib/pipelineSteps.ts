@@ -1,7 +1,8 @@
 import type { IterationDetail } from '../../../shared/lib/types'
 
 export type PipelineStepKey =
-  | 'planning'
+  | 'prd_planning'
+  | 'test_planning'
   | 'coder'
   | 'integrity_check'
   | 'code_tester'
@@ -11,7 +12,8 @@ export type PipelineStepKey =
   | 'done'
 
 export const PIPELINE_STEPS: { key: PipelineStepKey; label: string; hint: string }[] = [
-  { key: 'planning', label: '规划', hint: '需求澄清、PRD 与受保护测试' },
+  { key: 'prd_planning', label: 'PRD 规划', hint: '需求澄清与 prd.md、上下文清单' },
+  { key: 'test_planning', label: '测试规划', hint: 'testing_plan.md 与受保护测试' },
   { key: 'coder', label: '实现', hint: '写入代码变更' },
   { key: 'integrity_check', label: '测试完整性', hint: '保护测试基线' },
   { key: 'code_tester', label: '代码验证', hint: '独立代码审查与测试命令' },
@@ -28,20 +30,22 @@ export const stepStateLabel: Record<string, string> = {
   complete: '完成',
 }
 
-const PLANNING_NODES = new Set([
+const PRD_PLANNING_NODES = new Set([
   'planner_discovery',
   'requirements_input',
   'prd_planner',
-  'test_planner',
-  'planner_clarification',
 ])
+
+const TEST_PLANNING_NODES = new Set(['test_planner'])
 
 export function nodesForStep(step: PipelineStepKey): string[] {
   switch (step) {
-    case 'planning':
-      return [...PLANNING_NODES]
+    case 'prd_planning':
+      return [...PRD_PLANNING_NODES]
+    case 'test_planning':
+      return [...TEST_PLANNING_NODES]
     case 'coder':
-      return ['coder', 'coder_retry']
+      return ['coder', 'coder_retry', 'planner_clarification']
     case 'integrity_check':
       return ['integrity_check']
     case 'code_tester':
@@ -59,6 +63,12 @@ export function nodesForStep(step: PipelineStepKey): string[] {
   }
 }
 
+function focusPlanningStep(detail: IterationDetail): 'prd_planning' | 'test_planning' {
+  const node = detail.current_node ?? detail.stopped_at_node
+  if (node && TEST_PLANNING_NODES.has(node)) return 'test_planning'
+  return 'prd_planning'
+}
+
 export function pipelineStepState(key: string, detail: IterationDetail | null): 'idle' | 'waiting' | 'active' | 'complete' {
   if (!detail) return 'idle'
   const next = new Set(detail.graph_next ?? [])
@@ -67,9 +77,13 @@ export function pipelineStepState(key: string, detail: IterationDetail | null): 
   if (next.has(key)) return 'waiting'
   if (currentNode === key) return 'active'
   if (key === 'verify_approval' && status === 'awaiting_verify_approval') return 'waiting'
-  if (key === 'planning' && status === 'awaiting_requirements_input') return 'waiting'
+  if (key === 'prd_planning' && status === 'awaiting_requirements_input') return 'waiting'
   if (key === 'done' && status === 'delivered') return 'complete'
-  if (key === 'planning' && ['planning', 'queued'].includes(status)) return 'active'
+  if (key === 'prd_planning' && currentNode && PRD_PLANNING_NODES.has(currentNode)) return 'active'
+  if (key === 'test_planning' && currentNode === 'test_planner') return 'active'
+  if (key === 'prd_planning' && ['planning', 'queued', 'created'].includes(status) && currentNode !== 'test_planner') {
+    return 'active'
+  }
   if (key === 'coder' && ['coding', 'retrying'].includes(status)) return 'active'
   if (key === 'integrity_check' && status === 'testing' && currentNode === 'integrity_check') return 'active'
   if (key === 'code_tester' && status === 'testing' && currentNode === 'code_tester') return 'active'
@@ -96,10 +110,12 @@ export function inferFocusStep(detail: IterationDetail): PipelineStepKey {
     if (detail.stopped_at_node === 'ui_tester' || detail.stopped_at_node === 'ui_driver') return 'ui_tester'
     if (detail.stopped_at_node === 'code_tester') return 'code_tester'
     if (detail.stopped_at_node === 'coder' || detail.stopped_at_node === 'coder_retry') return 'coder'
-    if (PLANNING_NODES.has(detail.stopped_at_node)) return 'planning'
+    if (detail.stopped_at_node === 'planner_clarification') return 'coder'
+    if (TEST_PLANNING_NODES.has(detail.stopped_at_node)) return 'test_planning'
+    if (PRD_PLANNING_NODES.has(detail.stopped_at_node)) return 'prd_planning'
   }
-  if (status === 'awaiting_requirements_input') return 'planning'
-  if (['queued', 'planning', 'created'].includes(status)) return 'planning'
+  if (status === 'awaiting_requirements_input') return 'prd_planning'
+  if (['queued', 'planning', 'created'].includes(status)) return focusPlanningStep(detail)
   if (['coding', 'retrying'].includes(status)) return 'coder'
   if (status === 'testing') {
     if (node === 'integrity_check') return 'integrity_check'
@@ -114,7 +130,8 @@ export function inferFocusStep(detail: IterationDetail): PipelineStepKey {
   if (node === 'ui_tester' || node === 'ui_driver') return 'ui_tester'
   if (node === 'code_tester') return 'code_tester'
   if (node === 'integrity_check') return 'integrity_check'
-  if (node === 'coder' || node === 'coder_retry') return 'coder'
-  if (node && PLANNING_NODES.has(node)) return 'planning'
-  return 'planning'
+  if (node === 'coder' || node === 'coder_retry' || node === 'planner_clarification') return 'coder'
+  if (node && TEST_PLANNING_NODES.has(node)) return 'test_planning'
+  if (node && PRD_PLANNING_NODES.has(node)) return 'prd_planning'
+  return 'prd_planning'
 }

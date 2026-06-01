@@ -26,7 +26,7 @@ interface Props {
 
 const readable: Record<string, { title: string; body: string }> = {
   queued: { title: '已排队', body: '后台执行器会开始运行规划节点。' },
-  planning: { title: '正在规划', body: '规划节点正在根据大需求拆分任务并生成设计文档、修改计划和测试。' },
+  planning: { title: '正在规划', body: '按顺序执行 PRD 规划与测试规划。' },
   awaiting_requirements_input: { title: '等待需求澄清', body: 'Planner 需要你回答一个问题，以便在生成设计文档前把需求具体化。' },
   coding: { title: '正在写代码', body: '实现节点正在根据规划产出的规格实现代码。' },
   retrying: { title: '正在自动修复', body: '上一轮验证失败，系统正在带着失败信息回到实现节点。' },
@@ -56,6 +56,21 @@ const RUNNING_BAR_CLASS: Record<string, string> = {
 
 function resolveStatusCopy(detail: IterationDetail) {
   const base = readable[detail.status] ?? { title: detail.status, body: '查看事件流了解当前状态。' }
+  if (detail.status === 'awaiting_requirements_input') {
+    return { title: '需求澄清', body: '请回答问题，以便进入 PRD 规划。' }
+  }
+  if (detail.status === 'planning') {
+    const node = detail.current_node
+    if (node === 'test_planner') {
+      return { title: '测试规划', body: 'Test Planner 正在生成 testing_plan.md 与受保护测试。' }
+    }
+    if (node === 'prd_planner') {
+      return { title: 'PRD 规划', body: 'PRD Planner 正在生成 prd.md 与上下文清单。' }
+    }
+    if (node === 'planner_discovery') {
+      return { title: '需求澄清', body: 'Planner Discovery 正在收敛需求，随后进入 PRD 规划。' }
+    }
+  }
   if (isVerifyRejectRetest(detail)) {
     return {
       title: '正在重新验证（规格复核驳回后）',

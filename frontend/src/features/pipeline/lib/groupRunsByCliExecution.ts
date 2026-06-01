@@ -37,8 +37,10 @@ const LOOP_EVENT_MAP: Record<string, { kind: LoopKind; hint: string }> = {
 
 function runNodesForStep(stepKey: PipelineStepKey): string[] {
   switch (stepKey) {
-    case 'planning':
-      return ['prd_planner', 'test_planner', 'planner_discovery', 'planner_clarification']
+    case 'prd_planning':
+      return ['planner_discovery', 'prd_planner']
+    case 'test_planning':
+      return ['test_planner']
     case 'code_tester':
       return ['code_tester']
     case 'ui_tester':
@@ -56,8 +58,10 @@ function runNodesForStep(stepKey: PipelineStepKey): string[] {
 
 function primaryNodeForStep(stepKey: PipelineStepKey): string {
   switch (stepKey) {
-    case 'planning':
+    case 'prd_planning':
       return 'prd_planner'
+    case 'test_planning':
+      return 'test_planner'
     case 'code_tester':
       return 'code_tester'
     case 'ui_tester':
@@ -249,8 +253,11 @@ export function stepRetrySummary(detail: IterationDetail | null, stepKey: Pipeli
   if (stepKey === 'ui_tester' && retry.planner_verify_reject) {
     parts.push(`③×${retry.planner_verify_reject}`)
   }
-  if (stepKey === 'planning' && retry.coder_planner_clarify) {
+  if (stepKey === 'prd_planning' && retry.coder_planner_clarify) {
     parts.push(`①×${retry.coder_planner_clarify}`)
+  }
+  if (stepKey === 'test_planning' && retry.test_planner_self) {
+    parts.push(`②c×${retry.test_planner_self}`)
   }
   return parts.join(' ')
 }
