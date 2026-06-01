@@ -21,6 +21,13 @@ source "$ROOT_DIR/backend/.venv/bin/activate"
 python -m pip install -q --upgrade pip setuptools wheel
 pip install -q -e "$ROOT_DIR/backend"[dev]
 
+if [[ "${SPECFORGE_SKIP_UI:-}" != "1" ]]; then
+  pip install -q -e "$ROOT_DIR/backend"[ui]
+  playwright install chromium
+else
+  echo "Skipping UI dependencies (SPECFORGE_SKIP_UI=1)." >&2
+fi
+
 if [[ ! -d "$ROOT_DIR/frontend/node_modules" ]]; then
   (cd "$ROOT_DIR/frontend" && npm install)
 fi

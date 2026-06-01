@@ -19,6 +19,16 @@ from .ui_driver_common import (
 
 NATIVE_UNAVAILABLE = "CuaDriver unavailable for native UI"
 
+PLAYWRIGHT_INSTALL_PIP = 'pip install -e "backend/.[ui]"'
+PLAYWRIGHT_INSTALL_BROWSER = "playwright install chromium"
+PLAYWRIGHT_INSTALL_HINT = (
+    f"cd backend && source .venv/bin/activate && pip install -e \".[ui]\" && {PLAYWRIGHT_INSTALL_BROWSER}"
+)
+PLAYWRIGHT_PACKAGE_MISSING = (
+    f"Playwright is not installed ({PLAYWRIGHT_INSTALL_PIP} && {PLAYWRIGHT_INSTALL_BROWSER})"
+)
+PLAYWRIGHT_BROWSERS_MISSING = f"Playwright browsers not installed (run: {PLAYWRIGHT_INSTALL_BROWSER})"
+
 
 class PlaywrightPage(Protocol):
     def goto(self, url: str, *, wait_until: str = ..., timeout: int = ...) -> None: ...
@@ -58,9 +68,24 @@ class PlaywrightUIDriverRunner:
         if self._session_factory is not None:
             return None
         try:
-            from playwright.sync_api import sync_playwright  # noqa: F401
+            from playwright.sync_api import sync_playwright
         except ImportError:
-            return "Playwright is not installed (pip install specforge[ui] && playwright install chromium)"
+            return PLAYWRIGHT_PACKAGE_MISSING
+        try:
+            playwright = sync_playwright().start()
+            try:
+                browser_type = getattr(playwright, self._browser, None)
+                if browser_type is None:
+                    return f"unsupported Playwright browser: {self._browser}"
+                browser = browser_type.launch(headless=True)
+                browser.close()
+            finally:
+                playwright.stop()
+        except Exception as exc:
+            message = str(exc).strip() or exc.__class__.__name__
+            if "Executable doesn't exist" in message or "browserType.launch" in message:
+                return PLAYWRIGHT_BROWSERS_MISSING
+            return f"Playwright unavailable: {message}"
         return None
 
     def run_specs(self, specs: list[UITestSpec], docs_root: Path) -> list[UITestResult]:

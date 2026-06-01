@@ -61,6 +61,7 @@ from .prompt_loader import compose_stage_prompt
 from .write_zones import enrich_defects, retry_target, summarize_failure_notes
 from .models import IterationStatus, Mode, NodeName
 from .ui_driver import UIDriverRunner
+from .ui_runtime import UI_DRIVER_INSTALL_HINT
 
 
 def _last_str(left: str | None, right: str | None) -> str | None:
@@ -1493,7 +1494,7 @@ class LangGraphPipeline:
                 "部分 UI 未执行",
                 result.warning,
                 severity="warning",
-                action_hint="安装 CuaDriver 或 Playwright（pip install specforge[ui]）以执行全部 UI trajectory。",
+                action_hint=f"安装 UI 依赖以执行 Web selector trajectory：{UI_DRIVER_INSTALL_HINT}",
             )
         elif result.warning and any(item.kind == "native" and item.status == "warning" for item in result.results):
             self._node_event(

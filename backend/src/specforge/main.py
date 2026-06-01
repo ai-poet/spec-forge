@@ -36,6 +36,7 @@ from .models import (
 )
 from .pipeline import LangGraphPipeline
 from .docs_scaffold import ensure_project_docs
+from .ui_runtime import log_ui_runtime_status, ui_runtime_status
 from .native_dialog import pick_folder, resolve_picked_folder
 from .project_paths import ProjectPathError, browse_directory, prepare_project_root, validate_project_root
 
@@ -71,11 +72,20 @@ def on_startup() -> None:
     settings.projects_dir.mkdir(parents=True, exist_ok=True)
     db.init()
     job_queue.start()
+    log_ui_runtime_status()
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, object]:
+    ui = ui_runtime_status()
+    return {
+        "status": "ok",
+        "ui": {
+            "playwright": ui["playwright"],
+            "cua": ui["cua"],
+        },
+        "ui_install_hint": ui["install_hint"],
+    }
 
 
 @app.get("/api/projects", response_model=list[ProjectSummary])

@@ -420,6 +420,10 @@ CLI 使用 `bypassPermissions` / `--dangerously-bypass-approvals-and-sandbox` �
 pip install -e "backend/.[ui]" && playwright install chromium
 ```
 
+`./scripts/dev.sh` installs `[ui]` and Chromium by default. Set `SPECFORGE_SKIP_UI=1` to skip when you do not need UI automation.
+
+`GET /api/health` includes `ui.playwright` / `ui.cua` readiness and `ui_install_hint`.
+
 ---
 
 ## 基本使用步骤

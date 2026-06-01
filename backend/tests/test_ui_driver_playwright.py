@@ -4,7 +4,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from specforge.contracts import UITestSpec
-from specforge.ui_driver_playwright import PlaywrightUIDriverRunner
+from specforge.ui_driver_playwright import (
+    PLAYWRIGHT_BROWSERS_MISSING,
+    PLAYWRIGHT_PACKAGE_MISSING,
+    PlaywrightUIDriverRunner,
+)
 
 
 class FakeKeyboard:
@@ -213,6 +217,44 @@ def test_playwright_runner_assert_text_match_and_visibility(tmp_path: Path) -> N
     runner = PlaywrightUIDriverRunner(session_factory=lambda: FakeSession(page))
     results = runner.run_specs([spec], tmp_path)
     assert results[0].status == "passed", results[0].error
+
+
+def test_ensure_available_package_missing(monkeypatch) -> None:
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name: str, globals=None, locals=None, fromlist=(), level=0):
+        if name == "playwright.sync_api" or (name == "playwright" and fromlist and "sync_api" in fromlist):
+            raise ImportError("no playwright")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert PlaywrightUIDriverRunner().ensure_available() == PLAYWRIGHT_PACKAGE_MISSING
+
+
+def test_ensure_available_reports_missing_browsers() -> None:
+    class BrokenPlaywright:
+        def stop(self) -> None:
+            return None
+
+        @property
+        def chromium(self):
+            return self
+
+        def launch(self, *, headless: bool = True):
+            raise RuntimeError("Executable doesn't exist at /tmp/fake-chromium")
+
+    class FakeSyncPlaywright:
+        def start(self) -> BrokenPlaywright:
+            return BrokenPlaywright()
+
+    with patch("playwright.sync_api.sync_playwright", return_value=FakeSyncPlaywright()):
+        assert PlaywrightUIDriverRunner().ensure_available() == PLAYWRIGHT_BROWSERS_MISSING
+
+
+def test_ensure_available_ok_with_session_factory() -> None:
+    assert PlaywrightUIDriverRunner(session_factory=lambda: FakeSession()).ensure_available() is None
 
 
 def test_playwright_runner_native_spec_warns(tmp_path: Path) -> None:
