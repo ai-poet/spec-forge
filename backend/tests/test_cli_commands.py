@@ -35,3 +35,55 @@ def test_build_cli_command_codex_vs_claude():
     assert codex_cmd[0] == "codex"
     assert claude_cmd[0] == "claude"
     assert "--include-hook-events" in claude_cmd
+
+
+def test_build_cli_command_claude_session_id():
+    prompt = "plan"
+    schema_inline = "{}"
+    schema_file = __import__("pathlib").Path("/tmp/planner.schema.json")
+    cmd = build_cli_command(
+        provider="claude",
+        prompt=prompt,
+        schema_inline=schema_inline,
+        schema_file=schema_file,
+        session_id="abc-123",
+        resume=False,
+    )
+    assert "--session-id" in cmd
+    idx = cmd.index("--session-id")
+    assert cmd[idx + 1] == "abc-123"
+    assert "--resume" not in cmd
+
+
+def test_build_cli_command_claude_resume():
+    prompt = "continue"
+    schema_inline = "{}"
+    schema_file = __import__("pathlib").Path("/tmp/planner.schema.json")
+    cmd = build_cli_command(
+        provider="claude",
+        prompt=prompt,
+        schema_inline=schema_inline,
+        schema_file=schema_file,
+        session_id="abc-123",
+        resume=True,
+    )
+    assert "--resume" in cmd
+    idx = cmd.index("--resume")
+    assert cmd[idx + 1] == "abc-123"
+    assert "--session-id" not in cmd
+
+
+def test_build_cli_command_codex_resume():
+    prompt = "continue"
+    schema_inline = "{}"
+    schema_file = __import__("pathlib").Path("/tmp/planner.schema.json")
+    cmd = build_cli_command(
+        provider="codex",
+        prompt=prompt,
+        schema_inline=schema_inline,
+        schema_file=schema_file,
+        session_id="abc-123",
+        resume=True,
+    )
+    assert "resume" in cmd
+    assert cmd[cmd.index("resume") + 1] == "abc-123"
