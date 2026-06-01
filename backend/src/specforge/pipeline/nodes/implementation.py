@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ...docs_io import IterationDocs
-from ...models import IterationStatus, NodeName
+from ...core.models import IterationStatus, NodeName
+from ...documents.docs_io import IterationDocs
 from ..state import PipelineState
 
 

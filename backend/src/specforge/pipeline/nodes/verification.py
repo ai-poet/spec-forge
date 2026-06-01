@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from langgraph.types import interrupt
 
-from ...contracts import (
+from ...core.contracts import (
     CodeTesterArtifact,
     VerificationArtifact,
     verification_from_code,
     ui_spec_error_type,
 )
-from ...docs_io import IterationDocs
-from ...docs_scaffold import append_iteration_log
-from ...models import IterationStatus, NodeName
-from ...write_zones import summarize_failure_notes
+from ...core.models import IterationStatus, NodeName
+from ...documents.docs_io import IterationDocs
+from ...documents.docs_scaffold import append_iteration_log
+from ...policy.write_zones import summarize_failure_notes
 from ..state import PipelineState
 
 

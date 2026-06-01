@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Literal, Optional
 
-from ...cli_commands import build_cli_command
-from ...cli_runner import CLIResult
-from ...contracts import (
+from ...agents.cli_commands import build_cli_command
+from ...agents.cli_runner import CLIResult
+from ...agents.prompt_loader import compose_stage_prompt
+from ...core.contracts import (
     VerificationArtifact,
     UITestResult,
     UITestSpec,
@@ -13,12 +14,11 @@ from ...contracts import (
     parse_json_artifact,
     validate_ui_spec_content,
 )
-from ...cua_bootstrap import CUA_INSTALL_HINT
-from ...cua_session import cua_session_busy_message, read_cua_session_holder, try_acquire_cua_session
-from ...docs_io import IterationDocs
-from ...models import NodeName
-from ...playwright_cli import PLAYWRIGHT_CLI_INSTALL_HINT, playwright_cli_wrapper
-from ...prompt_loader import compose_stage_prompt
+from ...core.models import NodeName
+from ...documents.docs_io import IterationDocs
+from ...ui.cua_bootstrap import CUA_INSTALL_HINT
+from ...ui.cua_session import cua_session_busy_message, read_cua_session_holder, try_acquire_cua_session
+from ...ui.playwright_cli import PLAYWRIGHT_CLI_INSTALL_HINT, playwright_cli_wrapper
 
 if TYPE_CHECKING:
     from ..state import PipelineState

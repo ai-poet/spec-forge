@@ -4,16 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from ...artifact_gate import run_project_commands
-from ...cli_runner import CLIResult
-from ...context_manifest import (
-    ManifestLine,
-    append_manifest_lines,
-    resolve_coder_manifest,
-    resolve_tester_manifest,
-    write_jsonl,
-)
-from ...contracts import (
+from ...agents.cli_runner import CLIResult
+from ...core.contracts import (
     ArtifactFile,
     CodeTesterArtifact,
     CoderArtifact,
@@ -30,9 +22,17 @@ from ...contracts import (
     verification_from_code,
     validate_ui_spec_content,
 )
-from ...docs_io import IterationDocs, compare_test_integrity, safe_relative_path
-from ...models import IterationStatus, NodeName
-from ...write_zones import enrich_defects, retry_target, summarize_failure_notes
+from ...core.models import IterationStatus, NodeName
+from ...documents.docs_io import IterationDocs, compare_test_integrity, safe_relative_path
+from ...policy.artifact_gate import run_project_commands
+from ...policy.context_manifest import (
+    ManifestLine,
+    append_manifest_lines,
+    resolve_coder_manifest,
+    resolve_tester_manifest,
+    write_jsonl,
+)
+from ...policy.write_zones import enrich_defects, retry_target, summarize_failure_notes
 from ..state import PipelineState
 
 

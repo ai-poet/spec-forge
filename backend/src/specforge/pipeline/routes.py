@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from ..models import IterationStatus
+from ..core.models import IterationStatus
 from .state import PipelineState
 
 
