@@ -6,16 +6,9 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
-from ...artifact_gate import read_convention_excerpt, read_framework_conventions, read_spec_index
-from ...cli_commands import CliStage, build_cli_command, parse_cli_bindings, resolve_cli_provider
-from ...context_manifest import (
-    FOR_CODER,
-    FOR_TESTER,
-    RUNTIME_NOTES,
-    format_manifest_for_prompt,
-    format_runtime_notes_section,
-)
-from ...contracts import (
+from ...agents.cli_commands import CliStage, build_cli_command, parse_cli_bindings, resolve_cli_provider
+from ...agents.prompt_loader import compose_stage_prompt
+from ...core.contracts import (
     CodeTesterArtifact,
     CoderArtifact,
     PlannerClarificationArtifact,
@@ -24,8 +17,15 @@ from ...contracts import (
     TestPlannerArtifact,
     UI_TEST_ACTIONS,
 )
-from ...models import NodeName
-from ...prompt_loader import compose_stage_prompt
+from ...core.models import NodeName
+from ...policy.artifact_gate import read_convention_excerpt, read_framework_conventions, read_spec_index
+from ...policy.context_manifest import (
+    FOR_CODER,
+    FOR_TESTER,
+    RUNTIME_NOTES,
+    format_manifest_for_prompt,
+    format_runtime_notes_section,
+)
 
 from ..state import PipelineState
 
