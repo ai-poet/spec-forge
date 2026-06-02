@@ -240,7 +240,7 @@ export interface IterationDetail extends IterationSummary {
 }
 
 export interface LiveMessage {
-  type: 'snapshot' | 'event' | 'cli.output'
+  type: 'snapshot' | 'event' | 'cli.output' | 'pong'
   event?: EventRecord | { type: 'cli.output'; payload: CliOutputPayload }
   snapshot?: IterationDetail
 }

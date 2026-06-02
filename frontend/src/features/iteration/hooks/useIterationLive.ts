@@ -89,17 +89,61 @@ export function useIterationLive(iterationId: string | null) {
     let closed = false
     let retry = 0
     let socket: WebSocket | null = null
+    let heartbeatTimer: number | null = null
+    let heartbeatTimeout: number | null = null
+    const HEARTBEAT_INTERVAL = 30000
+    const HEARTBEAT_TIMEOUT = 10000
+
+    function clearHeartbeat() {
+      if (heartbeatTimer) {
+        window.clearInterval(heartbeatTimer)
+        heartbeatTimer = null
+      }
+      if (heartbeatTimeout) {
+        window.clearTimeout(heartbeatTimeout)
+        heartbeatTimeout = null
+      }
+    }
+
+    function startHeartbeat(ws: WebSocket) {
+      clearHeartbeat()
+      heartbeatTimer = window.setInterval(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          clearHeartbeat()
+          return
+        }
+        ws.send(JSON.stringify({ type: 'ping' }))
+        heartbeatTimeout = window.setTimeout(() => {
+          if (closed) return
+          ws.close()
+        }, HEARTBEAT_TIMEOUT)
+      }, HEARTBEAT_INTERVAL)
+    }
 
     function connect() {
       setConnectionStatus(retry ? 'reconnecting' : 'connecting')
-      socket = new WebSocket(iterationWebSocketUrl(iterationId))
+      socket = new WebSocket(iterationWebSocketUrl(iterationId!))
       socket.onopen = () => {
         retry = 0
         setConnectionStatus('connected')
+        startHeartbeat(socket!)
       }
       socket.onmessage = async (event) => {
         try {
-          const message = JSON.parse(event.data) as LiveMessage
+          if (heartbeatTimeout) {
+            window.clearTimeout(heartbeatTimeout)
+            heartbeatTimeout = null
+          }
+
+          let message: LiveMessage
+          try {
+            message = JSON.parse(event.data) as LiveMessage
+          } catch {
+            return
+          }
+
+          if (message.type === 'pong') return
+
           if (message.type === 'cli.output' && isCliOutputEvent(message.event)) {
             const { node, stream, chunk } = message.event.payload
             setDetail((prev) => {
@@ -130,7 +174,7 @@ export function useIterationLive(iterationId: string | null) {
           documentsMetaRef.current = nextMeta
 
           try {
-            const synced = await syncDocumentText(iterationId, snapshot.documents, docNameRef.current)
+            const synced = await syncDocumentText(iterationId!, snapshot.documents, docNameRef.current)
             if (synced) {
               setDocText(synced.content)
               if (synced.name !== docNameRef.current) {
@@ -148,6 +192,7 @@ export function useIterationLive(iterationId: string | null) {
       }
       socket.onerror = () => setLiveError('实时连接异常，正在尝试恢复。')
       socket.onclose = () => {
+        clearHeartbeat()
         if (closed) return
         retry += 1
         setLiveError('实时连接断开，正在重连')
@@ -159,6 +204,7 @@ export function useIterationLive(iterationId: string | null) {
     connect()
     return () => {
       closed = true
+      clearHeartbeat()
       setConnectionStatus('disconnected')
       socket?.close()
     }

@@ -513,6 +513,17 @@ async def ws_iteration(websocket: WebSocket, iteration_id: str) -> None:
         await websocket.close(code=4404)
         return
     queue = broker.subscribe(iteration_id)
+
+    async def _receive() -> None:
+        try:
+            while True:
+                data = await websocket.receive_json()
+                if isinstance(data, dict) and data.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+        except WebSocketDisconnect:
+            return
+
+    receive_task = asyncio.create_task(_receive())
     try:
         await websocket.send_json({"type": "snapshot", "snapshot": pipeline.dashboard_snapshot(iteration_id)})
         while True:
@@ -523,6 +534,7 @@ async def ws_iteration(websocket: WebSocket, iteration_id: str) -> None:
     except WebSocketDisconnect:
         return
     finally:
+        receive_task.cancel()
         broker.unsubscribe(iteration_id, queue)
 
 
