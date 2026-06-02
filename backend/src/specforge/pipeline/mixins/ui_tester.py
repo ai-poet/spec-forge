@@ -244,40 +244,46 @@ class PipelineUiTesterMixin:
             self._add_event(iteration_id, event_type="ui_tester.warning", payload={"warning": warning})
             if "部分 UI 未执行" not in " ".join(artifact.delivery_recommendations):
                 artifact.delivery_recommendations.append(f"部分 UI 未执行: {warning}")
-        if artifact.ui_results:
-            self._add_event(
-                iteration_id,
-                event_type="ui_tester.completed",
-                payload={"count": len(artifact.ui_results)},
-            )
         failed_results = [result for result in artifact.ui_results if result.status == "failed"]
         if failed_results:
             failed_summary = "; ".join(
                 f"{result.title or result.id}: {result.error or 'failed'}" for result in failed_results
             )
-            warning = f"UI 自动化测试失败，已降级为警告: {failed_summary}"
-            if warning not in artifact.ui_warnings:
-                artifact.ui_warnings.append(warning)
+            blocking = any(defect.severity in {"P0", "P1"} for defect in artifact.defects)
+            if not blocking:
+                warning = f"UI 自动化执行失败，未汇总为 P0/P1 缺陷: {failed_summary}"
+                if warning not in artifact.ui_warnings:
+                    artifact.ui_warnings.append(warning)
+                    self._add_event(iteration_id, event_type="ui_tester.warning", payload={"warning": warning})
             if "UI 自动化存在失败项" not in " ".join(artifact.delivery_recommendations):
                 artifact.delivery_recommendations.append(
-                    "UI 自动化存在失败项；本轮是否通过以 Code Tester 代码审查未发现 P0/P1 缺陷为准，交付前建议人工复核失败 UI 场景。"
+                    "UI 自动化存在失败项；请查看 UI Tester 汇总，只有 P0/P1 缺陷会阻断交付。"
                 )
             self._add_event(
                 iteration_id,
                 event_type="ui_tester.failed",
-                payload={"failed": [result.model_dump() for result in failed_results], "blocking": False},
+                payload={"failed": [result.model_dump() for result in failed_results], "blocking": blocking},
             )
             self._node_event(
                 iteration_id,
                 "node.progress",
                 NodeName.ui_tester.value,
-                "UI 验证需复核",
-                "至少一条 UI 场景未通过，已作为非阻断警告记录。",
-                severity="warning",
-                action_hint="查看 UI 验证结果和 tests/ui/recordings；交付前建议人工复核。",
+                "UI 自动化存在失败项",
+                f"至少一条 UI 场景未通过: {failed_summary}",
+                severity="error" if blocking else "warning",
+                action_hint=(
+                    "UI Tester 已总结 P0/P1 缺陷，系统将按 owner 分流。"
+                    if blocking
+                    else "自动化执行失败已记录为警告；只有 UI Tester 汇总出的 P0/P1 缺陷会触发回环。"
+                ),
                 run_id=run_id,
             )
         elif artifact.ui_results:
+            self._add_event(
+                iteration_id,
+                event_type="ui_tester.completed",
+                payload={"count": len(artifact.ui_results)},
+            )
             self._node_event(
                 iteration_id,
                 "node.completed",

@@ -31,8 +31,13 @@ create, or require `tests/ui/*.json` specs.
 
 Start from the Code Tester artifact in runtime context. Preserve `verify_report`, `defects`, `passed`, `failure_notes`, `ux_notes`, `delivery_recommendations`, `adversarial_tests`, `test_files` unless UI work requires updates. Add UI observations to `ux_notes`.
 
-## Non-blocking UI failures
+## UI failure semantics
 
-UI assertion failures are **warnings** unless they imply P0/P1 product defects (then add `defects` with correct `owner`). Set `passed` from Code Tester + code review unless UI findings force `passed=false`.
+Separate execution degradation from product defects:
+- Tool or environment problems (Playwright unavailable, CuaDriver busy/unavailable, native scenario cannot run) are **not product defects**. Record them in `ui_warnings` and/or `ui_results[].status` as `warning` or `skipped`; do not change `passed` for these alone.
+- Summarize every executed UI result in `verify_report`. If a failed UI result proves a product/implementation defect, add a `defects[]` entry with severity `P0` or `P1`, default `owner: "coder"` unless the evidence clearly points to `test_planner` or `code_tester`.
+- Do not turn every automation failure into a defect. If the browser script, driver, selector, timing, or environment failed but product behavior is inconclusive, keep it in `ui_results[].status: "failed"` plus `ui_warnings`/recommendations instead of adding P0/P1.
+- If any `defects[]` entry has severity `P0` or `P1`, set `passed: false`. Never return `passed: true` with P0/P1 defects.
+- P2 defects may be reported without blocking delivery.
 
 Return only final JSON matching {schema_hint}

@@ -118,6 +118,19 @@ class VerificationNodesMixin:
                     action_hint="系统将按写权限分区自动回环；配置的 build/test 未通过时跳过 UI 验证。",
                 )
                 return self._route_tester_failure(state, run_id, gate_artifact)
+            if not tester_pending.passed:
+                notes = summarize_failure_notes(self._normalize_tester_artifact(tester_pending))
+                self._node_event(
+                    iteration_id,
+                    "node.failed",
+                    NodeName.code_tester.value,
+                    "代码验证未通过",
+                    notes,
+                    severity="error",
+                    run_id=run_id,
+                    action_hint="系统将按写权限分区自动回环；Code Tester 未通过时跳过 UI 验证。",
+                )
+                return self._route_tester_failure(state, run_id, tester_pending)
             baseline = test_integrity_manifest(self.docs_root(iteration_id))
             self._update_iteration(iteration_id, test_integrity_baseline=baseline)
             self._node_event(iteration_id, "node.completed", NodeName.code_tester.value, "代码验证完成", "已建立测试基线，进入测试完整性检查。", severity="success", run_id=run_id)
@@ -157,6 +170,7 @@ class VerificationNodesMixin:
                 run_id=run_id,
             )
             artifact, run_id = self._run_ui_tester_agent(state, baseline, docs, run_id=run_id)
+            artifact = self._normalize_ui_tester_artifact(artifact)
             planning_failure = self._planning_integrity_failure(
                 iteration_id,
                 node=NodeName.ui_tester.value,
@@ -171,8 +185,9 @@ class VerificationNodesMixin:
             if problems:
                 self._node_event(iteration_id, "node.failed", NodeName.ui_tester.value, "验证后测试完整性失败", "; ".join(problems), severity="error", run_id=run_id, action_hint="Code Tester 只能写入 adversarial 和 UI recordings；请检查异常测试文件。")
                 return self._block(iteration_id, "test_integrity.failed", run_id, "; ".join(problems))
-            if not artifact.passed:
-                notes = summarize_failure_notes(self._normalize_tester_artifact(artifact))
+            blocking_defects = self._blocking_defects(artifact.defects)
+            if not artifact.passed and blocking_defects:
+                notes = summarize_failure_notes(self._normalize_ui_tester_artifact(artifact))
                 self._node_event(
                     iteration_id,
                     "node.failed",
@@ -184,6 +199,8 @@ class VerificationNodesMixin:
                     action_hint="查看失败说明，等待按写权限分区自动重试或处理阻断。",
                 )
                 return self._route_tester_failure(state, run_id, artifact)
+            if not artifact.passed:
+                artifact = artifact.model_copy(update={"passed": True})
             self._update_iteration(iteration_id, status=IterationStatus.awaiting_verify_approval.value, current_node=None, last_error=None)
             self._add_event(iteration_id, event_type="ui_tester.completed", payload={"result": "passed", "run_id": run_id})
             self._node_event(iteration_id, "node.completed", NodeName.ui_tester.value, "验证通过", "验证报告和交付建议已生成，等待规格复核和最终确认。", severity="success", run_id=run_id)

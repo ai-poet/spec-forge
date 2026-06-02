@@ -903,6 +903,57 @@ def test_route_tester_failure_routes_src_to_coder():
     assert "code_tester.retry_to_coder" in [event["type"] for event in detail["events"]]
 
 
+def test_route_tester_failure_forces_p0_p1_to_fail_and_retry_coder():
+    from specforge.contracts import Defect, VerificationArtifact
+
+    iteration_id = create_manual_iteration("ui-p0-p1-passed-true")
+    artifact = VerificationArtifact(
+        verify_report="# Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+        passed=True,
+        defects=[Defect(severity="P1", path="src/app.ts", owner="coder", message="checkout button is broken")],
+    )
+    normalized = pipeline._normalize_tester_artifact(artifact)
+
+    assert normalized.passed is False
+    result = pipeline._route_tester_failure(
+        {
+            "iteration_id": iteration_id,
+            "retry_counts": {},
+            "max_tester_self_retries": 3,
+            "max_coder_tester_retries": 5,
+        },
+        "run-p1",
+        artifact,
+    )
+    assert result["route"] == "retry"
+    assert result["retry_target"] == "coder"
+
+
+def test_normalize_tester_artifact_keeps_failed_ui_result_nonblocking_without_defect():
+    from specforge.contracts import UITestResult, VerificationArtifact
+
+    artifact = VerificationArtifact(
+        verify_report="# Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+        passed=True,
+        ui_results=[
+            UITestResult(
+                id="mt-01",
+                title="Checkout flow",
+                kind="web",
+                status="failed",
+                driver="playwright",
+                error="Expected Pay button to be visible",
+            )
+        ],
+    )
+
+    normalized = pipeline._normalize_tester_artifact(artifact)
+
+    assert normalized.passed is True
+    assert normalized.defects == []
+    assert normalized.failure_notes is None
+
+
 def test_ensure_verify_report_markers_adds_title_and_pass_summary():
     normalized = pipeline._ensure_verify_report_markers("plain report without markers")
     assert "# " in normalized
@@ -1554,12 +1605,13 @@ def test_tester_failure_retries_until_blocked(tmp_path):
     assert "forced tester failure" in payload["last_error"]
 
 
-def test_ui_tester_playwright_passes_web():
+def test_ui_tester_playwright_passes_web(monkeypatch):
     original_planner = pipeline._test_planner_artifact
     pipeline._test_planner_artifact = make_test_planner_ui_plan  # type: ignore[method-assign]
     try:
         iteration_id, detail = create_iteration_with_manual_ui_plan(
             {"project_name": "ui-playwright", "goal": "run UI playwright", "mode": "dry-run"},
+            monkeypatch,
         )
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1570,12 +1622,13 @@ def test_ui_tester_playwright_passes_web():
     assert detail["ui_results"][0]["driver"] == "playwright"
 
 
-def test_ui_tester_cua_unavailable_native_warns_web_pass():
+def test_ui_tester_cua_unavailable_native_warns_web_pass(monkeypatch):
     original_planner = pipeline._test_planner_artifact
     pipeline._test_planner_artifact = make_test_planner_ui_plan  # type: ignore[method-assign]
     try:
         iteration_id, detail = create_iteration_with_manual_ui_plan(
             {"project_name": "ui-mixed", "goal": "run UI mixed", "mode": "dry-run"},
+            monkeypatch,
         )
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1586,12 +1639,13 @@ def test_ui_tester_cua_unavailable_native_warns_web_pass():
     assert detail["ui_results"][0]["status"] == "warning"
 
 
-def test_ui_tester_playwright_unavailable_web_warns():
+def test_ui_tester_playwright_unavailable_web_warns(monkeypatch):
     original_planner = pipeline._test_planner_artifact
     pipeline._test_planner_artifact = make_test_planner_ui_plan  # type: ignore[method-assign]
     try:
         iteration_id, detail = create_iteration_with_manual_ui_plan(
             {"project_name": "ui-dual-fail", "goal": "run UI dual fail", "mode": "dry-run"},
+            monkeypatch,
         )
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1601,12 +1655,13 @@ def test_ui_tester_playwright_unavailable_web_warns():
     assert detail["ui_results"][0]["status"] == "warning"
 
 
-def test_ui_tester_pass_writes_results_and_artifacts():
+def test_ui_tester_pass_writes_results_and_artifacts(monkeypatch):
     original_planner = pipeline._test_planner_artifact
     pipeline._test_planner_artifact = make_test_planner_ui_plan  # type: ignore[method-assign]
     try:
         iteration_id, detail = create_iteration_with_manual_ui_plan(
             {"project_name": "ui-pass", "goal": "run UI pass", "mode": "dry-run"},
+            monkeypatch,
         )
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1618,14 +1673,15 @@ def test_ui_tester_pass_writes_results_and_artifacts():
     assert client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").status_code == 200
 
 
-def test_ui_tester_failure_warns_without_retry(tmp_path):
+def test_ui_tester_automation_failure_warns_without_p0_p1(tmp_path, monkeypatch):
     original_planner = pipeline._test_planner_artifact
     pipeline._test_planner_artifact = make_test_planner_ui_plan  # type: ignore[method-assign]
     try:
         project = post_project(tmp_path, "ui-fail-project", default_mode="dry-run", max_coder_tester_retries=1)
         project_id = project.json()["id"]
         iteration_id, detail = create_iteration_with_manual_ui_plan(
-            {"project_id": project_id, "goal": "run UI fail"},
+            {"project_id": project_id, "goal": "run UI fail", "mode": "dry-run"},
+            monkeypatch,
         )
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1638,15 +1694,67 @@ def test_ui_tester_failure_warns_without_retry(tmp_path):
         if event["type"] == "node.progress" and event["payload"].get("node") == "ui_tester"
     ]
     assert ui_progress[-1]["payload"]["severity"] == "warning"
-    assert "非阻断" in ui_progress[-1]["payload"]["message"]
+    assert "UI 场景未通过" in ui_progress[-1]["payload"]["message"]
     failed_event = next(event for event in detail["events"] if event["type"] == "ui_tester.failed")
     assert failed_event["payload"]["blocking"] is False
+    assert "code_tester.retry_to_coder" not in [event["type"] for event in detail["events"]]
     assert detail["ui_results"][0]["status"] == "failed"
     ui_payload = client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").json()
-    assert "UI 自动化测试失败" in ui_payload["warnings"][0]
+    assert "未汇总为 P0/P1 缺陷" in ui_payload["warnings"][0]
 
 
-def test_artifact_gate_failure_skips_ui_tester(tmp_path):
+def test_ui_tester_p0_p1_summary_retries_to_coder(monkeypatch):
+    from specforge.contracts import Defect, UITestResult, VerificationArtifact
+
+    iteration_id = create_manual_iteration("ui-summary-p1", mode="dry-run")
+    docs = write_planning_docs(iteration_id)
+    baseline = verification_from_code(
+        CodeTesterArtifact(
+            verify_report="# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+            passed=True,
+        )
+    )
+
+    def ui_artifact(state, baseline, docs, *, run_id):
+        return (
+            VerificationArtifact(
+                verify_report="# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+                passed=True,
+                defects=[Defect(severity="P1", path="src/app.ts", owner="coder", message="primary action is hidden")],
+                ui_results=[
+                    UITestResult(
+                        id="mt-01",
+                        title="Primary action",
+                        kind="web",
+                        status="passed",
+                        driver="playwright",
+                    )
+                ],
+            ),
+            run_id,
+        )
+
+    monkeypatch.setattr(pipeline, "_run_ui_tester_agent", ui_artifact)
+
+    result = pipeline._ui_tester_node(
+        {
+            "iteration_id": iteration_id,
+            "mode": "dry-run",
+            "retry_counts": {},
+            "max_tester_self_retries": 3,
+            "max_coder_tester_retries": 5,
+            "pending_code_tester_json": baseline.model_dump_json(),
+        }
+    )
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert result["route"] == "retry"
+    assert result["retry_target"] == "coder"
+    assert detail["retry_counts"]["coder_tester"] == 1
+    assert "code_tester.retry_to_coder" in [event["type"] for event in detail["events"]]
+
+
+def test_artifact_gate_failure_skips_ui_tester(tmp_path, monkeypatch):
     original_planner = pipeline._test_planner_artifact
     pipeline._test_planner_artifact = make_test_planner_ui_plan  # type: ignore[method-assign]
     try:
@@ -1660,6 +1768,7 @@ def test_artifact_gate_failure_skips_ui_tester(tmp_path):
         project_id = project.json()["id"]
         iteration_id, detail = create_iteration_with_manual_ui_plan(
             {"project_id": project_id, "goal": "run UI plan but fail gate"},
+            monkeypatch,
         )
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
@@ -1670,7 +1779,9 @@ def test_artifact_gate_failure_skips_ui_tester(tmp_path):
     assert detail["ui_results"] == []
 
 
-def create_iteration_with_manual_ui_plan(payload: dict) -> tuple[str, dict]:
+def create_iteration_with_manual_ui_plan(payload: dict, monkeypatch=None) -> tuple[str, dict]:
+    if monkeypatch is not None:
+        monkeypatch.setattr(pipeline, "_is_real_cli", lambda mode: False)
     resp = client.post("/api/iterations", json=payload)
     iteration_id = resp.json()["id"]
     wait_for_requirements_input(iteration_id)

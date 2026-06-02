@@ -409,8 +409,32 @@ class PipelineArtifactsMixin:
 
     def _normalize_tester_artifact(self, artifact: VerificationArtifact) -> VerificationArtifact:
         defects = enrich_defects(artifact)
-        failure_notes = summarize_failure_notes(artifact) if defects else artifact.failure_notes
-        return artifact.model_copy(update={"defects": defects, "failure_notes": failure_notes})
+        blocking_defects = self._blocking_defects(defects)
+        normalized = artifact.model_copy(update={"defects": defects})
+        failure_notes = summarize_failure_notes(normalized) if defects else artifact.failure_notes
+        return normalized.model_copy(
+            update={
+                "passed": False if blocking_defects else artifact.passed,
+                "failure_notes": failure_notes,
+            }
+        )
+
+
+    def _blocking_defects(self, defects: list[Defect]) -> list[Defect]:
+        return [defect for defect in defects if defect.severity in {"P0", "P1"}]
+
+
+    def _normalize_ui_tester_artifact(self, artifact: VerificationArtifact) -> VerificationArtifact:
+        defects = enrich_defects(artifact) if artifact.defects else []
+        blocking_defects = self._blocking_defects(defects)
+        normalized = artifact.model_copy(update={"defects": defects})
+        failure_notes = summarize_failure_notes(normalized) if defects else artifact.failure_notes
+        return normalized.model_copy(
+            update={
+                "passed": False if blocking_defects else True,
+                "failure_notes": failure_notes,
+            }
+        )
 
 
     def _gate_failed_artifact(self, artifact: VerificationArtifact, gate_msg: str) -> VerificationArtifact:

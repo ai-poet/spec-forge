@@ -145,6 +145,8 @@ def test_compose_ui_tester_includes_tool_routing() -> None:
     assert "playwright-cli" in text
     assert "cua-driver" in text
     assert "MT-01: Web smoke" in text
+    assert "Never return `passed: true` with P0/P1 defects." in text
+    assert "Tool or environment problems" in text
 
 
 def test_compose_unknown_stage_raises() -> None:
