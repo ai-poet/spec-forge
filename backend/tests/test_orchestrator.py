@@ -62,6 +62,16 @@ def advance_through_planning_gates(iteration_id: str) -> None:
         return
 
 
+def wait_for_requirements_input(iteration_id: str) -> None:
+    for _ in range(12):
+        drain_jobs()
+        detail = client.get(f"/api/iterations/{iteration_id}").json()
+        if detail["status"] == "awaiting_requirements_input":
+            return
+        if detail["status"] in {"blocked", "blocked_user", "awaiting_verify_approval", "delivered", "stopped"}:
+            return
+
+
 def create_manual_iteration(project_name: str, *, mode: str = "real-cli") -> str:
     iteration_id = pipeline.db.create_iteration(
         project_name=f"{project_name}-{uuid4().hex[:6]}",
@@ -1574,15 +1584,10 @@ def test_ui_tester_playwright_passes_web():
     original_planner = pipeline._test_planner_artifact
     pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
     try:
-        resp = client.post(
-            "/api/iterations",
-            json={"project_name": "ui-playwright", "goal": "run UI playwright", "mode": "dry-run"},
+        iteration_id, detail = create_iteration_with_ui_specs(
+            {"project_name": "ui-playwright", "goal": "run UI playwright", "mode": "dry-run"},
+            [("web_smoke", "web", "url", "http://127.0.0.1:5178")],
         )
-        iteration_id = resp.json()["id"]
-        advance_through_planning_gates(iteration_id)
-        _create_ui_spec(iteration_id, "web_smoke")
-        drain_jobs()
-        detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
 
@@ -1596,16 +1601,13 @@ def test_ui_tester_cua_unavailable_native_warns_web_pass():
     original_planner = pipeline._test_planner_artifact
     pipeline._test_planner_artifact = make_test_planner_ui_and_native_spec  # type: ignore[method-assign]
     try:
-        resp = client.post(
-            "/api/iterations",
-            json={"project_name": "ui-mixed", "goal": "run UI mixed", "mode": "dry-run"},
+        iteration_id, detail = create_iteration_with_ui_specs(
+            {"project_name": "ui-mixed", "goal": "run UI mixed", "mode": "dry-run"},
+            [
+                ("web_smoke", "web", "url", "http://127.0.0.1:5178"),
+                ("native_smoke", "native", "bundle_id", "com.example.app"),
+            ],
         )
-        iteration_id = resp.json()["id"]
-        advance_through_planning_gates(iteration_id)
-        _create_ui_spec(iteration_id, "web_smoke")
-        _create_ui_spec(iteration_id, "native_smoke", kind="native", target_key="bundle_id", target_value="com.example.app")
-        drain_jobs()
-        detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
 
@@ -1621,15 +1623,10 @@ def test_ui_tester_playwright_unavailable_web_warns():
     original_planner = pipeline._test_planner_artifact
     pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
     try:
-        resp = client.post(
-            "/api/iterations",
-            json={"project_name": "ui-dual-fail", "goal": "run UI dual fail", "mode": "dry-run"},
+        iteration_id, detail = create_iteration_with_ui_specs(
+            {"project_name": "ui-dual-fail", "goal": "run UI dual fail", "mode": "dry-run"},
+            [("web_smoke", "web", "url", "http://127.0.0.1:5178")],
         )
-        iteration_id = resp.json()["id"]
-        advance_through_planning_gates(iteration_id)
-        _create_ui_spec(iteration_id, "web_smoke")
-        drain_jobs()
-        detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
 
@@ -1642,15 +1639,10 @@ def test_ui_tester_pass_writes_results_and_artifacts():
     original_planner = pipeline._test_planner_artifact
     pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
     try:
-        resp = client.post(
-            "/api/iterations",
-            json={"project_name": "ui-pass", "goal": "run UI pass", "mode": "dry-run"},
+        iteration_id, detail = create_iteration_with_ui_specs(
+            {"project_name": "ui-pass", "goal": "run UI pass", "mode": "dry-run"},
+            [("web_smoke", "web", "url", "http://127.0.0.1:5178")],
         )
-        iteration_id = resp.json()["id"]
-        advance_through_planning_gates(iteration_id)
-        _create_ui_spec(iteration_id, "web_smoke")
-        drain_jobs()
-        detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
 
@@ -1667,15 +1659,10 @@ def test_ui_tester_failure_warns_without_retry(tmp_path):
     try:
         project = post_project(tmp_path, "ui-fail-project", default_mode="dry-run", max_coder_tester_retries=1)
         project_id = project.json()["id"]
-        resp = client.post(
-            "/api/iterations",
-            json={"project_id": project_id, "goal": "run UI fail"},
+        iteration_id, detail = create_iteration_with_ui_specs(
+            {"project_id": project_id, "goal": "run UI fail"},
+            [("web_smoke", "web", "url", "http://127.0.0.1:5178")],
         )
-        iteration_id = resp.json()["id"]
-        advance_through_planning_gates(iteration_id)
-        _create_ui_spec(iteration_id, "web_smoke")
-        drain_jobs()
-        detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
 
@@ -1707,15 +1694,10 @@ def test_artifact_gate_failure_skips_ui_tester(tmp_path):
             max_coder_tester_retries=0,
         )
         project_id = project.json()["id"]
-        resp = client.post(
-            "/api/iterations",
-            json={"project_id": project_id, "goal": "run UI spec but fail gate"},
+        iteration_id, detail = create_iteration_with_ui_specs(
+            {"project_id": project_id, "goal": "run UI spec but fail gate"},
+            [("web_smoke", "web", "url", "http://127.0.0.1:5178")],
         )
-        iteration_id = resp.json()["id"]
-        advance_through_planning_gates(iteration_id)
-        _create_ui_spec(iteration_id, "web_smoke")
-        drain_jobs()
-        detail = client.get(f"/api/iterations/{iteration_id}").json()
     finally:
         pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
 
@@ -1735,6 +1717,20 @@ def _create_ui_spec(iteration_id: str, spec_id: str, kind: str = "web", target_k
     ui_path = pipeline.docs_root(iteration_id) / "tests" / "ui" / f"{spec_id}.json"
     ui_path.parent.mkdir(parents=True, exist_ok=True)
     ui_path.write_text(ui_spec, encoding="utf-8")
+
+
+def create_iteration_with_ui_specs(payload: dict, specs: list[tuple[str, str, str, str]]) -> tuple[str, dict]:
+    resp = client.post("/api/iterations", json=payload)
+    iteration_id = resp.json()["id"]
+    wait_for_requirements_input(iteration_id)
+    for spec_id, kind, target_key, target_value in specs:
+        _create_ui_spec(iteration_id, spec_id, kind=kind, target_key=target_key, target_value=target_value)
+    client.post(
+        f"/api/iterations/{iteration_id}/answer-requirements",
+        json={"answer": "Ship the UI acceptance path"},
+    )
+    drain_jobs()
+    return iteration_id, client.get(f"/api/iterations/{iteration_id}").json()
 
 
 def make_test_planner_ui_spec(state, run_result):
