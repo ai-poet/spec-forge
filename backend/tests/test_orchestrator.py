@@ -1258,8 +1258,32 @@ def test_tester_write_rejects_invalid_ui_spec(tmp_path):
         pipeline._write_tester_artifact(iteration_id, docs, artifact)
 
 
+def test_tester_write_rehomes_misplaced_adversarial_test_file():
+    iteration_id = create_manual_iteration("misplaced-adversarial", mode="dry-run")
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    docs.ensure()
+    artifact = CodeTesterArtifact(
+        verify_report="# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+        passed=True,
+        test_files=[
+            ArtifactFile(
+                path="tests/adversarial/stats-history.test.ts",
+                content="test('stats history edge case', () => {});\n",
+            )
+        ],
+    )
+
+    pipeline._write_tester_artifact(iteration_id, docs, artifact)
+
+    path = docs.root / "tests" / "adversarial" / "stats-history.test.ts"
+    assert path.exists()
+    assert "tests/adversarial/stats-history.test.ts" not in build_test_integrity_manifest(docs.root)
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert any(event["type"] == "code_tester.artifact_normalized" for event in detail["events"])
+
+
 def test_ui_spec_invalid_blocks_tester_with_classified_error(tmp_path, monkeypatch):
-    project = post_project(tmp_path, "ui-spec-tester")
+    project = post_project(tmp_path, "ui-spec-tester-block")
     project_id = project.json()["id"]
     resp = client.post(
         "/api/iterations",

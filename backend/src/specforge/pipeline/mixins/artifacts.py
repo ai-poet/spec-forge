@@ -222,6 +222,8 @@ class PipelineArtifactsMixin:
 
 
     def _write_tester_artifact(self, iteration_id: str, docs: IterationDocs, artifact: VerificationArtifact, *, run_id: Optional[str] = None) -> None:
+        artifact = VerificationArtifact.model_validate(artifact.model_dump())
+        artifact = self._normalize_tester_file_zones(iteration_id, artifact, run_id=run_id)
         verify_report = self._ensure_verify_report_markers(artifact.verify_report)
         verify = docs.write_text("verify_report.md", verify_report)
         self._record_document(iteration_id, "verify_report", verify)
@@ -268,6 +270,49 @@ class PipelineArtifactsMixin:
             path = docs.write_text(relative.as_posix(), file.content)
             self._record_document(iteration_id, relative.as_posix(), path)
             self._node_event(iteration_id, "artifact.created", NodeName.code_tester.value, "对抗测试已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
+
+
+    def _normalize_tester_file_zones(self, iteration_id: str, artifact: VerificationArtifact, *, run_id: Optional[str] = None) -> VerificationArtifact:
+        misplaced: list[ArtifactFile] = []
+        remaining: list[ArtifactFile] = []
+        for file in artifact.test_files:
+            try:
+                relative = safe_relative_path(file.path)
+            except ValueError:
+                remaining.append(file)
+                continue
+            if relative.parts[:2] == ("tests", "adversarial"):
+                misplaced.append(file)
+            else:
+                remaining.append(file)
+        if not misplaced:
+            return artifact
+
+        adversarial_by_path = {file.path: file for file in artifact.adversarial_tests}
+        for file in misplaced:
+            adversarial_by_path[file.path] = file
+        moved_paths = [file.path for file in misplaced]
+        self._add_event(
+            iteration_id,
+            event_type="code_tester.artifact_normalized",
+            payload={"moved_to_adversarial_tests": moved_paths, "run_id": run_id},
+        )
+        self._node_event(
+            iteration_id,
+            "node.progress",
+            NodeName.code_tester.value,
+            "Tester 产物已自动归位",
+            "已将 tests/adversarial/** 从 test_files 移至 adversarial_tests。",
+            severity="warning",
+            run_id=run_id,
+            action_hint="后续 Code Tester 应把 tests/adversarial/** 放入 adversarial_tests 字段。",
+        )
+        return artifact.model_copy(
+            update={
+                "test_files": remaining,
+                "adversarial_tests": list(adversarial_by_path.values()),
+            }
+        )
 
 
     def _ui_report_markdown(self, artifact: VerificationArtifact) -> str:
