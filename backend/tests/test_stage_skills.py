@@ -29,6 +29,7 @@ def test_compose_planner_discovery_includes_brief_context() -> None:
             "framework_conventions": "",
             "convention_excerpt": "",
             "workflow_state": "",
+            "session_continuation": "",
         },
     )
     assert "## SpecForge stage: planner_discovery" in text
@@ -47,6 +48,7 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
             "framework_conventions": "Framework rules here.",
             "convention_excerpt": "",
             "workflow_state": "",
+            "session_continuation": "",
         },
     )
     assert "## SpecForge stage: prd_planner" in text

@@ -895,6 +895,39 @@ def test_tester_review_fallback_succeeds_without_retry(monkeypatch):
         [
             CLIResult(command=[], returncode=1, stdout="", stderr="Playwright browser is not installed"),
             CLIResult(command=[], returncode=0, stdout=make_tester_json(), stderr=""),
+            CLIResult(command=[], returncode=0, stdout=make_tester_json(), stderr=""),
+        ]
+    )
+    monkeypatch.setattr(pipeline, "real_runner", runner)
+
+    result = run_code_and_ui_tester(
+        {
+            "iteration_id": iteration_id,
+            "mode": "real-cli",
+            "retry_counts": {},
+            "max_coder_tester_retries": 5,
+        }
+    )
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert result["status"] == IterationStatus.awaiting_verify_approval.value
+    assert detail["status"] == "awaiting_verify_approval"
+    assert detail["retry_counts"] == {}
+    assert len(runner.commands) == 3
+    assert any("Do not invoke Playwright" in part for part in runner.commands[1])
+    assert any("Manual Tests" in part for part in runner.commands[2])
+    event_types = [event["type"] for event in detail["events"]]
+    assert "code_tester.review_fallback.started" in event_types
+    ui_payload = client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").json()
+    assert "代码审查兜底" in ui_payload["warnings"][0]
+
+
+def test_tester_accepts_valid_artifact_from_nonzero_exit(monkeypatch):
+    iteration_id = create_manual_iteration("tester-nonzero-artifact", mode="real-cli")
+    runner = SequenceRunner(
+        [
+            CLIResult(command=[], returncode=1, stdout=make_tester_json(), stderr="cua-driver exited 1"),
+            CLIResult(command=[], returncode=0, stdout=make_tester_json(), stderr=""),
         ]
     )
     monkeypatch.setattr(pipeline, "real_runner", runner)
@@ -913,32 +946,6 @@ def test_tester_review_fallback_succeeds_without_retry(monkeypatch):
     assert detail["status"] == "awaiting_verify_approval"
     assert detail["retry_counts"] == {}
     assert len(runner.commands) == 2
-    assert any("Do not invoke Playwright" in part for part in runner.commands[1])
-    event_types = [event["type"] for event in detail["events"]]
-    assert "code_tester.review_fallback.started" in event_types
-    ui_payload = client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").json()
-    assert "代码审查兜底" in ui_payload["warnings"][0]
-
-
-def test_tester_accepts_valid_artifact_from_nonzero_exit(monkeypatch):
-    iteration_id = create_manual_iteration("tester-nonzero-artifact", mode="real-cli")
-    runner = SequenceRunner([CLIResult(command=[], returncode=1, stdout=make_tester_json(), stderr="cua-driver exited 1")])
-    monkeypatch.setattr(pipeline, "real_runner", runner)
-
-    result = run_code_and_ui_tester(
-        {
-            "iteration_id": iteration_id,
-            "mode": "real-cli",
-            "retry_counts": {},
-            "max_coder_tester_retries": 5,
-        }
-    )
-
-    detail = client.get(f"/api/iterations/{iteration_id}").json()
-    assert result["status"] == IterationStatus.awaiting_verify_approval.value
-    assert detail["status"] == "awaiting_verify_approval"
-    assert detail["retry_counts"] == {}
-    assert len(runner.commands) == 1
     assert any(event["type"] == "code_tester.nonzero_artifact.accepted" for event in detail["events"])
 
 
