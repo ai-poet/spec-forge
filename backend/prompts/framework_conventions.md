@@ -5,7 +5,7 @@
 | Zone | Path pattern | Owner |
 |------|--------------|-------|
 | Source | `src/**` (or paths declared in docs/00_convention.md) | Coder |
-| Protected tests | `tests/unit`, `tests/integration`, `tests/ui` | Planner |
+| Protected tests | `tests/unit`, `tests/integration` | Planner |
 | Adversarial tests | `tests/adversarial/**` | Tester |
 | Verify docs | `verify_report.md`, `delivery_advice.md`, `ui_*` | Tester |
 | PRD | iteration `prd.md` | PRD Planner |
@@ -14,15 +14,11 @@
 - Coder must not edit `docs/**`, protected `tests/**`, or `.specforge/**`.
 - Downstream agents read only paths listed in `context/for_coder.jsonl` or `context/for_tester.jsonl`.
 
-## UI test specs (`tests/ui/*.json`)
+## UI acceptance
 
-Use snake_case actions only. Shape:
-
-`{id, title, kind: web|native, target: {url|bundle_id|app_name}, steps: [{action, text, value, selector, key, keys, direction, amount}]}`
-
-Allowed actions: assert_text, assert_text_match, assert_missing, assert_visible, click_text, type_text, press_key, hotkey, scroll, screenshot, wait, resize_window.
-
-Web specs may use `selector` for Playwright; native/Cua specs should use visible text / AX-visible controls.
+Do not create `tests/ui/*.json` specs. UI acceptance scenarios live in
+`testing_plan.md` under the Manual Tests section, and UI Tester executes them
+directly with playwright-cli or cua-driver.
 
 ## Package specs
 

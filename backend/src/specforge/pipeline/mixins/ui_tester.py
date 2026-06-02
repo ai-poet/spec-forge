@@ -146,7 +146,12 @@ class PipelineUiTesterMixin:
 
     def _ui_specs_prompt_section(self, specs: list[UITestSpec]) -> str:
         if not specs:
-            return "(no tests/ui/*.json scenarios)"
+            return (
+                "No tests/ui/*.json scenarios were provided. Treat testing_plan.md, PRD, "
+                "and the Code Tester artifact as the source of UI acceptance scenarios. "
+                "Read testing_plan.md first, then execute any applicable manual/UI checks "
+                "with playwright-cli or cua-driver and report them in ui_results[]."
+            )
         blocks: list[str] = []
         for spec in specs:
             blocks.append(

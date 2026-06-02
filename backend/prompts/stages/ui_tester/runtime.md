@@ -7,9 +7,17 @@ Iteration docs root: {docs_root}
 {code_tester_artifact_json}
 ```
 
-## UI acceptance scenarios
+## Testing plan
 
-{ui_specs_section}
+```markdown
+{testing_plan_section}
+```
+
+## PRD
+
+```markdown
+{prd_section}
+```
 
 ## Session notes
 

@@ -149,26 +149,21 @@ class VerificationNodesMixin:
             baseline = VerificationArtifact.model_validate_json(pending)
             docs = IterationDocs(self.docs_root(iteration_id))
             specs = self._load_ui_specs(docs)
-            if specs:
-                self._node_event(
-                    iteration_id,
-                    "node.started",
-                    NodeName.ui_tester.value,
-                    "UI 验证已启动",
-                    f"UI Tester Agent 将执行 {len(specs)} 条 tests/ui 验收场景（playwright-cli / cua-driver）。",
-                    run_id=run_id,
-                )
-                artifact, run_id = self._run_ui_tester_agent(state, baseline, docs, specs, run_id=run_id)
-            else:
-                self._node_event(
-                    iteration_id,
-                    "node.started",
-                    NodeName.ui_tester.value,
-                    "UI 验证已跳过",
-                    "无 tests/ui/*.json 场景，沿用 Code Tester 验证产物。",
-                    run_id=run_id,
-                )
-                artifact = baseline
+            title = "UI 验证已启动" if specs else "UI 验证已启动（测试计划模式）"
+            message = (
+                f"UI Tester Agent 将执行 {len(specs)} 条 tests/ui 验收场景（playwright-cli / cua-driver）。"
+                if specs
+                else "未提供 tests/ui/*.json 场景，UI Tester Agent 将读取 testing_plan.md/PRD 并执行适用的 UI 验收检查。"
+            )
+            self._node_event(
+                iteration_id,
+                "node.started",
+                NodeName.ui_tester.value,
+                title,
+                message,
+                run_id=run_id,
+            )
+            artifact, run_id = self._run_ui_tester_agent(state, baseline, docs, specs, run_id=run_id)
             planning_failure = self._planning_integrity_failure(
                 iteration_id,
                 node=NodeName.ui_tester.value,

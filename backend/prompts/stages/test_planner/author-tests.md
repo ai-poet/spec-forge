@@ -1,6 +1,6 @@
 ## Testing plan content
 
-The testing_plan must be detailed enough for both Code Tester and CUA to execute after implementation.
+The testing_plan must be detailed enough for both Code Tester and UI Tester to execute after implementation.
 
 ### Automated Tests Section (for Code Tester)
 
@@ -16,7 +16,7 @@ Include:
    - Database operations and expected state changes
    - External service interactions (mocked)
 
-### Manual Tests Section (for CUA)
+### Manual Tests Section (for UI Tester)
 
 For each manual test scenario, include:
 
@@ -68,4 +68,4 @@ Example manual test format:
 - Fail: Error message shown, stays on login page, or redirects elsewhere
 ```
 
-Do NOT write actual test code. Write the plan in Markdown format within the testing_plan field.
+Do NOT write actual test code or `tests/ui/*.json` specs. Write the plan in Markdown format within the testing_plan field.

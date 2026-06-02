@@ -13,10 +13,10 @@ Use the bundled wrapper (requires `npx`):
 
 ## Core loop
 
-1. `open` the scenario `target.url` (required for web specs).
+1. `open` the relevant app/page URL from `testing_plan.md`, PRD, or project context.
 2. `snapshot` — interact only using refs from the **latest** snapshot (`eN`).
 3. Re-snapshot after navigation or major DOM changes; stale refs require a fresh snapshot.
-4. Write artifacts under `tests/ui/recordings/<spec_id>/`.
+4. Write artifacts under `tests/ui/recordings/<scenario_id>/`.
 
 ## Guardrails
 
