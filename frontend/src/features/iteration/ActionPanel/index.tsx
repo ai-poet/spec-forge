@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { IterationDetail } from '../../../shared/lib/types'
 import { graphNodeLabel, retryLabel } from '../../../shared/lib/labels'
 import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
@@ -21,7 +22,7 @@ interface Props {
   onSkipDiscovery: () => Promise<void>
   onApproveVerify: () => Promise<void>
   onStop: () => Promise<void>
-  onResume: () => Promise<void>
+  onResume: (note?: string) => Promise<void>
   onManualSkip: (node?: string | null) => Promise<void> | void
 }
 
@@ -126,6 +127,7 @@ export function ActionPanel({
   onResume,
   onManualSkip,
 }: Props) {
+  const [resumeNote, setResumeNote] = useState('')
   const state = detail ? resolveStatusCopy(detail) : null
   const stoppedStep = detail?.stopped_at_node ? presentNodeName(detail.stopped_at_node) : null
   const problem = reviewMode ? null : classifyIterationProblem(detail)
@@ -136,6 +138,16 @@ export function ActionPanel({
   const statusClass = detail?.status ? BAR_STATUS_CLASS[detail.status] ?? RUNNING_BAR_CLASS[detail.status] ?? '' : ''
   const skipNode = manualSkipNode(detail)
   const canManualSkip = Boolean(detail && !reviewMode && detail.status !== 'delivered')
+  const canResume = Boolean(detail?.status === 'stopped' && detail.stopped_at_node)
+  const resumeNoteId = detail ? `resume-note-${detail.id}` : 'resume-note'
+
+  useEffect(() => {
+    setResumeNote('')
+  }, [detail?.id, detail?.status])
+
+  async function handleResumeClick() {
+    await onResume(resumeNote.trim() || undefined)
+  }
 
   return (
     <section className={`${styles.bar} ${statusClass} ${running ? styles.barRunning : ''} ${reviewMode ? styles.barReview : ''}`.trim()}>
@@ -182,6 +194,22 @@ export function ActionPanel({
             <span className={verifyReady ? 'ok-text' : 'muted'}>{verifyReady ? '✓' : '○'} 验证报告</span>
           </div>
         ) : null}
+        {canResume && !reviewMode ? (
+          <div className={styles.resumeNoteBox}>
+            <label className={styles.resumeNoteLabel} htmlFor={resumeNoteId}>
+              恢复前补充意见
+            </label>
+            <textarea
+              id={resumeNoteId}
+              className={styles.resumeNoteInput}
+              rows={3}
+              placeholder="例如：先按现有设计实现，不要新增后台配置页"
+              value={resumeNote}
+              disabled={busy}
+              onChange={(event) => setResumeNote(event.target.value)}
+            />
+          </div>
+        ) : null}
         {detail?.retry_counts && Object.keys(detail.retry_counts).length ? (
           <div className={styles.retryRow}>
             {Object.entries(detail.retry_counts).map(([key, value]) => (
@@ -194,7 +222,7 @@ export function ActionPanel({
         <button type="button" className="btn primary" onClick={onApproveVerify} disabled={busy || detail?.status !== 'awaiting_verify_approval'}>
           确认交付
         </button>
-        <button type="button" className="btn primary" onClick={onResume} disabled={busy || detail?.status !== 'stopped' || !detail.stopped_at_node}>
+        <button type="button" className="btn primary" onClick={() => void handleResumeClick()} disabled={busy || !canResume}>
           继续执行
         </button>
         {canManualSkip ? (

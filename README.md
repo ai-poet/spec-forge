@@ -434,7 +434,8 @@ flowchart TD
 ## 停止与恢复
 
 - **停止**：工作台点「停止」→ 后端立刻 kill 正在跑的 CLI 进程，记录停在哪个步骤（`stopped_at_node`）
-- **继续执行**：状态为 `stopped` 时，点「继续执行」→ 从 `stopped_at_node` 恢复（例如停在 `test_planner` 就重跑测试规划）
+- **停止后补充意见**：状态为 `stopped` 时，可在工作台填写「恢复前补充意见」或提交「人工补充说明」。这些内容会写入 `context/runtime_notes.jsonl`
+- **继续执行**：状态为 `stopped` 时，点「继续执行」→ 从 `stopped_at_node` 恢复（例如停在 `test_planner` 就重跑测试规划），恢复备注会作为 runtime notes 注入下一轮 Agent prompt
 
 删除流水线时也会先停止所有正在运行的 Agent CLI。
 
@@ -457,6 +458,7 @@ flowchart TD
 - **Agent 活动**：语义化事件（`prd_planner.completed`、`test_planner.completed`、`code_tester.retry_to_coder` 等，无旧版 `planner`/`tester` 节点别名）
 - **本阶段 CLI 日志**：各阶段 CLI 的实时终端输出（stream-json 原始流）
 - **文档面板**：`prd.md`、`testing_plan.md`、`verify_report.md` 等
+- **补充说明**：运行中或停止后都可写入 `context/runtime_notes.jsonl`，下一轮 Agent prompt 会读取
 - **运行日志**：每个节点 CLI 的完整 stdout/stderr 归档
 - **UI 验证面板**：`ui_results.json` / `ui_report.md`；工具不可用或自动化执行失败显示警告，UI Tester 汇总出 P0/P1 缺陷时阻断回环
 

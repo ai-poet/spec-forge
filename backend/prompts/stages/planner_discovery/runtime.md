@@ -10,4 +10,6 @@
 
 {artifact_retry}
 
+{runtime_notes}
+
 {session_continuation}

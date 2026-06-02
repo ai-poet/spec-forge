@@ -15,4 +15,6 @@ Epic / goal:
 
 {artifact_retry}
 
+{runtime_notes}
+
 {session_continuation}

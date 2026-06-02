@@ -72,6 +72,7 @@
   display: grid;
   gap: 8px;
   min-width: 0;
+  flex: 1;
 }
 
 .body {
@@ -123,6 +124,31 @@
   flex-wrap: wrap;
   gap: 7px;
   margin-top: 10px;
+}
+
+.resumeNoteBox {
+  display: grid;
+  gap: 6px;
+  max-width: 720px;
+}
+
+.resumeNoteLabel {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.resumeNoteInput {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  padding: 9px 11px;
+  border: 1px solid #2b3951;
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.45;
 }
 
 .retryRow {

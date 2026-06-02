@@ -291,6 +291,7 @@ class PipelinePromptsMixin:
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.planner_discovery.value),
                     "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.planner_discovery.value),
+                    "runtime_notes": self._runtime_notes_prompt(iteration_id),
                     "session_continuation": self._discovery_continuation_hint(state, resume=resume),
                 },
             )
@@ -347,6 +348,7 @@ class PipelinePromptsMixin:
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.prd_planner.value),
                     "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.prd_planner.value),
+                    "runtime_notes": self._runtime_notes_prompt(iteration_id),
                     "session_continuation": self._stage_continuation_hint(stage="prd_planner", resume=resume),
                 },
             )
@@ -382,6 +384,7 @@ class PipelinePromptsMixin:
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.test_planner.value),
                     "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.test_planner.value),
+                    "runtime_notes": self._runtime_notes_prompt(iteration_id),
                     "session_continuation": self._stage_continuation_hint(stage="test_planner", resume=resume),
                 },
             )

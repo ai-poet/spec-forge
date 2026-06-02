@@ -20,7 +20,15 @@ async function syncDocumentText(
 }
 
 function isCliOutputEvent(event: LiveMessage['event']): event is { type: 'cli.output'; payload: CliOutputPayload } {
-  return Boolean(event && event.type === 'cli.output' && 'payload' in event)
+  if (!event || event.type !== 'cli.output' || !('payload' in event)) return false
+  const payload = event.payload
+  return Boolean(
+    payload
+    && typeof payload === 'object'
+    && 'node' in payload
+    && 'stream' in payload
+    && 'chunk' in payload,
+  )
 }
 
 export function useIterationLive(iterationId: string | null) {
@@ -145,15 +153,16 @@ export function useIterationLive(iterationId: string | null) {
 
           if (message.type === 'pong') return
 
-          if (message.type === 'cli.output' && isCliOutputEvent(message.event)) {
-            setDetail((prev) => mergeLiveCliOutput(prev, message.event.payload))
+          const liveEvent = message.event
+          if (message.type === 'cli.output' && isCliOutputEvent(liveEvent)) {
+            setDetail((prev) => mergeLiveCliOutput(prev, liveEvent.payload))
             setLastMessageAt(new Date().toISOString())
             setLiveError(null)
             return
           }
 
-          if (message.type === 'event' && message.event && 'id' in message.event) {
-            setDetail((prev) => mergeLiveEvent(prev, message.event as IterationDetail['events'][number]))
+          if (message.type === 'event' && liveEvent && 'id' in liveEvent) {
+            setDetail((prev) => mergeLiveEvent(prev, liveEvent as IterationDetail['events'][number]))
             setLastMessageAt(new Date().toISOString())
             setLiveError(null)
             return

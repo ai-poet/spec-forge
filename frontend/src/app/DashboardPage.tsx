@@ -212,11 +212,11 @@ export function DashboardPage() {
     }
   }
 
-  async function handleResume() {
+  async function handleResume(note?: string) {
     if (!selectedIterationId) return
     setBusy(true)
     try {
-      await resumeIteration(selectedIterationId, '用户恢复')
+      await resumeIteration(selectedIterationId, note?.trim() || '用户恢复')
       await live.loadDetail()
       await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId)
       await epics.refreshEpics(epics.selectedEpicId ?? undefined)

@@ -59,6 +59,7 @@ def compose_stage_prompt(
     """Assemble built-in stage skills, optional project extra, and runtime variables."""
     vars_map = variables or {}
     vars_map.setdefault("artifact_retry", "")
+    vars_map.setdefault("runtime_notes", "")
     modules = list_stage_modules(stage)
     skill_chunks: list[str] = []
     runtime_template: str | None = None

@@ -25,4 +25,6 @@ Iteration docs root: {docs_root}
 
 {artifact_retry}
 
+{runtime_notes}
+
 Playwright wrapper path: {pwcli_wrapper}

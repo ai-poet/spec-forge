@@ -23,7 +23,7 @@ interface Props {
   onSkipDiscovery: () => Promise<void>
   onApproveVerify: () => Promise<void>
   onStop: () => Promise<void>
-  onResume: () => Promise<void>
+  onResume: (note?: string) => Promise<void>
   onManualSkip: (node?: string | null) => Promise<void> | void
   onRuntimeNoteSubmitted?: () => void
 }

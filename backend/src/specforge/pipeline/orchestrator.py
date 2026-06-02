@@ -539,12 +539,15 @@ class LangGraphPipeline(
         resume_node = self._stopped_resume_node(row)
         if not resume_node:
             raise ValueError("cannot determine resume step")
+        resume_note = (note or "").strip()
 
         self._aborted_iterations.discard(iteration_id)
         config = self._config(iteration_id)
+        if resume_note:
+            self.add_runtime_note(iteration_id, resume_note, node=resume_node)
 
         if resume_node == "requirements_input" and self.can_resume(iteration_id, "requirements_input"):
-            self.resume(iteration_id, "requirements_input", note or "resumed")
+            self.resume(iteration_id, "requirements_input", resume_note or "resumed")
             return
         if resume_node == "verify_approval" and self.can_resume(iteration_id, "verify_approval"):
             self._update_iteration(
@@ -557,11 +560,11 @@ class LangGraphPipeline(
             self._add_event(
                 iteration_id,
                 event_type="iteration.resumed",
-                payload={"node": resume_node, "note": note},
+                payload={"node": resume_node, "note": resume_note or None},
             )
             self._begin_invoke(iteration_id)
             try:
-                self.graph.invoke(Command(resume=note or "resumed"), config=config)
+                self.graph.invoke(Command(resume=resume_note or "resumed"), config=config)
             finally:
                 self._end_invoke(iteration_id)
             self._publish_snapshot(iteration_id)
@@ -578,10 +581,12 @@ class LangGraphPipeline(
         self._add_event(
             iteration_id,
             event_type="iteration.resumed",
-            payload={"node": resume_node, "note": note},
+            payload={"node": resume_node, "note": resume_note or None},
         )
 
         state = self._build_state(iteration_id)
+        if resume_note:
+            state["failure_notes"] = resume_note
         graph_state = self.graph.get_state(config)
         if graph_state.values:
             merged = dict(graph_state.values)

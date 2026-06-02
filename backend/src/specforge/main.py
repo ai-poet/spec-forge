@@ -472,12 +472,12 @@ def manual_skip_iteration(iteration_id: str, payload: ManualSkipRequest) -> Iter
     return get_iteration(iteration_id)
 
 
-_RUNTIME_NOTE_STATUSES = {"planning", "coding", "testing", "retrying", "queued"}
+_RUNTIME_NOTE_STATUSES = {"planning", "coding", "testing", "retrying", "queued", "stopped"}
 
 
 @app.post("/api/iterations/{iteration_id}/runtime-note", response_model=IterationSummary)
 def add_runtime_note(iteration_id: str, payload: RetryRequest) -> IterationSummary:
-    iteration = db.get_iteration(iteration_id)
+    iteration = db.get_iteration_row(iteration_id)
     if not iteration:
         raise HTTPException(status_code=404, detail="iteration not found")
     if iteration["status"] not in _RUNTIME_NOTE_STATUSES:
@@ -485,7 +485,9 @@ def add_runtime_note(iteration_id: str, payload: RetryRequest) -> IterationSumma
     note = (payload.note or "").strip()
     if not note:
         raise HTTPException(status_code=400, detail="note is required")
-    node = iteration["current_node"] if "current_node" in iteration.keys() else "user"
+    node = iteration["current_node"] if "current_node" in iteration.keys() else None
+    if not node and "stopped_at_node" in iteration.keys():
+        node = iteration["stopped_at_node"]
     pipeline.add_runtime_note(iteration_id, note, node=str(node or "user"))
     return get_iteration(iteration_id)
 

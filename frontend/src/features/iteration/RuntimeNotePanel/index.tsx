@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { submitRuntimeNote } from '../../../shared/lib/api'
 import type { IterationDetail } from '../../../shared/lib/types'
-import { isPipelineRunning } from '../../pipeline/lib/pipelineLive'
 import styles from './RuntimeNotePanel.module.less'
 
-const NOTE_STATUSES = new Set(['planning', 'coding', 'testing', 'retrying', 'queued'])
+const NOTE_STATUSES = new Set(['planning', 'coding', 'testing', 'retrying', 'queued', 'stopped'])
 
 interface Props {
   detail: IterationDetail | null
@@ -17,7 +16,8 @@ export function RuntimeNotePanel({ detail, reviewMode = false, onSubmitted }: Pr
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const canSubmit = Boolean(detail && NOTE_STATUSES.has(detail.status) && isPipelineRunning(detail) && !reviewMode)
+  const canSubmit = Boolean(detail && NOTE_STATUSES.has(detail.status) && !reviewMode)
+  const stopped = detail?.status === 'stopped'
 
   async function handleSubmit() {
     if (!detail || !note.trim() || !canSubmit) return
@@ -39,9 +39,11 @@ export function RuntimeNotePanel({ detail, reviewMode = false, onSubmitted }: Pr
   return (
     <section className={`panel ${styles.root}`}>
       <div className="section-row">
-        <h2 className="section-title">运行中补充说明</h2>
+        <h2 className="section-title">{stopped ? '人工补充说明' : '运行中补充说明'}</h2>
       </div>
-      <p className="muted">在 Agent 仍在执行时插入简短说明，将在下一轮 CLI 提示中注入（类似 /btw）。</p>
+      <p className="muted">
+        {stopped ? '停止后补充的说明会写入下一轮 Agent 提示。' : '在 Agent 仍在执行时插入简短说明，将在下一轮 CLI 提示中注入（类似 /btw）。'}
+      </p>
       <textarea
         className={styles.input}
         rows={3}
@@ -51,7 +53,7 @@ export function RuntimeNotePanel({ detail, reviewMode = false, onSubmitted }: Pr
         onChange={(e) => setNote(e.target.value)}
       />
       <div className={styles.actions}>
-        <button type="button" className="btn btn-ghost btn-sm" disabled={!canSubmit || busy || !note.trim()} onClick={() => void handleSubmit()}>
+        <button type="button" className={`btn primary ${styles.submitButton}`} disabled={!canSubmit || busy || !note.trim()} onClick={() => void handleSubmit()}>
           {busy ? '提交中…' : '提交补充说明'}
         </button>
         {!canSubmit ? <span className="muted">当前状态不可提交</span> : null}

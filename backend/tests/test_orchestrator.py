@@ -29,6 +29,7 @@ from specforge.documents.docs_io import (
 )
 from specforge.main import app, broker, job_queue, pipeline, ws_iteration
 from specforge.core.models import IterationStatus
+from specforge.policy.context_manifest import RUNTIME_NOTES, read_runtime_notes
 
 
 client = TestClient(app)
@@ -1409,6 +1410,40 @@ def test_resume_stopped_iteration(tmp_path):
     detail = client.get(f"/api/iterations/{iteration_id}").json()
     assert detail["status"] != "stopped"
     assert any(event["type"] == "iteration.resumed" for event in detail["events"])
+    notes = read_runtime_notes(pipeline.docs_root(iteration_id) / RUNTIME_NOTES)
+    assert notes[-1] == {"node": "planner_discovery", "note": "continue"}
+    resumed = [event for event in detail["events"] if event["type"] == "iteration.resumed"]
+    assert resumed[-1]["payload"]["note"] == "continue"
+
+
+def test_runtime_note_accepts_stopped_iteration(tmp_path):
+    project = post_project(tmp_path, "stopped-runtime-note")
+    project_id = project.json()["id"]
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "goal": "add stopped note", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+    pipeline.db.update_iteration(
+        iteration_id,
+        status="stopped",
+        current_node=None,
+        stopped_at_node="coder",
+        last_error="user stopped",
+    )
+
+    resp = client.post(
+        f"/api/iterations/{iteration_id}/runtime-note",
+        json={"note": "prefer the compact admin table"},
+    )
+
+    assert resp.status_code == 200
+    notes = read_runtime_notes(pipeline.docs_root(iteration_id) / RUNTIME_NOTES)
+    assert notes[-1] == {"node": "coder", "note": "prefer the compact admin table"}
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    runtime_note_events = [event for event in detail["events"] if event["type"] == "runtime.note"]
+    assert runtime_note_events[-1]["payload"]["node"] == "coder"
 
 
 def test_manual_skip_code_tester_reaches_verify_approval():

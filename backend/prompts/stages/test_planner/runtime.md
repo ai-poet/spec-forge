@@ -12,6 +12,8 @@ Epic / goal:
 
 {artifact_retry}
 
+{runtime_notes}
+
 {session_continuation}
 
 Read `prd.md` and existing context manifests under the iteration docs root before authoring tests.
