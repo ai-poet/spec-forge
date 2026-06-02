@@ -1216,7 +1216,16 @@ def test_checksum_gate_blocks_modified_protected_tests():
     iteration_id = resp.json()["id"]
     advance_through_planning_gates(iteration_id)
 
+    # Simulate Code Tester writing a test and establishing baseline
     test_file = pipeline.docs_root(iteration_id) / "tests" / "unit" / "test_transitions.py"
+    test_file.write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    pipeline._update_iteration(
+        iteration_id,
+        test_integrity_baseline=build_test_integrity_manifest(docs.root),
+    )
+
+    # Now modify the test (simulating Coder tampering on retry)
     test_file.write_text("def test_bad():\n    assert True\n", encoding="utf-8")
 
     result = pipeline._integrity_check_node({"iteration_id": iteration_id})
@@ -1226,7 +1235,7 @@ def test_checksum_gate_blocks_modified_protected_tests():
     payload = detail.json()
     classified = [event for event in payload["events"] if event["type"] == "error.classified"]
     assert classified
-    assert "受保护测试" in classified[-1]["payload"]["action_hint"]
+    assert "测试基线" in classified[-1]["payload"]["action_hint"]
 
 
 def test_artifact_invalid_emits_classified_error():

@@ -9,7 +9,7 @@ from ...core.contracts import (
     ui_spec_error_type,
 )
 from ...core.models import IterationStatus, NodeName
-from ...documents.docs_io import IterationDocs
+from ...documents.docs_io import IterationDocs, test_integrity_manifest
 from ...documents.docs_scaffold import append_iteration_log
 from ...policy.write_zones import summarize_failure_notes
 from ..state import PipelineState
@@ -78,12 +78,11 @@ class VerificationNodesMixin:
                 tester_pending = verification_from_code(code_artifact)
             if code_artifact is None:
                 raise ValueError("code tester artifact was not resolved")
-            problems = self._integrity_problems(iteration_id)
-            if problems:
-                self._node_event(iteration_id, "node.failed", NodeName.code_tester.value, "验证前测试完整性失败", "; ".join(problems), severity="error", run_id=run_id)
-                return self._block(iteration_id, "test_integrity.failed", run_id, "; ".join(problems))
-            self._node_event(iteration_id, "node.completed", NodeName.code_tester.value, "代码验证完成", "进入 UI 自动化验证。", severity="success", run_id=run_id)
-            return {"pending_code_tester_json": tester_pending.model_dump_json(), "code_tester_run_id": run_id, "current_node": NodeName.ui_tester.value}
+            self._write_tester_artifact(iteration_id, IterationDocs(self.docs_root(iteration_id)), tester_pending, run_id=run_id)
+            baseline = test_integrity_manifest(self.docs_root(iteration_id))
+            self._update_iteration(iteration_id, test_integrity_baseline=baseline)
+            self._node_event(iteration_id, "node.completed", NodeName.code_tester.value, "代码验证完成", "已建立测试基线，进入测试完整性检查。", severity="success", run_id=run_id)
+            return {"pending_code_tester_json": tester_pending.model_dump_json(), "code_tester_run_id": run_id, "current_node": NodeName.integrity_check.value}
         except Exception as exc:
             self._node_event(iteration_id, "node.failed", NodeName.code_tester.value, "验证产物无效", "Code Tester 输出无法被解析为合法 artifact。", severity="error", run_id=run_id)
             return self._block(iteration_id, "artifact.invalid", run_id, str(exc))

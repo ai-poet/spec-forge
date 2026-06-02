@@ -33,20 +33,20 @@ class PipelineGraphMixin:
         builder.add_conditional_edges(
             "coder",
             self._route_after_coder,
-            {"blocked": END, "clarification": "planner_clarification", "integrity": "integrity_check"},
+            {"blocked": END, "clarification": "planner_clarification", "code_tester": "code_tester"},
         )
         builder.add_conditional_edges(
             "planner_clarification",
             self._route_after_clarification,
             {"blocked": END, "coder": "coder"},
         )
-        builder.add_conditional_edges("integrity_check", self._route_after_integrity, {"blocked": END, "code_tester": "code_tester"})
+        builder.add_conditional_edges("integrity_check", self._route_after_integrity, {"blocked": END, "ui_tester": "ui_tester"})
         builder.add_conditional_edges(
             "code_tester",
             self._route_after_code_tester,
             {
                 "blocked": END,
-                "ui": "ui_tester",
+                "integrity": "integrity_check",
                 "retry": "coder",
                 "self_retry": "code_tester",
                 "test_planner_retry": "test_planner",

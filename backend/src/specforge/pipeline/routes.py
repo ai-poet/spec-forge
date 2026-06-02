@@ -34,25 +34,25 @@ class PipelineRoutesMixin:
         return "coder"
 
 
-    def _route_after_coder(self, state: PipelineState) -> Literal["blocked", "clarification", "integrity"]:
+    def _route_after_coder(self, state: PipelineState) -> Literal["blocked", "clarification", "code_tester"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.stopped.value}:
             return "blocked"
         if state.get("route") == "clarification":
             return "clarification"
-        return "integrity"
+        return "code_tester"
 
 
     def _route_after_clarification(self, state: PipelineState) -> Literal["blocked", "coder"]:
         return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.stopped.value} else "coder"
 
 
-    def _route_after_integrity(self, state: PipelineState) -> Literal["blocked", "code_tester"]:
-        return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value} else "code_tester"
+    def _route_after_integrity(self, state: PipelineState) -> Literal["blocked", "ui_tester"]:
+        return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value} else "ui_tester"
 
 
     def _route_after_code_tester(
         self, state: PipelineState
-    ) -> Literal["blocked", "ui", "retry", "self_retry", "test_planner_retry"]:
+    ) -> Literal["blocked", "integrity", "retry", "self_retry", "test_planner_retry"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
         route = state.get("route")
@@ -60,7 +60,7 @@ class PipelineRoutesMixin:
             return route  # type: ignore[return-value]
         if not state.get("pending_code_tester_json"):
             return "blocked"
-        return "ui"
+        return "integrity"
 
 
     def _route_after_ui_tester(self, state: PipelineState) -> Literal["blocked", "retry", "self_retry", "test_planner_retry", "verify"]:

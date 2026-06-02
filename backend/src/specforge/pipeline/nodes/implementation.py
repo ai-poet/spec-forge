@@ -67,8 +67,8 @@ class ImplementationNodesMixin:
             event_type="coder.completed",
             payload={"changed_paths": artifact.changed_paths, "summary": artifact.summary, "run_id": run_id},
         )
-        self._node_event(iteration_id, "node.completed", NodeName.coder.value, "实现完成", artifact.summary or "代码实现已完成，准备进入测试完整性检查。", severity="success", run_id=run_id)
-        return {"status": IterationStatus.testing.value, "route": "", "current_node": NodeName.integrity_check.value, "coder_run_id": run_id}
+        self._node_event(iteration_id, "node.completed", NodeName.coder.value, "实现完成", artifact.summary or "代码实现已完成，准备进入代码验证。", severity="success", run_id=run_id)
+        return {"status": IterationStatus.testing.value, "route": "", "current_node": NodeName.code_tester.value, "coder_run_id": run_id}
 
 
     def _planner_clarification_node(self, state: PipelineState) -> PipelineState:
@@ -175,11 +175,11 @@ class ImplementationNodesMixin:
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         self._update_iteration(iteration_id, status=IterationStatus.testing.value, current_node=NodeName.integrity_check.value)
-        self._node_event(iteration_id, "node.started", NodeName.integrity_check.value, "测试完整性检查已启动", "正在确认 Planner 写入的受保护测试没有被实现节点修改。")
+        self._node_event(iteration_id, "node.started", NodeName.integrity_check.value, "测试完整性检查已启动", "正在确认 Code Tester 编写的测试没有被未授权修改。")
         problems = self._integrity_problems(iteration_id)
         if problems:
-            self._node_event(iteration_id, "node.failed", NodeName.integrity_check.value, "测试完整性失败", "; ".join(problems), severity="error", action_hint="恢复受保护测试文件，或重新运行 Planner 生成新的测试基线。")
+            self._node_event(iteration_id, "node.failed", NodeName.integrity_check.value, "测试完整性失败", "; ".join(problems), severity="error", action_hint="检查测试文件是否被意外修改。")
             return self._block(iteration_id, "test_integrity.failed", None, "; ".join(problems))
-        self._add_event(iteration_id, event_type="test_integrity.passed", payload={"stage": "before_tester"})
-        self._node_event(iteration_id, "node.completed", NodeName.integrity_check.value, "测试完整性通过", "受保护测试未被未授权修改，可以进入独立验证。", severity="success")
-        return {"status": IterationStatus.testing.value, "current_node": NodeName.code_tester.value}
+        self._add_event(iteration_id, event_type="test_integrity.passed", payload={"stage": "after_tester"})
+        self._node_event(iteration_id, "node.completed", NodeName.integrity_check.value, "测试完整性通过", "测试基线未被未授权修改，可以进入 UI 验证。", severity="success")
+        return {"status": IterationStatus.testing.value, "current_node": NodeName.ui_tester.value}

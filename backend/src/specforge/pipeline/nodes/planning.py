@@ -4,7 +4,7 @@ from langgraph.types import interrupt
 
 from ...core.contracts import ui_spec_error_type
 from ...core.models import IterationStatus, NodeName
-from ...documents.docs_io import IterationDocs, test_integrity_manifest
+from ...documents.docs_io import IterationDocs
 from ...documents.docs_scaffold import append_iteration_log
 from ..state import PipelineState
 
@@ -281,8 +281,7 @@ class PlanningNodesMixin:
             docs = IterationDocs(self.docs_root(iteration_id))
             docs.ensure()
             self._write_test_planner_artifact(iteration_id, docs, artifact, run_id=run_id)
-            baseline = test_integrity_manifest(docs.root)
-            self._update_iteration(iteration_id, status=IterationStatus.coding.value, current_node=None, test_integrity_baseline=baseline, last_error=None)
+            self._update_iteration(iteration_id, status=IterationStatus.coding.value, current_node=None, last_error=None)
             self._add_event(iteration_id, event_type="test_planner.completed", payload={"documents": 1, "run_id": run_id})
             self._node_event(
                 iteration_id,
