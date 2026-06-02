@@ -669,6 +669,28 @@ def test_execute_stderr_jsonl_emits_cli_display_without_error_warning():
     )
 
 
+def test_execute_throttles_text_cli_display_persistence():
+    iteration_id = create_manual_iteration("cli-display-throttle")
+    pipeline.db.update_iteration(iteration_id, current_node="planner_discovery", status="planning", last_error=None)
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "planner_discovery"}
+    text_line = json.dumps({"type": "stream_event", "stream_event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "thinking"}}})
+    code = (
+        "import json; "
+        "print(json.dumps({'type':'system','subtype':'init'})); "
+        f"[print({text_line!r}) for _ in range(50)]; "
+        "print(json.dumps({'type':'result','result':'{}'}))"
+    )
+
+    pipeline._execute(state, [sys.executable, "-c", code], node="planner_discovery")
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    cli_events = [event for event in detail["events"] if event["type"] == "cli.display"]
+
+    assert len(cli_events) == 2
+    phases = [event["payload"]["phase"] for event in cli_events]
+    assert phases == ["session", "result"]
+    assert all("raw_event" not in event["payload"] for event in cli_events)
+
+
 def test_execute_stderr_plain_logs_use_diagnostic_title():
     iteration_id = create_manual_iteration("cli-stderr-plain")
     pipeline.db.update_iteration(iteration_id, current_node="code_tester", status="testing", last_error=None)
@@ -1673,6 +1695,36 @@ def test_ui_tester_failure_warns_without_retry(tmp_path):
     assert "UI 自动化测试失败" in ui_payload["warnings"][0]
 
 
+def test_artifact_gate_failure_skips_ui_tester(tmp_path):
+    original_planner = pipeline._test_planner_artifact
+    pipeline._test_planner_artifact = make_test_planner_ui_spec  # type: ignore[method-assign]
+    try:
+        project = post_project(
+            tmp_path,
+            "gate-before-ui",
+            default_mode="dry-run",
+            default_test_command=f"{sys.executable} -c \"import sys; sys.exit(7)\"",
+            max_coder_tester_retries=0,
+        )
+        project_id = project.json()["id"]
+        resp = client.post(
+            "/api/iterations",
+            json={"project_id": project_id, "goal": "run UI spec but fail gate"},
+        )
+        iteration_id = resp.json()["id"]
+        advance_through_planning_gates(iteration_id)
+        _create_ui_spec(iteration_id, "web_smoke")
+        drain_jobs()
+        detail = client.get(f"/api/iterations/{iteration_id}").json()
+    finally:
+        pipeline._test_planner_artifact = original_planner  # type: ignore[method-assign]
+
+    assert detail["status"] == "blocked"
+    assert any(event["type"] == "code_tester.max_retries" for event in detail["events"])
+    assert not any(event["payload"].get("node") == "ui_tester" for event in detail["events"] if isinstance(event.get("payload"), dict))
+    assert detail["ui_results"] == []
+
+
 def _create_ui_spec(iteration_id: str, spec_id: str, kind: str = "web", target_key: str = "url", target_value: str = "http://127.0.0.1:5178") -> None:
     """Create a UI spec file directly in the iteration docs directory."""
     ui_spec = (
@@ -1722,6 +1774,63 @@ def test_planning_session_id_in_state_after_discovery(tmp_path, monkeypatch):
     cmd2 = pipeline._prd_planner_command(state)
     assert "--resume" in cmd2
     assert session_id in cmd2
+
+
+def test_planning_nodes_persist_and_resume_session(tmp_path, monkeypatch):
+    from specforge.core.contracts import PlannerDiscoveryArtifact
+
+    project = post_project(tmp_path, "planning-session-prod")
+    project_id = project.json()["id"]
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        goal="session production test",
+        mode="real-cli",
+        test_command=None,
+        project_id=project_id,
+    )
+    runner = SequenceRunner([
+        CLIResult(command=[], returncode=0, stdout="discovery", stderr=""),
+        CLIResult(command=[], returncode=0, stdout="prd", stderr=""),
+        CLIResult(command=[], returncode=0, stdout="tests", stderr=""),
+    ])
+    monkeypatch.setattr(pipeline, "real_runner", runner)
+    monkeypatch.setattr(
+        pipeline,
+        "_planner_discovery_artifact",
+        lambda state, run_result: PlannerDiscoveryArtifact(status="ready", requirements_brief="Ready.", complexity="simple"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_prd_planner_artifact",
+        lambda state, run_result: PrdPlannerArtifact(
+            prd="# PRD\n",
+            context_for_coder=[ContextManifestEntry(file="prd.md", reason="r")],
+            context_for_tester=[ContextManifestEntry(file="prd.md", reason="r")],
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_test_planner_artifact",
+        lambda state, run_result: TestPlannerArtifact(testing_plan="# Testing Plan\n"),
+    )
+
+    state = pipeline._build_state(iteration_id)
+    discovery_state = pipeline._planner_discovery_node(state)
+    state.update(discovery_state)
+    prd_state = pipeline._prd_planner_node(state)
+    state.update(prd_state)
+    pipeline._test_planner_node(state)
+
+    row = pipeline.db.get_iteration_row(iteration_id)
+    assert row is not None
+    assert row["planning_cli_session_id"]
+    assert row["planning_cli_session_started"] == 1
+    session_id = row["planning_cli_session_id"]
+    assert "--session-id" in runner.commands[0]
+    assert "--resume" in runner.commands[1]
+    assert session_id in runner.commands[1]
+    assert "--resume" in runner.commands[2]
+    assert session_id in runner.commands[2]
 
 
 def test_discovery_routes_back_to_itself_after_answer(tmp_path):
