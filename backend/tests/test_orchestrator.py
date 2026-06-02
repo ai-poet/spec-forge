@@ -473,6 +473,27 @@ def test_iteration_detail_includes_documents():
     assert payload["runs"]
 
 
+def test_iteration_detail_uses_lean_run_metadata_and_logs_endpoint():
+    resp = client.post(
+        "/api/iterations",
+        json={"project_name": "lean-runs", "goal": "make logs small", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    run = detail["runs"][0]
+
+    assert "stdout" not in run or run["stdout"] is None
+    assert "stderr" not in run or run["stderr"] is None
+    assert run["stdout_bytes"] > 0
+    assert run["duration_ms"] is not None
+    assert run["logs_url"].endswith(f"/api/iterations/{iteration_id}/runs/{run['id']}/logs")
+
+    logs = client.get(run["logs_url"]).json()
+    assert logs["stdout"]
+    assert "dry-run" in logs["stdout"]
+
+
 def test_design_to_delivery_flow():
     resp = client.post(
         "/api/iterations",
