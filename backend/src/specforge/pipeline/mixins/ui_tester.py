@@ -111,7 +111,7 @@ class PipelineUiTesterMixin:
         if cua_busy_holder:
             cua_session_section = (
                 f"CuaDriver session is busy (held by {cua_busy_holder}). "
-                "Mark native specs as warning if you cannot run cua-driver; do not steal user focus."
+                "Mark native scenarios as warning if you cannot run cua-driver; do not steal user focus."
             )
         else:
             cua_session_section = "CuaDriver session: available for native specs when cua-driver is installed."

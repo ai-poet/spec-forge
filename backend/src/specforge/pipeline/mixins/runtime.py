@@ -373,7 +373,7 @@ class PipelineRuntimeMixin:
     def _error_title(self, event_type: str) -> str:
         titles = {
             "artifact.invalid": "Agent 产物格式无效",
-            "ui_spec.invalid": "UI 测试规格无效",
+            "ui_spec.invalid": "Agent 产物格式无效",
             "test_integrity.failed": "测试完整性失败",
             "planning_integrity.failed": "规划文档完整性失败",
             "prd_planner.failed": "PRD 规划失败",

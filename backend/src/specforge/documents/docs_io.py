@@ -49,7 +49,7 @@ def protected_test_files(root: Path) -> list[Path]:
         relative = path.relative_to(root)
         if relative.parts[:2] == ("tests", "adversarial"):
             continue
-        if len(relative.parts) >= 3 and relative.parts[:3] == ("tests", "ui", "recordings"):
+        if relative.parts[:2] == ("tests", "ui"):
             continue
         files.append(path)
     return sorted(files)

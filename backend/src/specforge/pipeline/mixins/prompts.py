@@ -533,7 +533,7 @@ class PipelinePromptsMixin:
                     "defects:[{severity:'P0'|'P1'|'P2', path?:string, owner?:'coder'|'code_tester'|'test_planner', message:string}], "
                     "ux_notes:[string], delivery_recommendations:[string], "
                     "adversarial_tests:[{path:'tests/adversarial/**', content:string}], "
-                    "test_files:[{path:'tests/** except tests/adversarial/**', content:string}]}"
+                    "test_files:[{path:'tests/unit/** or tests/integration/**', content:string}]}"
                 ),
                 "test_command_section": test_command_section,
                 "build_command_section": build_command_section,
