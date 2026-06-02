@@ -18,8 +18,8 @@ SpecForge 的做法是：
 
 1. **所有决策和产物都落到本地 Markdown 文件**，可以 git 管理
 2. **PRD Planner、Test Planner、Coder、Code Tester 分工**（规划三阶段共用一条 Claude CLI session；验证可用 Codex，可在项目里按阶段配置）
-3. **Test Planner 在 Coder 之前写受保护测试**，Coder 不能改 `tests/unit|integration|ui`（checksum 门禁）
-4. **Code Tester 做代码审查；UI Tester Agent 在 `ui_tester` 节点跑验收场景**（playwright-cli / cua-driver，与代码验证分离）
+3. **Test Planner 在 Coder 之前写测试计划**（`testing_plan.md`），包含自动化测试策略和人工测试场景；Coder 不能改已建立的测试基线（checksum 门禁）
+4. **Code Tester 做代码审查并编写自动化测试**；**UI Tester Agent 在 `ui_tester` 节点跑验收场景**（playwright-cli / cua-driver，与代码验证分离）
 5. **LangGraph 编排整条流水线**，失败按 Write Zone 自动回环，超限才阻断
 6. **React 工作台实时展示**当前阶段、Agent 活动、CLI 输出
 
@@ -116,7 +116,7 @@ Project（项目）
 | 分区 | 路径模式 | Owner | 说明 |
 |------|----------|-------|------|
 | 源码 | `src/**`（或 convention 中的 `internal/`、`lib/` 等） | **Coder** | 实现代码 |
-| 受保护测试 | `tests/unit`、`tests/integration`、`tests/ui` | **Test Planner** | checksum 基线，Coder/Code Tester 不可改 |
+| 受保护测试 | `tests/unit`、`tests/integration`、`tests/ui` | **Code Tester**（按 testing_plan.md 编写） | checksum 基线，Coder 不可改 |
 | 对抗测试 | `tests/adversarial/**` | **Code Tester** | Code Tester 可增删 |
 | 验证产物 | `verify_report.md`、`delivery_advice.md`、`ui_*` | **Code Tester** | 验证与交付文档（由 code_tester + ui_tester 写盘） |
 | PRD | `prd.md` | **PRD Planner** | 产品与实现范围 |
@@ -235,17 +235,17 @@ flowchart TB
 | 需求澄清 | `planner_discovery` | Claude CLI | 在终局规划前澄清模糊需求（auto：清晰则直接 ready，否则一次一问；可多轮，通过 `--resume` 续接同一会话） |
 | 需求回答 | `requirements_input` | **你** | 在工作台回答 Planner 问题；写入 `discovery/*` |
 | PRD 规划 | `prd_planner` | Claude CLI | 产出 `prd.md` 与 context manifests |
-| 测试规划 | `test_planner` | Claude CLI | 产出 `testing_plan.md` 与受保护 `tests/**`（建立 checksum 基线） |
+| 测试规划 | `test_planner` | Claude CLI | 产出 `testing_plan.md`（含自动化测试策略 + 人工测试场景） |
 | 实现 | `coder` | Claude CLI | 只改 `src/**`，根据规划写代码 |
 | 澄清 | `planner_clarification` | Claude CLI | Coder 看不懂时，Planner 正式回答并写入 `clarifications/` |
-| 完整性 | `integrity_check` | 后端程序 | 检查 Test Planner 写的测试有没有被 Coder 偷偷改掉 |
-| 代码验证 | `code_tester` | Codex/Claude CLI | 独立代码审查与测试命令；写 `verify_report.md` 与 `defects[]`（不调用 UI 自动化） |
-| UI 验证 | `ui_tester` | Claude/Codex CLI | Agent 执行 `tests/ui/*.json`（web → playwright-cli，native → cua-driver），合并验证产物并写盘 |
+| 完整性 | `integrity_check` | 后端程序 | 检查已建立的测试基线有没有被 Coder 偷偷改掉 |
+| 代码验证 | `code_tester` | Codex/Claude CLI | 按 testing_plan.md 编写自动化测试；独立代码审查；写 `verify_report.md` 与 `defects[]`（不调用 UI 自动化） |
+| UI 验证 | `ui_tester` | Claude/Codex CLI | Agent 执行 `tests/ui/*.json` 与 testing_plan.md 中的人工测试场景（web → playwright-cli，native → cua-driver），合并验证产物并写盘 |
 | 复核 | `planner_verify` | 后端程序 | 检查验证报告格式是否合格 |
 | 交付确认 | `verify_approval` | **你** | 在前端点「确认交付」，流水线才归档 |
 | 完成 | `done` | 后端 | 状态变为 `delivered`，写入 iteration_log |
 
-**注意：** 规划三阶段共用一条 CLI session：**planner_discovery**（需求澄清）→ **prd_planner**（PRD + context）→ **test_planner**（测试计划 + 受保护测试），之后才进入 Coder。需求澄清可多轮：每次回答通过 `--resume` 接回同一会话，Planner 可继续 ask 或返回 ready；ready 后仍在同一会话内依次产出 PRD、测试规划。前端 CLI 日志在规划阶段连续展示，不再每步清空。无单独的设计审批节点，**不生成** `system_design.md` / `modification_plan.md`，事实源为 `prd.md` 与 `testing_plan.md`。交付前仍有**最终确认**。Coder 仍可通过 `planner_clarification` 向规划侧补问（与 discovery 分离，clarification 仍各自开 session）。
+**注意：** 规划三阶段共用一条 CLI session：**planner_discovery**（需求澄清）→ **prd_planner**（PRD + context）→ **test_planner**（测试计划），之后才进入 Coder。Test Planner 只输出 `testing_plan.md`（含自动化测试策略和人工测试场景），不预写测试文件；具体测试代码由 Code Tester 在实现后按测试计划编写。需求澄清可多轮：每次回答通过 `--resume` 接回同一会话，Planner 可继续 ask 或返回 ready；ready 后仍在同一会话内依次产出 PRD、测试规划。前端 CLI 日志在规划阶段连续展示，不再每步清空。无单独的设计审批节点，**不生成** `system_design.md` / `modification_plan.md`，事实源为 `prd.md` 与 `testing_plan.md`。交付前仍有**最终确认**。Coder 仍可通过 `planner_clarification` 向规划侧补问（与 discovery 分离，clarification 仍各自开 session）。
 
 ### 工作台阶段条（前端）
 
@@ -254,7 +254,7 @@ flowchart TB
 | 步骤 | 对应节点 | 说明 |
 |------|----------|------|
 | PRD 规划 | `planner_discovery`（可多轮）、`requirements_input`、`prd_planner` | 需求澄清（`--resume` 续接）+ `prd.md` + context manifests |
-| 测试规划 | `test_planner` | `testing_plan.md` + 受保护 `tests/**` |
+| 测试规划 | `test_planner` | `testing_plan.md`（自动化测试策略 + 人工测试场景） |
 | 实现 | `coder`、`planner_clarification` | 写 `src/**`；澄清回合计入实现阶段 |
 | 测试完整性 | `integrity_check` | 受保护测试 checksum |
 | 代码验证 | `code_tester` | 独立审查、`verify_report`、`defects[]` |
@@ -298,9 +298,9 @@ flowchart LR
     t2s -->|"code_tester_self > max"| b2s["blocked"]
   end
 
-  subgraph loop2tp ["回环 ②c 受保护测试修订（默认 ≤ 3 次）"]
+  subgraph loop2tp ["回环 ②c 测试计划修订（默认 ≤ 3 次）"]
     direction TB
-    tp["owner=test_planner"] --> tp2["test_planner 修订 tests/**"]
+    tp["owner=test_planner"] --> tp2["test_planner 修订 testing_plan.md"]
     tp2 --> ctp["coder → integrity → 再验证"]
     ctp --> tp
     tp -->|"test_planner_self > max"| btp["blocked"]
@@ -322,12 +322,12 @@ flowchart LR
 | **① 澄清** | `coder_planner_clarify` | 3 | Coder artifact 含 `clarification_request` | `coder → planner_clarification → coder` | `blocked_user` |
 | **②a 实现/验证** | `coder_tester` | 5 | `defects` 含 `owner=coder`（如 `src/**` 实现缺陷），或审查兜底失败且推断为 Coder 责任 | `ui_tester → coder → integrity_check → code_tester → ui_tester` | `blocked` |
 | **②b Code Tester 自修** | `code_tester_self` | 3 | `defects` 仅 `owner=code_tester`（如 `tests/adversarial/**`、验证文档），或写盘闸门失败 | `code_tester → code_tester`（带 `failure_notes`） | `blocked` |
-| **②c 测试修订** | `test_planner_self` | 3 | `defects` 含 `owner=test_planner` / 受保护 `tests/**` 问题 | `ui_tester → test_planner → coder → …` | `blocked` |
+| **②c 测试计划修订** | `test_planner_self` | 3 | `defects` 含 `owner=test_planner` / 测试计划需要调整 | `ui_tester → test_planner → coder → …` | `blocked` |
 | **③ 规格复核** | `planner_verify_reject` | 2 | `verify_report.md` 缺少标题或 Pass 摘要 | `planner_verify → code_tester → ui_tester → planner_verify` | `blocked` |
 
 **owner=prd_planner**（PRD 范围硬冲突等）不进入自动回环，直接 `blocked`，需人工处理。
 
-**UI Tester**（`ui_tester` CLI 阶段）扫描 `docs/.../tests/ui/*.json`：`kind: web` 用 **playwright-cli**（`open` → `snapshot` → `click eN`）；`kind: native` 用 **cua-driver**（`launch_app` → `get_window_state` → `element_index`）。本机 CUA 会话互斥时 native 可记 `warning`。**UI 断言失败不触发 ②a/②b/②c**，只写入 `ui_warnings` 与交付建议。
+**UI Tester**（`ui_tester` CLI 阶段）有两个测试来源：1）`docs/.../tests/ui/*.json` 结构化 spec；2）`testing_plan.md` 中的人工测试场景。Web 场景优先用 **playwright-cli**（`open` → `snapshot` → `click eN`）；native 用 **cua-driver**（`launch_app` → `get_window_state` → `element_index`）。本机 CUA 会话互斥时 native 可记 `warning`。**UI 断言失败不触发 ②a/②b/②c**，只写入 `ui_warnings` 与交付建议。
 
 **Code Tester 容错（`code_tester` 节点；UI 在后续 `ui_tester`）：**
 
@@ -357,7 +357,7 @@ sequenceDiagram
     CodeTester->>CodeTester: review_only 代码审查兜底
   end
   CodeTester->>UiTester: pending artifact
-  UiTester->>UI: Agent CLI 执行 tests/ui 场景
+  UiTester->>UI: Agent CLI 执行 tests/ui/*.json + testing_plan.md 人工场景
   UiTester->>Gate: 写盘后 build/test（若已配置）
   alt 闸门失败
     Gate-->>UiTester: 回滚 adversarial → ②b
@@ -368,7 +368,7 @@ sequenceDiagram
       Coder->>Integrity: checksum
       Integrity->>CodeTester: 再验证
     else owner=test_planner
-      UiTester-->>TestPlanner: test_planner_self
+      UiTester-->>TestPlanner: test_planner_self（修订 testing_plan.md）
     else owner=code_tester
       UiTester-->>CodeTester: code_tester_self 自修
     end
@@ -450,13 +450,13 @@ flowchart TD
 |------|--------|------|-----------------|
 | **planner_discovery** | Claude CLI | 需求澄清（一次一问或 ready） | `discovery/*` |
 | **prd_planner** | Claude CLI | 产出 `prd.md`、context manifests | `prd.md`、`context/for_*.jsonl` |
-| **test_planner** | Claude CLI | 产出 `testing_plan.md`、受保护 `tests/**` | `testing_plan.md`、`tests/unit|integration|ui` |
+| **test_planner** | Claude CLI | 产出 `testing_plan.md`（含自动化测试策略 + 人工测试场景） | `testing_plan.md` |
 | **coder** | Claude CLI | 按 PRD/测试实现 | `src/**`（及 convention 中的源码根） |
 | **planner_clarification** | Claude CLI | 回答 Coder 澄清 | `clarifications/*` |
-| **code_tester** | Codex/Claude CLI（可配置） | 独立代码审查、`defects[]`、对抗测试；无 UI 自动化 | `verify_report.md`、`delivery_advice.md`、`tests/adversarial/` |
-| **ui_tester** | Claude/Codex CLI（可配置） | Agent 执行 `tests/ui/*.json`（playwright-cli / cua-driver）、合并验证产物、写盘闸门 | `ui_results.json`、`ui_report.md`（在 code_tester 产物基础上） |
+| **code_tester** | Codex/Claude CLI（可配置） | 按 testing_plan.md 编写自动化测试；独立代码审查、`defects[]`、对抗测试；无 UI 自动化 | `verify_report.md`、`delivery_advice.md`、`tests/unit|integration`、`tests/adversarial/` |
+| **ui_tester** | Claude/Codex CLI（可配置） | Agent 执行 `tests/ui/*.json` 与 testing_plan.md 中的人工测试场景（playwright-cli / cua-driver）、合并验证产物、写盘闸门 | `ui_results.json`、`ui_report.md`（在 code_tester 产物基础上） |
 
-反串谋：规划与验证可分模型；受保护测试在 Coder **之前**由 Test Planner 写入并建立 checksum；Code Tester 不得改 protected tests。验证回环按 owner 分流：Coder（②a）、Code Tester 自修（②b）、Test Planner 修订测试（②c）。UI 环境不可用走 code_tester 审查兜底；UI 断言失败仅警告，不单独触发实现回环。
+反串谋：规划与验证可分模型；测试计划（`testing_plan.md`）在 Coder **之前**由 Test Planner 产出，Code Tester 在实现后按测试计划编写自动化测试并建立 checksum 基线；Coder 不得改已建立的测试。验证回环按 owner 分流：Coder（②a）、Code Tester 自修（②b）、Test Planner 修订测试计划（②c）。UI 环境不可用走 code_tester 审查兜底；UI 断言失败仅警告，不单独触发实现回环。
 
 ---
 
