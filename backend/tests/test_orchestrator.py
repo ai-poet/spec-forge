@@ -502,6 +502,56 @@ def test_iteration_detail_uses_lean_run_metadata_and_logs_endpoint():
     assert "dry-run" in logs["stdout"]
 
 
+def test_iteration_detail_compacts_large_history_for_live_refresh():
+    iteration_id = create_manual_iteration("lean-history")
+    pipeline.db.update_iteration(
+        iteration_id,
+        status=IterationStatus.blocked.value,
+        current_node=None,
+        stopped_at_node="ui_tester",
+        last_error="error " + ("x" * 12000),
+    )
+    pipeline.db.add_run(
+        iteration_id,
+        node="ui_tester",
+        status="failed",
+        command="claude -p --json-schema {} ## SpecForge stage: ui_tester\n" + ("prompt " * 4000),
+        stdout="full stdout",
+        stderr="",
+        exit_code=1,
+    )
+    pipeline.db.add_event(
+        iteration_id,
+        event_type="node.completed",
+        payload={"node": "code_tester", "title": "Code Tester 完成", "message": "kept"},
+    )
+    for index in range(150):
+        pipeline.db.add_event(
+            iteration_id,
+            event_type="cli.display",
+            payload={
+                "node": "ui_tester",
+                "phase": "tool",
+                "title": f"tool {index}",
+                "message": "chunk " + ("x" * 12000),
+                "raw_event": {"large": "x" * 12000},
+            },
+        )
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    cli_events = [event for event in detail["events"] if event["type"] == "cli.display"]
+    run = detail["runs"][0]
+
+    assert len(cli_events) == pipeline._PUBLIC_CLI_DISPLAY_EVENT_LIMIT
+    assert any(event["type"] == "node.completed" for event in detail["events"])
+    assert all("raw_event" not in event["payload"] for event in cli_events)
+    assert all(len(event["payload"]["message"]) < 4300 for event in cli_events)
+    assert detail["last_error"] is not None
+    assert len(detail["last_error"]) < 4300
+    assert "[prompt omitted]" in run["command"]
+    assert "prompt prompt prompt prompt" not in run["command"]
+
+
 def test_design_to_delivery_flow():
     resp = client.post(
         "/api/iterations",
