@@ -1779,10 +1779,11 @@ def test_artifact_invalid_retries_same_agent_before_blocking():
     assert attempts["count"] == 2
     assert detail["status"] == "awaiting_verify_approval"
     assert detail["retry_counts"]["prd_planner_artifact_self"] == 1
-    assert detail["last_error"] == "prd planner returned invalid JSON"
+    assert detail["last_error"] is None
     assert any(event["type"] == "artifact.invalid" for event in detail["events"])
     retry_events = [event for event in detail["events"] if event["type"] == "artifact.retry_to_self"]
     assert retry_events[-1]["payload"]["retry_target"] == "prd_planner"
+    assert retry_events[-1]["payload"]["stderr"] == "prd planner returned invalid JSON"
 
 
 def test_artifact_invalid_blocks_after_self_retry_limit():
