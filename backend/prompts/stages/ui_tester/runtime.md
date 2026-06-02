@@ -23,4 +23,6 @@ Iteration docs root: {docs_root}
 
 {cua_session_section}
 
+{artifact_retry}
+
 Playwright wrapper path: {pwcli_wrapper}

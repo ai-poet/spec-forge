@@ -446,6 +446,7 @@ class PipelineRuntimeMixin:
     def _error_title(self, event_type: str) -> str:
         titles = {
             "artifact.invalid": "Agent 产物格式无效",
+            "artifact.self_max_retries": "Agent 产物自修已达上限",
             "ui_spec.invalid": "Agent 产物格式无效",
             "test_integrity.failed": "测试完整性失败",
             "planning_integrity.failed": "规划文档完整性失败",
@@ -462,6 +463,7 @@ class PipelineRuntimeMixin:
     def _error_action_hint(self, event_type: str) -> str:
         hints = {
             "artifact.invalid": "查看对应 agent 的原始日志，确认输出是否为合法 JSON artifact。",
+            "artifact.self_max_retries": "查看最后一次产物错误和原始日志，必要时人工修正 prompt 或 artifact schema。",
             "ui_spec.invalid": "查看对应 agent 的原始日志，确认输出是否为合法 JSON artifact。",
             "test_integrity.failed": "检查受保护测试是否被修改；必要时重新生成规划和测试基线。",
             "planning_integrity.failed": "检查 PRD、testing_plan 与 context manifests 是否被非规划节点修改；必要时回到 Test Planner 重新生成 baseline。",

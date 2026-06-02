@@ -43,6 +43,20 @@ class PipelinePromptsMixin:
         return f"<workflow-state>\n{body}\n</workflow-state>"
 
 
+    def _artifact_retry_prompt(self, state: PipelineState, *, node: str) -> str:
+        if state.get("route") != "artifact_self_retry" or state.get("retry_target") != node:
+            return ""
+        notes = (state.get("failure_notes") or "").strip()
+        if not notes:
+            return ""
+        return (
+            "Artifact self-retry: your previous output or artifact files were rejected by SpecForge.\n"
+            "Fix only the artifact contract issue described below, then return one valid final JSON artifact matching the schema.\n"
+            "Do not treat this as a product/implementation defect unless the rejected artifact error explicitly says so.\n"
+            f"Rejected artifact error: {notes}"
+        )
+
+
     def _context_manifest_prompt(self, iteration_id: str, manifest_rel: str, *, heading: str) -> str:
         path = self.docs_root(iteration_id) / manifest_rel
         if not path.exists():
@@ -276,6 +290,7 @@ class PipelinePromptsMixin:
                     "framework_conventions": read_framework_conventions(),
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.planner_discovery.value),
+                    "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.planner_discovery.value),
                     "session_continuation": self._discovery_continuation_hint(state, resume=resume),
                 },
             )
@@ -331,6 +346,7 @@ class PipelinePromptsMixin:
                     "framework_conventions": read_framework_conventions(),
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.prd_planner.value),
+                    "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.prd_planner.value),
                     "session_continuation": self._stage_continuation_hint(stage="prd_planner", resume=resume),
                 },
             )
@@ -365,6 +381,7 @@ class PipelinePromptsMixin:
                     "framework_conventions": read_framework_conventions(),
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.test_planner.value),
+                    "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.test_planner.value),
                     "session_continuation": self._stage_continuation_hint(stage="test_planner", resume=resume),
                 },
             )
@@ -415,6 +432,7 @@ class PipelinePromptsMixin:
                         FOR_CODER,
                         heading="Coder context manifest (for_coder.jsonl):",
                     ),
+                    "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.planner_clarification.value),
                     "runtime_notes": self._runtime_notes_prompt(iteration_id),
                 },
             )
@@ -448,6 +466,7 @@ class PipelinePromptsMixin:
                         FOR_CODER,
                         heading="Required context files (read only these paths):",
                     ),
+                    "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.coder.value),
                     "runtime_notes": self._runtime_notes_prompt(iteration_id),
                 },
             )
@@ -538,6 +557,7 @@ class PipelinePromptsMixin:
                 "test_command_section": test_command_section,
                 "build_command_section": build_command_section,
                 "retry_notes_section": retry_notes_section,
+                "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.code_tester.value),
                 "framework_conventions": framework_block,
                 "convention_excerpt": self._project_convention_prompt(repo_root),
                 "context_manifest": self._context_manifest_prompt(

@@ -89,7 +89,7 @@ class PlanningNodesMixin:
                 severity="error",
                 run_id=run_id,
             )
-            return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
+            return self._route_artifact_self_retry(state, NodeName.planner_discovery.value, run_id, str(exc))
 
         docs = IterationDocs(self.docs_root(iteration_id))
         docs.ensure()
@@ -252,7 +252,7 @@ class PlanningNodesMixin:
             return {"status": IterationStatus.planning.value, "current_node": None, "prd_planner_run_id": run_id, "route": "test_planner"}
         except Exception as exc:
             self._node_event(iteration_id, "node.failed", NodeName.prd_planner.value, "PRD 产物无效", "PRD Planner 输出无法被解析为合法 artifact。", severity="error", run_id=run_id, action_hint="查看 PRD Planner 原始日志，要求模型只输出符合 schema 的 JSON。")
-            return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
+            return self._route_artifact_self_retry(state, NodeName.prd_planner.value, run_id, str(exc))
 
 
     def _test_planner_node(self, state: PipelineState) -> PipelineState:
@@ -309,4 +309,6 @@ class PlanningNodesMixin:
             title = "测试规划产物无效"
             body = "Test Planner 输出无法被解析为合法 artifact。"
             self._node_event(iteration_id, "node.failed", NodeName.test_planner.value, title, body, severity="error", run_id=run_id, action_hint=hint)
+            if event_type == "artifact.invalid":
+                return self._route_artifact_self_retry(state, NodeName.test_planner.value, run_id, str(exc))
             return self._block(iteration_id, event_type, run_id, str(exc))

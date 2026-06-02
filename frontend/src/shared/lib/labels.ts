@@ -66,6 +66,7 @@ export function retryLabel(value: string) {
   if (value === 'coder_tester') return '实现/验证重试'
   if (value === 'code_tester_self') return 'Code Tester 自修'
   if (value === 'test_planner_self') return '测试规划修订'
+  if (value.endsWith('_artifact_self')) return 'Agent 产物自修'
   if (value === 'coder_planner_clarify') return '实现澄清'
   if (value === 'discovery_round') return '需求澄清轮次'
   if (value === 'planner_verify_reject') return '规格复核驳回'
@@ -109,6 +110,8 @@ export function eventLabel(value: string) {
     'iteration.resumed': '流水线已恢复',
     'resume.queued': '继续执行已排队',
     'artifact.invalid': '产物格式无效',
+    'artifact.retry_to_self': '产物错误，回到 Agent 自修',
+    'artifact.self_max_retries': '产物自修已达上限',
     'test_integrity.failed': '测试完整性失败',
     'prd_planner.failed': 'PRD 规划失败',
     'coder.failed': '实现失败',

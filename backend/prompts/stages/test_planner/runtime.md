@@ -10,6 +10,8 @@ Epic / goal:
 
 {workflow_state}
 
+{artifact_retry}
+
 {session_continuation}
 
 Read `prd.md` and existing context manifests under the iteration docs root before authoring tests.

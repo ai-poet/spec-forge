@@ -8,42 +8,54 @@ from .state import PipelineState
 
 class PipelineRoutesMixin:
 
-    def _route_after_discovery(self, state: PipelineState) -> Literal["blocked", "ask", "ready"]:
+    def _route_after_discovery(self, state: PipelineState) -> Literal["blocked", "ask", "ready", "artifact_self_retry"]:
         if state.get("status") in {
             IterationStatus.blocked.value,
             IterationStatus.blocked_user.value,
             IterationStatus.stopped.value,
         }:
             return "blocked"
+        if state.get("route") == "artifact_self_retry":
+            return "artifact_self_retry"
         if state.get("route") == "ask":
             return "ask"
         return "ready"
 
 
-    def _route_after_prd_planner(self, state: PipelineState) -> Literal["blocked", "test_planner"]:
+    def _route_after_prd_planner(self, state: PipelineState) -> Literal["blocked", "test_planner", "artifact_self_retry"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
+        if state.get("route") == "artifact_self_retry":
+            return "artifact_self_retry"
         return "test_planner"
 
 
-    def _route_after_test_planner(self, state: PipelineState) -> Literal["blocked", "coder", "test_planner_retry"]:
+    def _route_after_test_planner(self, state: PipelineState) -> Literal["blocked", "coder", "test_planner_retry", "artifact_self_retry"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
+        if state.get("route") == "artifact_self_retry":
+            return "artifact_self_retry"
         if state.get("route") == "test_planner_retry":
             return "test_planner_retry"
         return "coder"
 
 
-    def _route_after_coder(self, state: PipelineState) -> Literal["blocked", "clarification", "code_tester"]:
+    def _route_after_coder(self, state: PipelineState) -> Literal["blocked", "clarification", "code_tester", "artifact_self_retry"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.stopped.value}:
             return "blocked"
+        if state.get("route") == "artifact_self_retry":
+            return "artifact_self_retry"
         if state.get("route") == "clarification":
             return "clarification"
         return "code_tester"
 
 
-    def _route_after_clarification(self, state: PipelineState) -> Literal["blocked", "coder"]:
-        return "blocked" if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.stopped.value} else "coder"
+    def _route_after_clarification(self, state: PipelineState) -> Literal["blocked", "coder", "artifact_self_retry"]:
+        if state.get("status") in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.stopped.value}:
+            return "blocked"
+        if state.get("route") == "artifact_self_retry":
+            return "artifact_self_retry"
+        return "coder"
 
 
     def _route_after_integrity(self, state: PipelineState) -> Literal["blocked", "ui_tester"]:
@@ -52,20 +64,22 @@ class PipelineRoutesMixin:
 
     def _route_after_code_tester(
         self, state: PipelineState
-    ) -> Literal["blocked", "integrity", "retry", "self_retry", "test_planner_retry"]:
+    ) -> Literal["blocked", "integrity", "retry", "self_retry", "test_planner_retry", "artifact_self_retry"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
         route = state.get("route")
-        if route in {"retry", "self_retry", "test_planner_retry"}:
+        if route in {"retry", "self_retry", "test_planner_retry", "artifact_self_retry"}:
             return route  # type: ignore[return-value]
         if not state.get("pending_code_tester_json"):
             return "blocked"
         return "integrity"
 
 
-    def _route_after_ui_tester(self, state: PipelineState) -> Literal["blocked", "retry", "self_retry", "test_planner_retry", "verify"]:
+    def _route_after_ui_tester(self, state: PipelineState) -> Literal["blocked", "retry", "self_retry", "test_planner_retry", "artifact_self_retry", "verify"]:
         if state.get("status") in {IterationStatus.blocked.value, IterationStatus.stopped.value}:
             return "blocked"
+        if state.get("route") == "artifact_self_retry":
+            return "artifact_self_retry"
         if state.get("route") == "test_planner_retry":
             return "test_planner_retry"
         if state.get("route") == "self_retry":

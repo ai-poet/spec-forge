@@ -269,20 +269,38 @@ class PipelineArtifactsMixin:
             self._node_event(iteration_id, "artifact.created", NodeName.code_tester.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
         for file in artifact.adversarial_tests:
             relative = safe_relative_path(file.path)
-            if relative.parts[:2] != ("tests", "adversarial"):
+            if not relative.parts:
                 raise ValueError(f"tester adversarial path not allowed: {file.path}")
-            path = docs.write_text(relative.as_posix(), file.content)
+            if relative.parts[:2] == ("tests", "adversarial"):
+                path = docs.write_text(relative.as_posix(), file.content)
+            else:
+                path = self._write_project_test_file(iteration_id, relative, file.content, field="adversarial_tests")
             self._record_document(iteration_id, relative.as_posix(), path)
             self._node_event(iteration_id, "artifact.created", NodeName.code_tester.value, "对抗测试已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
 
 
-    def _write_project_test_file(self, iteration_id: str, relative: Path, content: str) -> Path:
+    def _write_project_test_file(self, iteration_id: str, relative: Path, content: str, *, field: str = "test_files") -> Path:
+        if not self._is_project_test_file(relative):
+            raise ValueError(f"tester {field} path is not a recognized test file: {relative.as_posix()}")
         path = self.project_repo_root(iteration_id) / relative
         if path.exists():
-            raise ValueError(f"tester test_files would overwrite existing file: {relative.as_posix()}")
+            if path.is_file() and path.read_text(encoding="utf-8") == content:
+                return path
+            raise ValueError(f"tester {field} would overwrite existing file: {relative.as_posix()}")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return path
+
+
+    def _is_project_test_file(self, relative: Path) -> bool:
+        normalized = relative.as_posix()
+        name = relative.name.lower()
+        return (
+            "/__tests__/" in f"/{normalized}"
+            or name.endswith("_test.go")
+            or ".test." in name
+            or ".spec." in name
+        )
 
 
     def _normalize_tester_file_zones(self, iteration_id: str, artifact: VerificationArtifact, *, run_id: Optional[str] = None) -> VerificationArtifact:
@@ -455,6 +473,51 @@ class PipelineArtifactsMixin:
         defect = Defect(severity="P0", owner="coder", message=gate_msg)
         defects = [*artifact.defects, defect] if artifact.defects else [defect]
         return artifact.model_copy(update={"passed": False, "defects": defects, "failure_notes": gate_msg})
+
+
+    def _route_artifact_self_retry(self, state: PipelineState, node: str, run_id: Optional[str], reason: str) -> PipelineState:
+        iteration_id = state["iteration_id"]
+        key = f"{node}_artifact_self"
+        retry_counts = self._increment_count(state, key)
+        max_retries = state.get("max_tester_self_retries", 3)
+        if retry_counts[key] > max_retries:
+            self._update_iteration(iteration_id, retry_counts=retry_counts)
+            return self._block(iteration_id, "artifact.self_max_retries", run_id, reason)
+        self._update_iteration(
+            iteration_id,
+            status=IterationStatus.retrying.value,
+            current_node=None,
+            retry_counts=retry_counts,
+            last_error=reason,
+        )
+        payload = {
+            "run_id": run_id,
+            "node": node,
+            "stderr": reason,
+            "count": retry_counts[key],
+            "retry_target": node,
+            "reason": "artifact_invalid",
+        }
+        self._add_event(iteration_id, event_type="artifact.invalid", payload=payload)
+        self._add_event(iteration_id, event_type="artifact.retry_to_self", payload=payload)
+        self._node_event(
+            iteration_id,
+            "node.progress",
+            node,
+            "Agent 产物不合格，回到自身修复",
+            reason,
+            severity="warning",
+            run_id=run_id,
+            action_hint="系统会把产物错误原文作为 retry notes 交回同一个 Agent，要求其修正 JSON/schema/落盘路径。",
+        )
+        return {
+            "route": "artifact_self_retry",
+            "failure_notes": reason,
+            "retry_target": node,
+            "retry_counts": retry_counts,
+            "pending_code_tester_json": None if node == NodeName.code_tester.value else state.get("pending_code_tester_json"),
+            "code_tester_run_id": run_id if node == NodeName.code_tester.value else state.get("code_tester_run_id"),
+        }
 
 
     def _run_artifact_gate(self, state: PipelineState) -> tuple[bool, str]:

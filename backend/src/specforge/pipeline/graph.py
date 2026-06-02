@@ -25,20 +25,20 @@ class PipelineGraphMixin:
         builder.add_conditional_edges(
             "planner_discovery",
             self._route_after_discovery,
-            {"blocked": END, "ask": "requirements_input", "ready": "prd_planner"},
+            {"blocked": END, "ask": "requirements_input", "ready": "prd_planner", "artifact_self_retry": "planner_discovery"},
         )
         builder.add_edge("requirements_input", "planner_discovery")
-        builder.add_conditional_edges("prd_planner", self._route_after_prd_planner, {"blocked": END, "test_planner": "test_planner"})
-        builder.add_conditional_edges("test_planner", self._route_after_test_planner, {"blocked": END, "coder": "coder", "test_planner_retry": "test_planner"})
+        builder.add_conditional_edges("prd_planner", self._route_after_prd_planner, {"blocked": END, "test_planner": "test_planner", "artifact_self_retry": "prd_planner"})
+        builder.add_conditional_edges("test_planner", self._route_after_test_planner, {"blocked": END, "coder": "coder", "test_planner_retry": "test_planner", "artifact_self_retry": "test_planner"})
         builder.add_conditional_edges(
             "coder",
             self._route_after_coder,
-            {"blocked": END, "clarification": "planner_clarification", "code_tester": "code_tester"},
+            {"blocked": END, "clarification": "planner_clarification", "code_tester": "code_tester", "artifact_self_retry": "coder"},
         )
         builder.add_conditional_edges(
             "planner_clarification",
             self._route_after_clarification,
-            {"blocked": END, "coder": "coder"},
+            {"blocked": END, "coder": "coder", "artifact_self_retry": "planner_clarification"},
         )
         builder.add_conditional_edges("integrity_check", self._route_after_integrity, {"blocked": END, "ui_tester": "ui_tester"})
         builder.add_conditional_edges(
@@ -50,12 +50,20 @@ class PipelineGraphMixin:
                 "retry": "coder",
                 "self_retry": "code_tester",
                 "test_planner_retry": "test_planner",
+                "artifact_self_retry": "code_tester",
             },
         )
         builder.add_conditional_edges(
             "ui_tester",
             self._route_after_ui_tester,
-            {"blocked": END, "retry": "coder", "self_retry": "code_tester", "test_planner_retry": "test_planner", "verify": "planner_verify"},
+            {
+                "blocked": END,
+                "retry": "coder",
+                "self_retry": "code_tester",
+                "test_planner_retry": "test_planner",
+                "artifact_self_retry": "ui_tester",
+                "verify": "planner_verify",
+            },
         )
         builder.add_conditional_edges("planner_verify", self._route_after_planner_verify, {"blocked": END, "code_tester": "code_tester", "approval": "verify_approval"})
         builder.add_edge("verify_approval", "done")

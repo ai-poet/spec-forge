@@ -1554,6 +1554,129 @@ def test_tester_write_rejects_overwriting_existing_project_file(tmp_path):
     assert existing.read_text(encoding="utf-8") == "package service\n"
 
 
+def test_tester_write_allows_idempotent_existing_project_test_file(tmp_path):
+    project = post_project(tmp_path, "project-test-idempotent", default_mode="dry-run")
+    project_id = project.json()["id"]
+    project_root = Path(project.json()["root_path"])
+    existing = project_root / "backend/internal/service/setting_service_public_test.go"
+    content = "package service\n\nfunc TestPublicSettings(t *testing.T) {}\n"
+    existing.parent.mkdir(parents=True)
+    existing.write_text(content, encoding="utf-8")
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        project_id=project_id,
+        goal="allow idempotent test replay",
+        mode="dry-run",
+        test_command=None,
+    )
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    docs.ensure()
+    artifact = CodeTesterArtifact(
+        verify_report="# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+        passed=True,
+        test_files=[
+            ArtifactFile(
+                path="backend/internal/service/setting_service_public_test.go",
+                content=content,
+            )
+        ],
+    )
+
+    pipeline._write_tester_artifact(iteration_id, docs, artifact)
+
+    assert existing.read_text(encoding="utf-8") == content
+
+
+def test_tester_write_allows_project_adversarial_test_file(tmp_path):
+    project = post_project(tmp_path, "project-adversarial-test-file", default_mode="dry-run")
+    project_id = project.json()["id"]
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        project_id=project_id,
+        goal="allow project adversarial test",
+        mode="dry-run",
+        test_command=None,
+    )
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    docs.ensure()
+    artifact = CodeTesterArtifact(
+        verify_report="# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+        passed=True,
+        adversarial_tests=[
+            ArtifactFile(
+                path="backend/internal/service/changelog_adversarial_test.go",
+                content="package service\n\nfunc TestChangelogAdversarial(t *testing.T) {}\n",
+            )
+        ],
+    )
+
+    pipeline._write_tester_artifact(iteration_id, docs, artifact)
+
+    project_root = Path(project.json()["root_path"])
+    path = project_root / "backend/internal/service/changelog_adversarial_test.go"
+    assert path.exists()
+    assert "TestChangelogAdversarial" in path.read_text(encoding="utf-8")
+
+
+def test_tester_write_rejects_overwriting_project_adversarial_file(tmp_path):
+    project = post_project(tmp_path, "project-adversarial-overwrite", default_mode="dry-run")
+    project_id = project.json()["id"]
+    project_root = Path(project.json()["root_path"])
+    existing = project_root / "backend/internal/service/changelog_adversarial_test.go"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("package service\n", encoding="utf-8")
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        project_id=project_id,
+        goal="reject adversarial overwrite",
+        mode="dry-run",
+        test_command=None,
+    )
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    docs.ensure()
+    artifact = CodeTesterArtifact(
+        verify_report="# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+        passed=True,
+        adversarial_tests=[
+            ArtifactFile(
+                path="backend/internal/service/changelog_adversarial_test.go",
+                content="package service\n\nfunc TestChangelogAdversarial(t *testing.T) {}\n",
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="adversarial_tests would overwrite existing file"):
+        pipeline._write_tester_artifact(iteration_id, docs, artifact)
+    assert existing.read_text(encoding="utf-8") == "package service\n"
+
+
+def test_tester_write_rejects_non_test_project_file(tmp_path):
+    project = post_project(tmp_path, "project-non-test-file", default_mode="dry-run")
+    project_id = project.json()["id"]
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        project_id=project_id,
+        goal="reject non test",
+        mode="dry-run",
+        test_command=None,
+    )
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    docs.ensure()
+    artifact = CodeTesterArtifact(
+        verify_report="# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+        passed=True,
+        test_files=[
+            ArtifactFile(
+                path="backend/internal/service/setting_service.go",
+                content="package service\n",
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="not a recognized test file"):
+        pipeline._write_tester_artifact(iteration_id, docs, artifact)
+
+
 def test_tests_ui_tree_is_not_protected_by_checksum(tmp_path):
     root = tmp_path / "docs"
     legacy_spec = root / "tests" / "ui" / "web_smoke.json"
@@ -1618,7 +1741,7 @@ def test_planning_integrity_blocks_modified_plan_after_coder():
     assert classified[-1]["payload"]["title"] == "规划文档完整性失败"
 
 
-def test_artifact_invalid_emits_classified_error():
+def test_artifact_invalid_retries_same_agent_before_blocking():
     from specforge.core.contracts import PlannerDiscoveryArtifact
 
     original_prd = pipeline._prd_planner_artifact
@@ -1627,11 +1750,20 @@ def test_artifact_invalid_emits_classified_error():
     def ready_discovery(state, run_result):
         return PlannerDiscoveryArtifact(status="ready", requirements_brief="Ready to plan.", complexity="simple")
 
-    def bad_prd_artifact(state, run_result):
-        raise ValueError("prd planner returned invalid JSON")
+    attempts = {"count": 0}
+
+    def first_bad_then_valid_prd(state, run_result):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise ValueError("prd planner returned invalid JSON")
+        return PrdPlannerArtifact(
+            prd="# PRD\n",
+            context_for_coder=[ContextManifestEntry(file="prd.md", reason="r")],
+            context_for_tester=[ContextManifestEntry(file="prd.md", reason="r")],
+        )
 
     pipeline._planner_discovery_artifact = ready_discovery  # type: ignore[method-assign]
-    pipeline._prd_planner_artifact = bad_prd_artifact  # type: ignore[method-assign]
+    pipeline._prd_planner_artifact = first_bad_then_valid_prd  # type: ignore[method-assign]
     try:
         resp = client.post(
             "/api/iterations",
@@ -1644,11 +1776,84 @@ def test_artifact_invalid_emits_classified_error():
         pipeline._prd_planner_artifact = original_prd  # type: ignore[method-assign]
         pipeline._planner_discovery_artifact = original_discovery  # type: ignore[method-assign]
 
-    assert detail["status"] == "blocked"
+    assert attempts["count"] == 2
+    assert detail["status"] == "awaiting_verify_approval"
+    assert detail["retry_counts"]["prd_planner_artifact_self"] == 1
+    assert detail["last_error"] == "prd planner returned invalid JSON"
     assert any(event["type"] == "artifact.invalid" for event in detail["events"])
+    retry_events = [event for event in detail["events"] if event["type"] == "artifact.retry_to_self"]
+    assert retry_events[-1]["payload"]["retry_target"] == "prd_planner"
+
+
+def test_artifact_invalid_blocks_after_self_retry_limit():
+    iteration_id = create_manual_iteration("artifact-self-limit", mode="dry-run")
+
+    result = pipeline._route_artifact_self_retry(
+        {
+            "iteration_id": iteration_id,
+            "retry_counts": {"code_tester_artifact_self": 3},
+            "max_tester_self_retries": 3,
+        },
+        "code_tester",
+        "run-1",
+        "invalid artifact again",
+    )
+
+    assert result["status"] == "blocked"
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["retry_counts"]["code_tester_artifact_self"] == 4
+    assert any(event["type"] == "artifact.self_max_retries" for event in detail["events"])
     classified = [event for event in detail["events"] if event["type"] == "error.classified"]
-    assert classified[-1]["payload"]["title"] == "Agent 产物格式无效"
-    assert "JSON artifact" in classified[-1]["payload"]["action_hint"]
+    assert classified[-1]["payload"]["title"] == "Agent 产物自修已达上限"
+
+
+def test_code_tester_write_error_routes_to_self_retry(tmp_path):
+    project = post_project(tmp_path, "tester-artifact-self", default_mode="dry-run")
+    project_id = project.json()["id"]
+    project_root = Path(project.json()["root_path"])
+    existing = project_root / "backend/internal/service/setting_service_public_test.go"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("package service\n", encoding="utf-8")
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        project_id=project_id,
+        goal="tester artifact write issue",
+        mode="dry-run",
+        test_command=None,
+    )
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    docs.ensure()
+    artifact = verification_from_code(
+        CodeTesterArtifact(
+            verify_report="# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+            passed=True,
+            test_files=[
+                ArtifactFile(
+                    path="backend/internal/service/setting_service_public_test.go",
+                    content="package service\n\nfunc TestPublicSettings(t *testing.T) {}\n",
+                )
+            ],
+        )
+    )
+
+    with pytest.raises(ValueError) as exc:
+        pipeline._write_tester_artifact(iteration_id, docs, artifact, run_id="run-2")
+    result = pipeline._route_artifact_self_retry(
+        {
+            "iteration_id": iteration_id,
+            "retry_counts": {},
+            "max_tester_self_retries": 3,
+        },
+        "code_tester",
+        "run-2",
+        str(exc.value),
+    )
+
+    assert result["route"] == "artifact_self_retry"
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "retrying"
+    assert detail["retry_counts"]["code_tester_artifact_self"] == 1
+    assert any(event["type"] == "artifact.retry_to_self" for event in detail["events"])
 
 
 def test_tester_failure_retries_until_blocked(tmp_path):

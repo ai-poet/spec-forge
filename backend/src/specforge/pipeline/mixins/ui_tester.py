@@ -137,6 +137,7 @@ class PipelineUiTesterMixin:
                 "testing_plan_section": self._read_iteration_doc(docs_root, "testing_plan.md"),
                 "prd_section": self._read_iteration_doc(docs_root, "prd.md"),
                 "cua_session_section": cua_session_section,
+                "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.ui_tester.value),
             },
         )
 

@@ -54,7 +54,7 @@ class ImplementationNodesMixin:
             artifact = self._coder_artifact(state, run_result)
         except Exception as exc:
             self._node_event(iteration_id, "node.failed", NodeName.coder.value, "实现产物无效", "Coder 输出无法被解析为合法 artifact。", severity="error", run_id=run_id, action_hint="查看 Coder 原始日志，要求模型只输出符合 schema 的 JSON。")
-            return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
+            return self._route_artifact_self_retry(state, NodeName.coder.value, run_id, str(exc))
 
         if artifact.clarification_request:
             self._node_event(iteration_id, "node.progress", NodeName.coder.value, "实现需要澄清", artifact.clarification_request, severity="warning", run_id=run_id, action_hint="等待 Planner 澄清或人工补充决策。")
@@ -157,7 +157,7 @@ class ImplementationNodesMixin:
                 severity="error",
                 run_id=run_id,
             )
-            return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
+            return self._route_artifact_self_retry(state, NodeName.planner_clarification.value, run_id, str(exc))
 
         answer_path = docs.write_text(
             f"clarifications/{count:02d}_answer.md",

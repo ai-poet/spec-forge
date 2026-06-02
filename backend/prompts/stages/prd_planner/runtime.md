@@ -13,4 +13,6 @@ Epic / goal:
 
 {workflow_state}
 
+{artifact_retry}
+
 {session_continuation}

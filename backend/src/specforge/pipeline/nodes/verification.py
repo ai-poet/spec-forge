@@ -145,7 +145,7 @@ class VerificationNodesMixin:
             if planning_failure is not None:
                 return planning_failure
             self._node_event(iteration_id, "node.failed", NodeName.code_tester.value, "验证产物无效", "Code Tester 输出无法被解析为合法 artifact。", severity="error", run_id=run_id)
-            return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
+            return self._route_artifact_self_retry(state, NodeName.code_tester.value, run_id, str(exc))
 
 
     def _ui_tester_node(self, state: PipelineState) -> PipelineState:
@@ -219,6 +219,8 @@ class VerificationNodesMixin:
             title = "验证产物无效"
             body = "UI Tester 产物无法被解析。"
             self._node_event(iteration_id, "node.failed", NodeName.ui_tester.value, title, body, severity="error", run_id=run_id, action_hint=hint)
+            if event_type == "artifact.invalid":
+                return self._route_artifact_self_retry(state, NodeName.ui_tester.value, run_id, str(exc))
             return self._block(iteration_id, event_type, run_id, str(exc))
 
 
