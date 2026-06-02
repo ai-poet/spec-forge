@@ -216,14 +216,14 @@ flowchart TB
 
 | 源节点 | 路由函数 | 可能目标 |
 |--------|----------|----------|
-| `planner_discovery` | `_route_after_discovery` | `blocked`→END，`ask`→`requirements_input`（回答后回到 discovery），`ready`→`prd_planner` |
-| `prd_planner` | `_route_after_prd_planner` | `blocked`→END，`test_planner` |
-| `test_planner` | `_route_after_test_planner` | `blocked`→END，`coder`，`test_planner_retry`→自身 |
-| `coder` | `_route_after_coder` | `blocked`→END，`clarification`→`planner_clarification`，`integrity`→`integrity_check` |
-| `planner_clarification` | `_route_after_clarification` | `blocked`→END，`coder` |
-| `integrity_check` | `_route_after_integrity` | `blocked`→END，`code_tester` |
-| `code_tester` | `_route_after_code_tester` | `blocked`→END，`ui`→`ui_tester`，`retry`→`coder`，`self_retry`→自身，`test_planner_retry`→`test_planner` |
-| `ui_tester` | `_route_after_ui_tester` | `blocked`→END，`retry`→`coder`，`self_retry`→`code_tester`，`test_planner_retry`→`test_planner`，`verify`→`planner_verify` |
+| `planner_discovery` | `_route_after_discovery` | `blocked`→END，`ask`→`requirements_input`（回答后回到 discovery），`ready`→`prd_planner`，`artifact_self_retry`→自身 |
+| `prd_planner` | `_route_after_prd_planner` | `blocked`→END，`test_planner`，`artifact_self_retry`→自身 |
+| `test_planner` | `_route_after_test_planner` | `blocked`→END，`coder`，`test_planner_retry`→自身，`artifact_self_retry`→自身 |
+| `coder` | `_route_after_coder` | `blocked`→END，`clarification`→`planner_clarification`，`code_tester`，`artifact_self_retry`→自身 |
+| `planner_clarification` | `_route_after_clarification` | `blocked`→END，`coder`，`artifact_self_retry`→自身 |
+| `integrity_check` | `_route_after_integrity` | `blocked`→END，`ui_tester` |
+| `code_tester` | `_route_after_code_tester` | `blocked`→END，`integrity`→`integrity_check`，`retry`→`coder`，`self_retry`→自身，`test_planner_retry`→`test_planner`，`artifact_self_retry`→自身 |
+| `ui_tester` | `_route_after_ui_tester` | `blocked`→END，`retry`→`coder`，`self_retry`→`code_tester`，`test_planner_retry`→`test_planner`，`artifact_self_retry`→自身，`verify`→`planner_verify` |
 | `planner_verify` | `_route_after_planner_verify` | `blocked`→END，`code_tester`（驳回），`approval`→`verify_approval` |
 
 `LangGraphPipeline` 定义于 `pipeline/orchestrator.py`（MRO：Planning → Implementation → Verification → UiTester → Artifacts → Prompts → Routes → Graph → Runtime）。
@@ -474,7 +474,7 @@ flowchart TD
 | **code_tester** | Codex/Claude CLI（可配置） | 按 testing_plan.md 编写自动化测试；独立代码审查、`defects[]`、对抗测试；无 UI 自动化 | `verify_report.md`、`delivery_advice.md`、`tests/unit|integration`、`tests/adversarial/` |
 | **ui_tester** | Claude/Codex CLI（可配置） | Agent 执行 testing_plan.md 中的 Manual Tests（playwright-cli / cua-driver）、合并验证产物 | `ui_results.json`、`ui_report.md`（在 code_tester 产物基础上） |
 
-反串谋：规划与验证可分模型；测试计划（`testing_plan.md`）在 Coder **之前**由 Test Planner 产出，Code Tester 在实现后按测试计划编写自动化测试并建立 checksum 基线；Coder 不得改已建立的测试。验证回环按 owner 分流：Coder（②a）、Code Tester 自修（②b）、Test Planner 修订测试计划（②c）。UI 环境不可用和自动化执行失败由 UI Tester 记录 warning；只有 UI Tester 汇总出 P0/P1 缺陷才触发实现回环。
+反串谋：规划与验证可分模型；测试计划（`testing_plan.md`）在 Coder **之前**由 Test Planner 产出，Code Tester 在实现后按测试计划编写自动化测试并建立 checksum 基线；Coder 不得改已建立的测试。验证回环按 owner 分流：Coder（②a）、Code Tester 自修（②b）、Test Planner 修订测试计划（②c）。Agent JSON/schema/落盘问题走同 Agent 产物自修（A）。UI 环境不可用和自动化执行失败由 UI Tester 记录 warning；只有 UI Tester 汇总出 P0/P1 缺陷才触发实现回环。
 
 ---
 
@@ -486,7 +486,7 @@ FastAPI (main.py — HTTP + WebSocket)
     ├── storage/db          SQLite：projects / epics / iterations / events / runs
     ├── pipeline/           LangGraph 状态机 + SqliteSaver checkpoint
     │   ├── graph.py        节点与边
-    │   ├── routes.py       条件路由（ui_tester：retry | self_retry | test_planner_retry | verify）
+    │   ├── routes.py       条件路由（含 retry / self_retry / artifact_self_retry）
     │   ├── state.py        PipelineState（含 planning_cli_session_id 等 checkpoint 字段）
     │   ├── mixins/
     │   │   ├── prompts.py    CLI 命令组装（session-id / resume）

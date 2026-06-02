@@ -1857,6 +1857,31 @@ def test_code_tester_write_error_routes_to_self_retry(tmp_path):
     assert any(event["type"] == "artifact.retry_to_self" for event in detail["events"])
 
 
+def test_code_tester_artifact_retry_notes_are_in_prompt(tmp_path):
+    project = post_project(tmp_path, "tester-artifact-prompt", default_mode="real-cli")
+    project_id = project.json()["id"]
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        project_id=project_id,
+        goal="retry artifact prompt",
+        mode="real-cli",
+        test_command=None,
+    )
+    state = {
+        "iteration_id": iteration_id,
+        "project_id": project_id,
+        "mode": "real-cli",
+        "route": "artifact_self_retry",
+        "retry_target": "code_tester",
+        "failure_notes": "tester test_files would overwrite existing file: backend/foo_test.go",
+    }
+
+    prompt = pipeline._code_tester_prompt(state, review_only=False)
+
+    assert "Artifact self-retry" in prompt
+    assert "tester test_files would overwrite existing file" in prompt
+
+
 def test_tester_failure_retries_until_blocked(tmp_path):
     project = post_project(tmp_path, "retry-project", default_mode="dry-run", max_coder_tester_retries=1)
     project_id = project.json()["id"]
