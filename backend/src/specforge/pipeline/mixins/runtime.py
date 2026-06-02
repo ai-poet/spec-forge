@@ -19,6 +19,9 @@ from ..state import PipelineState
 class PipelineRuntimeMixin:
     _LIVE_CLI_MAX_CHARS = 64 * 1024
     _CLI_OUTPUT_FLUSH_INTERVAL = 0.25
+    _PUBLIC_EVENT_TEXT_MAX_CHARS = 4 * 1024
+    _PUBLIC_RUN_COMMAND_MAX_CHARS = 4 * 1024
+    _PUBLIC_CLI_DISPLAY_EVENT_LIMIT = 120
     _PERSISTED_CLI_PHASES = {"session", "tool", "command", "file_change", "mcp", "todo", "hook", "retry", "result", "error"}
     _PREVIEW_CLI_PHASES = {"text", "thinking"}
 
@@ -28,6 +31,83 @@ class PipelineRuntimeMixin:
             if not live:
                 return None
             return {"node": live["node"], "stdout": live["stdout"], "stderr": live["stderr"]}
+
+
+    def _public_event_record(self, event: Any) -> dict[str, Any]:
+        return {
+            "id": event["id"],
+            "iteration_id": event["iteration_id"],
+            "type": event["type"],
+            "payload": self._public_event_payload(json.loads(event["payload"])),
+            "created_at": event["created_at"],
+        }
+
+
+    def _public_event_records(self, events: list[Any]) -> list[dict[str, Any]]:
+        cli_display_seen = 0
+        selected: list[Any] = []
+        for event in reversed(events):
+            if event["type"] == "cli.display":
+                cli_display_seen += 1
+                if cli_display_seen > self._PUBLIC_CLI_DISPLAY_EVENT_LIMIT:
+                    continue
+            selected.append(event)
+        return [self._public_event_record(event) for event in reversed(selected)]
+
+
+    def _public_event_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._compact_public_value(payload)
+
+
+    def _public_run_record(self, iteration_id: str, run: Any) -> dict[str, Any]:
+        stdout_bytes = run["stdout_bytes"] if "stdout_bytes" in run.keys() else len((run["stdout"] or "").encode("utf-8"))
+        stderr_bytes = run["stderr_bytes"] if "stderr_bytes" in run.keys() else len((run["stderr"] or "").encode("utf-8"))
+        return {
+            "id": run["id"],
+            "iteration_id": run["iteration_id"],
+            "node": run["node"],
+            "status": run["status"],
+            "command": self._public_command(run["command"]),
+            "exit_code": run["exit_code"],
+            "started_at": run["started_at"],
+            "finished_at": run["finished_at"],
+            "duration_ms": run["duration_ms"] if "duration_ms" in run.keys() else None,
+            "stdout_bytes": stdout_bytes,
+            "stderr_bytes": stderr_bytes,
+            "logs_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/logs",
+        }
+
+
+    def _public_command(self, command: str) -> str:
+        marker = "## SpecForge stage:"
+        marker_index = command.find(marker)
+        if marker_index >= 0:
+            stage = command[marker_index + len(marker) :].splitlines()[0].strip()
+            prefix = command[:marker_index].rstrip()
+            return self._truncate_public_text(f"{prefix} {marker} {stage} [prompt omitted]", self._PUBLIC_RUN_COMMAND_MAX_CHARS)
+        return self._truncate_public_text(command, self._PUBLIC_RUN_COMMAND_MAX_CHARS)
+
+
+    def _compact_public_value(self, value: Any) -> Any:
+        if isinstance(value, str):
+            return self._truncate_public_text(value, self._PUBLIC_EVENT_TEXT_MAX_CHARS)
+        if isinstance(value, list):
+            return [self._compact_public_value(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                str(key): self._compact_public_value(child)
+                for key, child in value.items()
+                if key != "raw_event"
+            }
+        return value
+
+
+    @staticmethod
+    def _truncate_public_text(value: str, limit: int) -> str:
+        if len(value) <= limit:
+            return value
+        omitted = len(value) - limit
+        return f"{value[:limit]}\n...[truncated {omitted} chars]"
 
 
     def _reset_live_cli(self, iteration_id: str, node: str, *, continuing: bool = False) -> None:
@@ -198,14 +278,7 @@ class PipelineRuntimeMixin:
 
     def _add_event(self, iteration_id: str, *, event_type: str, payload: dict[str, Any]) -> None:
         event = self.db.add_event(iteration_id, event_type=event_type, payload=payload)
-        event_payload = {
-            "id": event["id"],
-            "iteration_id": event["iteration_id"],
-            "type": event["type"],
-            "payload": json.loads(event["payload"]),
-            "created_at": event["created_at"],
-        }
-        self.broker.publish(iteration_id, EventEnvelope(type="event", event=event_payload))
+        self.broker.publish(iteration_id, EventEnvelope(type="event", event=self._public_event_record(event)))
 
 
     def _publish_snapshot(self, iteration_id: str) -> None:

@@ -664,7 +664,7 @@ def iteration_summary(row) -> IterationSummary:
         current_node=row["current_node"],
         stopped_at_node=row["stopped_at_node"] if "stopped_at_node" in row.keys() else None,
         retry_counts=json_loads(row["retry_counts"]),
-        last_error=row["last_error"],
+        last_error=pipeline._truncate_public_text(row["last_error"], pipeline._PUBLIC_EVENT_TEXT_MAX_CHARS) if row["last_error"] else None,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

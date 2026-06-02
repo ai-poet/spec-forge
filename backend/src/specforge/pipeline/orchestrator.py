@@ -669,7 +669,7 @@ class LangGraphPipeline(
             "current_node": row["current_node"],
             "stopped_at_node": row["stopped_at_node"] if "stopped_at_node" in row.keys() else None,
             "retry_counts": self._json(row["retry_counts"], {}),
-            "last_error": row["last_error"],
+            "last_error": self._truncate_public_text(row["last_error"], self._PUBLIC_EVENT_TEXT_MAX_CHARS) if row["last_error"] else None,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "test_command": row["test_command"],
@@ -684,31 +684,9 @@ class LangGraphPipeline(
                 }
                 for doc in documents
             ],
-            "events": [
-                {
-                    "id": event["id"],
-                    "iteration_id": event["iteration_id"],
-                    "type": event["type"],
-                    "payload": json.loads(event["payload"]),
-                    "created_at": event["created_at"],
-                }
-                for event in events
-            ],
+            "events": self._public_event_records(events),
             "runs": [
-                {
-                    "id": run["id"],
-                    "iteration_id": run["iteration_id"],
-                    "node": run["node"],
-                    "status": run["status"],
-                    "command": run["command"],
-                    "exit_code": run["exit_code"],
-                    "started_at": run["started_at"],
-                    "finished_at": run["finished_at"],
-                    "duration_ms": run["duration_ms"] if "duration_ms" in run.keys() else None,
-                    "stdout_bytes": run["stdout_bytes"] if "stdout_bytes" in run.keys() else len((run["stdout"] or "").encode("utf-8")),
-                    "stderr_bytes": run["stderr_bytes"] if "stderr_bytes" in run.keys() else len((run["stderr"] or "").encode("utf-8")),
-                    "logs_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/logs",
-                }
+                self._public_run_record(iteration_id, run)
                 for run in runs
             ],
             "ui_results": [result.model_dump() for result in self._ui_results(iteration_id)],

@@ -114,7 +114,7 @@ class PipelineUiTesterMixin:
                 "Mark native scenarios as warning if you cannot run cua-driver; do not steal user focus."
             )
         else:
-            cua_session_section = "CuaDriver session: available for native specs when cua-driver is installed."
+            cua_session_section = "CuaDriver session: available for native scenarios when cua-driver is installed."
 
         return compose_stage_prompt(
             "ui_tester",

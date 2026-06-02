@@ -8,7 +8,7 @@ Drive native UI scenarios only when the manual test requires a native app. Follo
 
 Recording: `cua-driver recording_start` / `recording_stop` into `tests/ui/recordings/<scenario_id>/`.
 
-If CUA session is busy (see runtime notes), mark native specs `warning` with a clear message; do not steal focus from the user.
+If CUA session is busy (see runtime notes), mark native scenarios `warning` with a clear message; do not steal focus from the user.
 
 Install hint: {cua_install_hint}
 

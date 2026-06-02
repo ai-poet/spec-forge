@@ -85,7 +85,7 @@ Project（项目）
             └── .specforge/schemas/    # CLI JSON schema 缓存
 ```
 
-创建 Project 时仅初始化目录与少量种子文件（`00_convention` 短 stub、`01_project_goal`）；SpecForge 框架规则（写区、UI 测试格式）通过 prompt 注入，不写入用户仓库。每次 Iteration 启动时创建 `docs/iterations/iteration_NNN/` 目录树，产物由 Agent 生成、程序校验落盘。
+创建 Project 时仅初始化目录与少量种子文件（`00_convention` 短 stub、`01_project_goal`）；SpecForge 框架规则（写区、UI 验收规则）通过 prompt 注入，不写入用户仓库。每次 Iteration 启动时创建 `docs/iterations/iteration_NNN/` 目录树，产物由 Agent 生成、程序校验落盘。
 
 ### 项目级 Stage Skills（可选）
 
@@ -116,7 +116,7 @@ Project（项目）
 | 分区 | 路径模式 | Owner | 说明 |
 |------|----------|-------|------|
 | 源码 | `src/**`（或 convention 中的 `internal/`、`lib/` 等） | **Coder** | 实现代码 |
-| 受保护测试 | `tests/unit`、`tests/integration`、`tests/ui` | **Code Tester**（按 testing_plan.md 编写） | checksum 基线，Coder 不可改 |
+| 受保护测试 | `tests/unit`、`tests/integration` | **Code Tester**（按 testing_plan.md 编写） | checksum 基线，Coder 不可改 |
 | 对抗测试 | `tests/adversarial/**` | **Code Tester** | Code Tester 可增删 |
 | 验证产物 | `verify_report.md`、`delivery_advice.md`、`ui_*` | **Code Tester** | 验证与交付文档（由 code_tester + ui_tester 写盘） |
 | PRD | `prd.md` | **PRD Planner** | 产品与实现范围 |
@@ -193,7 +193,7 @@ flowchart TB
   doneNode --> endDelivered([END\ndelivered])
 ```
 
-**图例：** 实线 = LangGraph 边；边上标签 = `_route_after_*` 返回值（与 `routes.py` 一致）。七个 **Agent 节点**均通过 CLI 调用外部模型；`ui_tester` 在 prompt 中路由 **playwright-cli**（`kind: web`）与 **cua-driver**（`kind: native`）。`integrity_check`、`planner_verify`、`done` 为后端程序节点，不调用 CLI。规划阶段只落盘 `prd.md` 与 `testing_plan.md`（位于 `docs/iterations/iteration_NNN/`）。
+**图例：** 实线 = LangGraph 边；边上标签 = `_route_after_*` 返回值（与 `routes.py` 一致）。七个 **Agent 节点**均通过 CLI 调用外部模型；`ui_tester` 直接读取 `testing_plan.md` 的 Manual Tests，并在 prompt 中路由 **playwright-cli**（Web）与 **cua-driver**（native）。`integrity_check`、`planner_verify`、`done` 为后端程序节点，不调用 CLI。规划阶段只落盘 `prd.md` 与 `testing_plan.md`（位于 `docs/iterations/iteration_NNN/`）。
 
 ### LangGraph 状态机（开发者）
 
@@ -202,12 +202,12 @@ flowchart TB
 | `planner_discovery` | CLI | 需求澄清；`route=ask` 时进入人工输入，回答后 `--resume` 续接同一会话继续澄清 |
 | `requirements_input` | interrupt | 用户回答 discovery 问题 |
 | `prd_planner` | CLI | PRD + context manifests |
-| `test_planner` | CLI | 测试计划 + 受保护测试 |
+| `test_planner` | CLI | 测试计划（自动化测试策略 + Manual Tests） |
 | `coder` | CLI | 实现 `src/**` |
 | `planner_clarification` | CLI | 回答 Coder 澄清 |
 | `integrity_check` | 程序 | 受保护测试 checksum |
 | `code_tester` | CLI | 代码审查、`defects[]`、对抗测试 |
-| `ui_tester` | CLI | UI 场景 + 写盘闸门（build/test） |
+| `ui_tester` | CLI | 按 testing_plan.md 执行 UI 验收场景 |
 | `planner_verify` | 程序 | 验证报告格式复核 |
 | `verify_approval` | interrupt | 用户确认交付 |
 | `done` | 程序 | 归档 `delivered` |
@@ -240,7 +240,7 @@ flowchart TB
 | 澄清 | `planner_clarification` | Claude CLI | Coder 看不懂时，Planner 正式回答并写入 `clarifications/` |
 | 完整性 | `integrity_check` | 后端程序 | 检查已建立的测试基线有没有被 Coder 偷偷改掉 |
 | 代码验证 | `code_tester` | Codex/Claude CLI | 按 testing_plan.md 编写自动化测试；独立代码审查；写 `verify_report.md` 与 `defects[]`（不调用 UI 自动化） |
-| UI 验证 | `ui_tester` | Claude/Codex CLI | Agent 执行 `tests/ui/*.json` 与 testing_plan.md 中的人工测试场景（web → playwright-cli，native → cua-driver），合并验证产物并写盘 |
+| UI 验证 | `ui_tester` | Claude/Codex CLI | Agent 读取 testing_plan.md 的 Manual Tests 并执行适用 UI 场景（web → playwright-cli，native → cua-driver），合并验证产物并写盘 |
 | 复核 | `planner_verify` | 后端程序 | 检查验证报告格式是否合格 |
 | 交付确认 | `verify_approval` | **你** | 在前端点「确认交付」，流水线才归档 |
 | 完成 | `done` | 后端 | 状态变为 `delivered`，写入 iteration_log |
@@ -327,7 +327,7 @@ flowchart LR
 
 **owner=prd_planner**（PRD 范围硬冲突等）不进入自动回环，直接 `blocked`，需人工处理。
 
-**UI Tester**（`ui_tester` CLI 阶段）有两个测试来源：1）`docs/.../tests/ui/*.json` 结构化 spec；2）`testing_plan.md` 中的人工测试场景。Web 场景优先用 **playwright-cli**（`open` → `snapshot` → `click eN`）；native 用 **cua-driver**（`launch_app` → `get_window_state` → `element_index`）。本机 CUA 会话互斥时 native 可记 `warning`。**UI 断言失败不触发 ②a/②b/②c**，只写入 `ui_warnings` 与交付建议。
+**UI Tester**（`ui_tester` CLI 阶段）不再读取或生成 `tests/ui/*.json` 结构化 spec。它的测试来源是 `testing_plan.md` 的 **Manual Tests**：Web 场景优先用 **playwright-cli**（`open` → `snapshot` → `click eN`）；native 用 **cua-driver**（`launch_app` → `get_window_state` → `element_index`）。本机 CUA 会话互斥时 native 可记 `warning`。**UI 断言失败不触发 ②a/②b/②c**，只写入 `ui_warnings` 与交付建议。
 
 **Code Tester 容错（`code_tester` 节点；UI 在后续 `ui_tester`）：**
 
@@ -337,7 +337,7 @@ flowchart LR
 | CLI 非零退出且无合法产物 | **代码审查兜底**（`review_only`，禁止 Playwright/CUA），发 `code_tester.review_fallback.*` |
 | 审查兜底成功 | 进入 `ui_tester` → `planner_verify` |
 | 审查兜底也失败 | 按 `defects`/owner 进入 ②a / ②b / ②c |
-| 写盘后 `build_command` / `test_command` 失败 | 回滚 adversarial，以 `owner=code_tester` 进入 **②b** |
+| Code Tester 产物写盘后 `build_command` / `test_command` 失败 | 回滚 adversarial，以 `owner=code_tester` 进入 **②b**；失败时跳过 UI Tester |
 | UI 自动化断言失败 | `ui_tester.failed`（`blocking: false`）；是否通过以 Code Tester 代码审查无 P0/P1 为准 |
 
 ```mermaid
@@ -365,11 +365,10 @@ sequenceDiagram
     Integrity-->>CodeTester: 测试被改 → blocked
   else 完整性通过
     Integrity->>UiTester: pending artifact
-    UiTester->>UI: Agent CLI 执行 tests/ui/*.json + testing_plan.md 人工场景
-    UiTester->>Gate: 写盘后 build/test（若已配置）
+    CodeTester->>Gate: Code Tester 产物写盘后 build/test（若已配置）
     alt 闸门失败
-      Gate-->>UiTester: 回滚 adversarial → ②b
-      UiTester-->>CodeTester: code_tester 自修
+      Gate-->>CodeTester: 回滚 adversarial → ②b
+      CodeTester-->>CodeTester: code_tester 自修
     else passed=false
       alt owner=coder
         UiTester-->>Coder: coder_tester += 1
@@ -379,7 +378,8 @@ sequenceDiagram
       else owner=code_tester
         UiTester-->>CodeTester: code_tester_self 自修
       end
-    else passed=true
+    else 闸门通过
+      UiTester->>UI: Agent CLI 执行 testing_plan.md Manual Tests
       UiTester->>Verify: planner_verify
     end
   end
@@ -462,9 +462,9 @@ flowchart TD
 | **coder** | Claude CLI | 按 PRD/测试实现 | `src/**`（及 convention 中的源码根） |
 | **planner_clarification** | Claude CLI | 回答 Coder 澄清 | `clarifications/*` |
 | **code_tester** | Codex/Claude CLI（可配置） | 按 testing_plan.md 编写自动化测试；独立代码审查、`defects[]`、对抗测试；无 UI 自动化 | `verify_report.md`、`delivery_advice.md`、`tests/unit|integration`、`tests/adversarial/` |
-| **ui_tester** | Claude/Codex CLI（可配置） | Agent 执行 `tests/ui/*.json` 与 testing_plan.md 中的人工测试场景（playwright-cli / cua-driver）、合并验证产物、写盘闸门 | `ui_results.json`、`ui_report.md`（在 code_tester 产物基础上） |
+| **ui_tester** | Claude/Codex CLI（可配置） | Agent 执行 testing_plan.md 中的 Manual Tests（playwright-cli / cua-driver）、合并验证产物 | `ui_results.json`、`ui_report.md`（在 code_tester 产物基础上） |
 
-反串谋：规划与验证可分模型；测试计划（`testing_plan.md`）在 Coder **之前**由 Test Planner 产出，Code Tester 在实现后按测试计划编写自动化测试并建立 checksum 基线；Coder 不得改已建立的测试。验证回环按 owner 分流：Coder（②a）、Code Tester 自修（②b）、Test Planner 修订测试计划（②c）。UI 环境不可用走 code_tester 审查兜底；UI 断言失败仅警告，不单独触发实现回环。
+反串谋：规划与验证可分模型；测试计划（`testing_plan.md`）在 Coder **之前**由 Test Planner 产出，Code Tester 在实现后按测试计划编写自动化测试并建立 checksum 基线；Coder 不得改已建立的测试。验证回环按 owner 分流：Coder（②a）、Code Tester 自修（②b）、Test Planner 修订测试计划（②c）。UI 环境不可用由 UI Tester 记录 warning；UI 断言失败仅警告，不单独触发实现回环。
 
 ---
 
@@ -528,12 +528,12 @@ cd frontend && npm install && npm run dev:all
 
 CLI 使用 `bypassPermissions` / `--dangerously-bypass-approvals-and-sandbox` 跳过交互式权限确认。测试不可变靠 `test_planner` 写基线 + `integrity_check` 保障。
 
-可选 UI 验收（**`ui_tester`** CLI Agent）：
+可选 UI 验收（**`ui_tester`** CLI Agent）：UI Tester 直接读取 `testing_plan.md` 的 Manual Tests，不需要、也不会生成 `tests/ui/*.json` spec。
 
-| UI spec `kind` | Agent 工具链 |
-|----------------|--------------|
-| `web` | **playwright-cli**（`backend/prompts/skills/playwright/scripts/playwright_cli.sh` 包装 `npx @playwright/cli`） |
-| `native` | **cua-driver** CLI（与 computer-use `--host` 相同；禁止 `open -a` 抢焦点） |
+| Manual Test 类型 | Agent 工具链 |
+|------------------|--------------|
+| Web / 浏览器场景 | **playwright-cli**（`backend/prompts/skills/playwright/scripts/playwright_cli.sh` 包装 `npx @playwright/cli`） |
+| Native / 桌面场景 | **cua-driver** CLI（与 computer-use `--host` 相同；禁止 `open -a` 抢焦点） |
 
 **Cua 全局单会话**：本机同时只允许一个 CUA UI 会话（文件锁 `.specforge/cua-driver.session.lock`）。锁被占用时 native 场景记为 `warning`，不阻断交付，依赖 Code Tester 代码审查结论。
 
@@ -584,7 +584,7 @@ python computer-use/backend/install_cua_driver.py
 - Coder 澄清上限（默认 3）
 - Planner 验证驳回上限（默认 2）
 
-构建/测试命令在 `ui_tester` 写盘闸门中执行：失败则回滚 adversarial 并进入回环 ②b。
+构建/测试命令在 Code Tester 产物写入后、UI Tester 前执行：失败则回滚 adversarial、进入回环 ②b，并跳过本轮 UI Tester。
 
 ---
 
@@ -626,7 +626,7 @@ spec-forge/
 
 - 单用户本地原型，无登录和多租户
 - CLI 权限策略为 bypass 模式，隔离强度有限
-- CSS selector Web UI 由 Playwright 执行；CuaDriver 不可用时无 selector 的 Web UI 也可回退 Playwright；仅 native UI 或未安装 Playwright 时记为未执行（warning）
+- Web UI 场景由 UI Tester 根据 `testing_plan.md` 选择 Playwright 执行；native 场景使用 CuaDriver。工具不可用时记为未执行（warning）
 - UI 自动化断言失败仅记为 warning；交付门槛以 Code Tester 代码审查无 P0/P1 缺陷为准
 - 迭代产物目录为 `docs/iterations/iteration_NNN/`（旧路径 `docs/system_design/` 已废弃）；API 文档键为 `prd`、`testing_plan` 等，无 `system_design` / `modification_plan` 别名
 - 规划三阶段共 session 的上下文较长；若后续遇 token 问题，可在 test_planner 前 fork 会话（`--fork-session`）— 暂不实现
