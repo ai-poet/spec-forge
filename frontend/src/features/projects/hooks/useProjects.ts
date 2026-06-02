@@ -2,9 +2,23 @@ import { useCallback, useEffect, useState } from 'react'
 import { createProject, deleteProject, listProjects, updateProject } from '../../../shared/lib/api'
 import type { CreateProjectInput, ProjectSummary, UpdateProjectInput } from '../../../shared/lib/types'
 
+const SELECTED_PROJECT_KEY = 'specforge:selected-project'
+
+function readStoredProjectId() {
+  return window.localStorage.getItem(SELECTED_PROJECT_KEY)
+}
+
+function rememberProjectId(projectId: string | null) {
+  if (projectId) {
+    window.localStorage.setItem(SELECTED_PROJECT_KEY, projectId)
+  } else {
+    window.localStorage.removeItem(SELECTED_PROJECT_KEY)
+  }
+}
+
 export function useProjects() {
   const [projects, setProjects] = useState<ProjectSummary[]>([])
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => readStoredProjectId())
   const [loading, setLoading] = useState(false)
 
   const refreshProjects = useCallback(async () => {
@@ -50,6 +64,10 @@ export function useProjects() {
   useEffect(() => {
     refreshProjects().catch(console.error)
   }, [refreshProjects])
+
+  useEffect(() => {
+    rememberProjectId(selectedProjectId)
+  }, [selectedProjectId])
 
   return {
     projects,

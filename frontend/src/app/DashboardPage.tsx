@@ -24,15 +24,33 @@ import { ContextHeader } from '../features/workspace/ContextHeader'
 import { WorkspaceShell } from '../features/workspace/WorkspaceShell'
 import type { CreateProjectInput, IterationSummary, UpdateProjectInput } from '../shared/lib/types'
 
+const SELECTED_ITERATION_KEY = 'specforge:selected-iteration'
+
 function buildIterationGoal(title: string, description: string, acceptanceCriteria: string) {
   return [description, acceptanceCriteria ? `验收标准:\n${acceptanceCriteria}` : ''].filter(Boolean).join('\n\n') || title
+}
+
+function readStoredIterationId() {
+  return window.localStorage.getItem(SELECTED_ITERATION_KEY)
+}
+
+function rememberIterationId(iterationId: string | null) {
+  if (iterationId) {
+    window.localStorage.setItem(SELECTED_ITERATION_KEY, iterationId)
+  } else {
+    window.localStorage.removeItem(SELECTED_ITERATION_KEY)
+  }
+}
+
+function preferredIteration(items: IterationSummary[]) {
+  return items.find((item) => !['delivered', 'blocked', 'stopped', 'failed'].includes(item.status)) ?? items[0] ?? null
 }
 
 export function DashboardPage() {
   const projects = useProjects()
   const epics = useEpics(projects.selectedProjectId)
   const [iterations, setIterations] = useState<IterationSummary[]>([])
-  const [selectedIterationId, setSelectedIterationId] = useState<string | null>(null)
+  const [selectedIterationId, setSelectedIterationId] = useState<string | null>(() => readStoredIterationId())
   const [reviewStepKey, setReviewStepKey] = useState<PipelineStepKey | null>(null)
   const [busy, setBusy] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -59,12 +77,19 @@ export function DashboardPage() {
     if (epicId) {
       const iteration = iterationForEpic(items, epicId)
       setSelectedIterationId(iteration?.id ?? null)
+      return
+    }
+    const currentItem = selectedIterationId ? items.find((item) => item.id === selectedIterationId) : null
+    const stored = readStoredIterationId()
+    const storedItem = stored ? items.find((item) => item.id === stored) : null
+    const nextIteration = currentItem ?? storedItem ?? preferredIteration(items)
+    setSelectedIterationId(nextIteration?.id ?? null)
+    if (nextIteration?.epic_id && !epics.selectedEpicId) {
+      epics.setSelectedEpicId(nextIteration.epic_id)
     }
   }
 
   useEffect(() => {
-    epics.setSelectedEpicId(null)
-    setSelectedIterationId(null)
     setReviewStepKey(null)
     setShowCreatePipeline(false)
     refreshIterations().catch(console.error)
@@ -78,7 +103,6 @@ export function DashboardPage() {
 
   useEffect(() => {
     if (!epics.selectedEpicId) {
-      setSelectedIterationId(null)
       return
     }
     const iteration = iterationForEpic(iterations, epics.selectedEpicId)
@@ -101,6 +125,10 @@ export function DashboardPage() {
     epics.refreshEpics(epics.selectedEpicId ?? undefined).catch(console.error)
     projects.refreshProjects().catch(console.error)
   }, [live.detail?.status])
+
+  useEffect(() => {
+    rememberIterationId(selectedIterationId)
+  }, [selectedIterationId])
 
   async function handleAddProject(input: CreateProjectInput) {
     await projects.addProject(input)
