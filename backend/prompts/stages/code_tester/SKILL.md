@@ -11,7 +11,7 @@ Iteration docs root: {docs_root}
 
 Read approved planning documents (including testing_plan.md), and implementation changes. Your responsibilities:
 
-1. **Write automated tests based on testing_plan.md**: Read the "Automated Tests" section of testing_plan.md. If tests do not yet exist under `tests/unit/`, `tests/integration/`, write them according to the plan. Include concrete assertions. If tests already exist and pass, do not rewrite them.
+1. **Write automated tests based on testing_plan.md**: Read the "Automated Tests" section of testing_plan.md. If tests do not yet exist, add new test files in the project's normal test locations (for example `tests/unit/**`, `tests/integration/**`, or language-native paths such as Go `*_test.go`). Include concrete assertions. Do not overwrite or rewrite existing files.
 
 2. **Run tests and code review**: Execute configured test/build commands when practical. Complete an independent code review of the Coder implementation.
 

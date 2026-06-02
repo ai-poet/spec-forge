@@ -255,11 +255,16 @@ class PipelineArtifactsMixin:
             )
         for file in artifact.test_files:
             relative = safe_relative_path(file.path)
-            if not relative.parts or relative.parts[0] != "tests" or (len(relative.parts) > 1 and relative.parts[1] == "adversarial"):
+            if not relative.parts:
+                raise ValueError(f"tester test_files path not allowed: {file.path}")
+            if relative.parts[:2] == ("tests", "adversarial"):
                 raise ValueError(f"tester test_files path not allowed: {file.path}")
             if len(relative.parts) >= 2 and relative.parts[:2] == ("tests", "ui"):
                 raise ValueError(f"tests/ui artifacts are no longer generated: {file.path}")
-            path = docs.write_text(relative.as_posix(), file.content)
+            if relative.parts[0] == "tests":
+                path = docs.write_text(relative.as_posix(), file.content)
+            else:
+                path = self._write_project_test_file(iteration_id, relative, file.content)
             self._record_document(iteration_id, relative.as_posix(), path)
             self._node_event(iteration_id, "artifact.created", NodeName.code_tester.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
         for file in artifact.adversarial_tests:
@@ -269,6 +274,15 @@ class PipelineArtifactsMixin:
             path = docs.write_text(relative.as_posix(), file.content)
             self._record_document(iteration_id, relative.as_posix(), path)
             self._node_event(iteration_id, "artifact.created", NodeName.code_tester.value, "对抗测试已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)
+
+
+    def _write_project_test_file(self, iteration_id: str, relative: Path, content: str) -> Path:
+        path = self.project_repo_root(iteration_id) / relative
+        if path.exists():
+            raise ValueError(f"tester test_files would overwrite existing file: {relative.as_posix()}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return path
 
 
     def _normalize_tester_file_zones(self, iteration_id: str, artifact: VerificationArtifact, *, run_id: Optional[str] = None) -> VerificationArtifact:

@@ -1491,6 +1491,69 @@ def test_tester_write_rehomes_misplaced_adversarial_test_file():
     assert "tests/adversarial/stats-history.test.ts" not in build_test_integrity_manifest(docs.root)
 
 
+def test_tester_write_allows_new_project_test_file(tmp_path):
+    project = post_project(tmp_path, "project-test-file", default_mode="dry-run")
+    project_id = project.json()["id"]
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        project_id=project_id,
+        goal="allow project test",
+        mode="dry-run",
+        test_command=None,
+    )
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    docs.ensure()
+    artifact = CodeTesterArtifact(
+        verify_report="# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+        passed=True,
+        test_files=[
+            ArtifactFile(
+                path="backend/internal/service/setting_service_public_test.go",
+                content="package service\n\nfunc TestPublicSettings(t *testing.T) {}\n",
+            )
+        ],
+    )
+
+    pipeline._write_tester_artifact(iteration_id, docs, artifact)
+
+    project_root = Path(project.json()["root_path"])
+    path = project_root / "backend/internal/service/setting_service_public_test.go"
+    assert path.exists()
+    assert "TestPublicSettings" in path.read_text(encoding="utf-8")
+
+
+def test_tester_write_rejects_overwriting_existing_project_file(tmp_path):
+    project = post_project(tmp_path, "project-test-overwrite", default_mode="dry-run")
+    project_id = project.json()["id"]
+    project_root = Path(project.json()["root_path"])
+    existing = project_root / "backend/internal/service/setting_service_public_test.go"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("package service\n", encoding="utf-8")
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        project_id=project_id,
+        goal="reject overwrite",
+        mode="dry-run",
+        test_command=None,
+    )
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    docs.ensure()
+    artifact = CodeTesterArtifact(
+        verify_report="# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+        passed=True,
+        test_files=[
+            ArtifactFile(
+                path="backend/internal/service/setting_service_public_test.go",
+                content="package service\n\nfunc TestPublicSettings(t *testing.T) {}\n",
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="would overwrite existing file"):
+        pipeline._write_tester_artifact(iteration_id, docs, artifact)
+    assert existing.read_text(encoding="utf-8") == "package service\n"
+
+
 def test_tests_ui_tree_is_not_protected_by_checksum(tmp_path):
     root = tmp_path / "docs"
     legacy_spec = root / "tests" / "ui" / "web_smoke.json"
