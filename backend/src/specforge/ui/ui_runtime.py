@@ -53,8 +53,30 @@ def ui_runtime_status() -> UIRuntimeStatus:
     }
 
 
+def fast_ui_runtime_status() -> UIRuntimeStatus:
+    return {
+        "playwright": "see /api/environment/checks",
+        "cua": "see /api/environment/checks",
+        "cua_session": _cua_session_status(),
+        "playwright_install_hint": PLAYWRIGHT_CLI_INSTALL_HINT,
+        "cua_install_hint": CUA_INSTALL_HINT,
+        "install_hint": PLAYWRIGHT_CLI_INSTALL_HINT,
+    }
+
+
 def log_ui_runtime_status() -> UIRuntimeStatus:
     status = ui_runtime_status()
+    _log_status(status)
+    return status
+
+
+def log_fast_ui_runtime_status() -> UIRuntimeStatus:
+    status = fast_ui_runtime_status()
+    _log_status(status)
+    return status
+
+
+def _log_status(status: UIRuntimeStatus) -> None:
     logger.info(
         "UI runtime: playwright-cli=%s; cua=%s",
         status["playwright"],
@@ -64,4 +86,3 @@ def log_ui_runtime_status() -> UIRuntimeStatus:
         logger.info("playwright-cli install: %s", status["playwright_install_hint"])
     if status["cua"] != "ok":
         logger.info("CuaDriver install: %s", status["cua_install_hint"])
-    return status

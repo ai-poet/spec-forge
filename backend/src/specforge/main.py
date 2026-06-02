@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from pathlib import Path
+from queue import Empty
 from typing import Optional
 
 import asyncio
@@ -39,7 +41,7 @@ from specforge.core.models import (
 )
 from specforge.pipeline import LangGraphPipeline
 from specforge.documents.docs_scaffold import ensure_project_docs
-from specforge.ui.ui_runtime import log_ui_runtime_status, ui_runtime_status
+from specforge.ui.ui_runtime import fast_ui_runtime_status, log_fast_ui_runtime_status
 from specforge.ui.native_dialog import pick_folder, resolve_picked_folder
 from specforge.documents.project_paths import ProjectPathError, browse_directory, prepare_project_root, validate_project_root
 from specforge.environment import environment_checks
@@ -78,7 +80,7 @@ def on_startup() -> None:
     db.init()
     pipeline.resync_runtime_state()
     job_queue.start()
-    log_ui_runtime_status()
+    log_fast_ui_runtime_status()
 
 
 @app.on_event("shutdown")
@@ -88,7 +90,7 @@ def on_shutdown() -> None:
 
 @app.get("/api/health")
 def health() -> dict[str, object]:
-    ui = ui_runtime_status()
+    ui = fast_ui_runtime_status()
     return {
         "status": "ok",
         "ui": {
@@ -526,28 +528,49 @@ async def ws_iteration(websocket: WebSocket, iteration_id: str) -> None:
         await websocket.close(code=4404)
         return
     queue = broker.subscribe(iteration_id)
+    send_lock = asyncio.Lock()
+
+    async def _safe_send_json(payload: dict) -> bool:
+        try:
+            async with send_lock:
+                await websocket.send_json(payload)
+            return True
+        except (RuntimeError, WebSocketDisconnect):
+            return False
 
     async def _receive() -> None:
         try:
             while True:
                 data = await websocket.receive_json()
                 if isinstance(data, dict) and data.get("type") == "ping":
-                    await websocket.send_json({"type": "pong"})
-        except WebSocketDisconnect:
+                    sent = await _safe_send_json({"type": "pong"})
+                    if not sent:
+                        return
+        except (RuntimeError, WebSocketDisconnect):
             return
 
     receive_task = asyncio.create_task(_receive())
     try:
-        await websocket.send_json({"type": "snapshot", "snapshot": pipeline.dashboard_snapshot(iteration_id)})
-        while True:
-            envelope = await asyncio.to_thread(queue.get)
-            await websocket.send_json({"type": envelope.type, "event": envelope.event, "snapshot": envelope.snapshot})
+        sent = await _safe_send_json({"type": "snapshot", "snapshot": pipeline.dashboard_snapshot(iteration_id)})
+        if not sent:
+            return
+        while not receive_task.done():
+            try:
+                envelope = queue.get_nowait()
+            except Empty:
+                await asyncio.sleep(0.1)
+                continue
+            sent = await _safe_send_json({"type": envelope.type, "event": envelope.event, "snapshot": envelope.snapshot})
+            if not sent:
+                return
     except asyncio.CancelledError:
-        return
-    except WebSocketDisconnect:
+        raise
+    except (RuntimeError, WebSocketDisconnect):
         return
     finally:
         receive_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await receive_task
         broker.unsubscribe(iteration_id, queue)
 
 

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import sys
 import time
@@ -28,7 +29,7 @@ from specforge.documents.docs_io import (
     planning_integrity_manifest as build_planning_integrity_manifest,
     test_integrity_manifest as build_test_integrity_manifest,
 )
-from specforge.main import app, job_queue, pipeline
+from specforge.main import app, broker, job_queue, pipeline, ws_iteration
 from specforge.core.models import IterationStatus
 
 
@@ -569,6 +570,33 @@ def test_parse_artifact_from_codex_jsonl_item_message():
     assert "Pass" in artifact.verify_report
 
 
+def test_code_tester_contract_rehomes_misplaced_adversarial_test_file():
+    raw = json.dumps(
+        {
+            "verify_report": "# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n",
+            "passed": True,
+            "test_files": [
+                {
+                    "path": "tests/adversarial/stats-history.test.ts",
+                    "content": "test('stats history edge case', () => {});\n",
+                },
+                {
+                    "path": "tests/unit/stats.test.ts",
+                    "content": "test('stats', () => {});\n",
+                },
+            ],
+        }
+    )
+
+    artifact = parse_json_artifact(raw, CodeTesterArtifact)
+    verification = verification_from_code(artifact)
+
+    assert [file.path for file in artifact.test_files] == ["tests/unit/stats.test.ts"]
+    assert [file.path for file in artifact.adversarial_tests] == ["tests/adversarial/stats-history.test.ts"]
+    assert [file.path for file in verification.test_files] == ["tests/unit/stats.test.ts"]
+    assert [file.path for file in verification.adversarial_tests] == ["tests/adversarial/stats-history.test.ts"]
+
+
 def test_execute_jsonl_output_emits_cli_display_event():
     iteration_id = create_manual_iteration("cli-display")
     pipeline.db.update_iteration(iteration_id, current_node="code_tester", status="testing", last_error=None)
@@ -930,6 +958,27 @@ def test_append_live_cli_publishes_cli_output_event():
         pipeline.broker.unsubscribe(iteration_id, queue)
 
 
+def test_ws_iteration_send_after_close_is_ignored():
+    class ClosedWebSocket:
+        async def accept(self):
+            return None
+
+        async def close(self, code=1000):
+            return None
+
+        async def receive_json(self):
+            await asyncio.sleep(60)
+
+        async def send_json(self, payload):
+            raise RuntimeError("Unexpected ASGI message 'websocket.send', after sending 'websocket.close'")
+
+    iteration_id = create_manual_iteration("ws-closed", mode="dry-run")
+
+    asyncio.run(ws_iteration(ClosedWebSocket(), iteration_id))
+
+    assert iteration_id not in broker._subscribers
+
+
 def test_stop_iteration_cancels_active_cli():
     runner = pipeline.real_runner
     iteration_id = create_manual_iteration("stop-cli")
@@ -1278,8 +1327,6 @@ def test_tester_write_rehomes_misplaced_adversarial_test_file():
     path = docs.root / "tests" / "adversarial" / "stats-history.test.ts"
     assert path.exists()
     assert "tests/adversarial/stats-history.test.ts" not in build_test_integrity_manifest(docs.root)
-    detail = client.get(f"/api/iterations/{iteration_id}").json()
-    assert any(event["type"] == "code_tester.artifact_normalized" for event in detail["events"])
 
 
 def test_ui_spec_invalid_blocks_tester_with_classified_error(tmp_path, monkeypatch):

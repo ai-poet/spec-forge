@@ -176,6 +176,11 @@ class CodeTesterArtifact(BaseModel):
     adversarial_tests: list[ArtifactFile] = Field(default_factory=list)
     test_files: list[ArtifactFile] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def normalize_file_zones(self) -> "CodeTesterArtifact":
+        _move_adversarial_test_files(self)
+        return self
+
 
 def verification_from_code(artifact: CodeTesterArtifact) -> "VerificationArtifact":
     return VerificationArtifact.model_validate(artifact.model_dump())
@@ -193,9 +198,29 @@ class VerificationArtifact(BaseModel):
     adversarial_tests: list[ArtifactFile] = Field(default_factory=list)
     test_files: list[ArtifactFile] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def normalize_file_zones(self) -> "VerificationArtifact":
+        _move_adversarial_test_files(self)
+        return self
+
     @property
     def ui_failed(self) -> bool:
         return any(result.status == "failed" for result in self.ui_results)
+
+
+def _move_adversarial_test_files(artifact: CodeTesterArtifact | VerificationArtifact) -> None:
+    misplaced = [file for file in artifact.test_files if _is_adversarial_test_path(file.path)]
+    if not misplaced:
+        return
+    artifact.test_files = [file for file in artifact.test_files if not _is_adversarial_test_path(file.path)]
+    adversarial_by_path = {file.path: file for file in artifact.adversarial_tests}
+    for file in misplaced:
+        adversarial_by_path[file.path] = file
+    artifact.adversarial_tests = list(adversarial_by_path.values())
+
+
+def _is_adversarial_test_path(path: str) -> bool:
+    return path.replace("\\", "/").lstrip("./").startswith("tests/adversarial/")
 
 
 def merge_cli_artifact_output(stdout: str, stderr: str) -> str:
