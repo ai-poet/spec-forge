@@ -17,7 +17,7 @@ from ...core.contracts import (
     PrdPlannerArtifact,
     TestPlannerArtifact,
 )
-from ...core.models import NodeName
+from ...core.models import IterationStatus, NodeName
 from ...policy.artifact_gate import read_convention_excerpt, read_framework_conventions, read_spec_index
 from ...policy.context_manifest import (
     FOR_CODER,
@@ -173,7 +173,39 @@ class PipelinePromptsMixin:
                 "options": list(values.get("pending_discovery_options") or []),
                 "assumptions": list(values.get("pending_discovery_assumptions") or []),
             }
+        else:
+            row = self.db.get_iteration_row(iteration_id)
+            awaiting_input = (
+                row is not None
+                and row["status"] == IterationStatus.awaiting_requirements_input.value
+            ) or "requirements_input" in set(graph_state.next or [])
+            if awaiting_input:
+                pending = self._pending_discovery_from_events(iteration_id, round_num=len(discovery_qa) + 1)
         return {"pending_discovery": pending, "discovery_history": history}
+
+
+    def _pending_discovery_from_events(self, iteration_id: str, *, round_num: int) -> dict[str, Any] | None:
+        for event in reversed(self.db.list_events(iteration_id)):
+            if event["type"] != "discovery.question":
+                continue
+            try:
+                payload = json.loads(event["payload"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            question = str(payload.get("question") or "").strip()
+            if not question:
+                continue
+            raw_options = payload.get("options") or []
+            raw_assumptions = payload.get("assumptions") or []
+            return {
+                "round": int(payload.get("round") or round_num),
+                "question": question,
+                "options": [str(item) for item in raw_options] if isinstance(raw_options, list) else [],
+                "assumptions": [str(item) for item in raw_assumptions] if isinstance(raw_assumptions, list) else [],
+            }
+        return None
 
 
     def _cli_provider(self, state: PipelineState, stage: CliStage) -> str:

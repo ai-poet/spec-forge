@@ -22,6 +22,7 @@ export type NodeName =
   | 'integrity_check'
   | 'code_tester'
   | 'ui_tester'
+  | 'ui_driver'
   | 'planner_clarification'
   | 'planner_verify'
 export type Mode = 'dry-run' | 'real-cli'

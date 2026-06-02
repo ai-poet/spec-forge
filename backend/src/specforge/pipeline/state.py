@@ -11,6 +11,10 @@ def _last_str(left: str | None, right: str | None) -> str | None:
     return right if right is not None else left
 
 
+def _last_value(left: Any | None, right: Any | None) -> Any | None:
+    return right
+
+
 def _merge_counts(left: dict[str, int] | None, right: dict[str, int] | None) -> dict[str, int]:
     merged = dict(left or {})
     if right:
@@ -29,7 +33,7 @@ class PipelineState(TypedDict, total=False):
     mode: str
     status: Annotated[str, _last_str]
     route: Annotated[str | None, _last_str]
-    current_node: Optional[str]
+    current_node: Annotated[Optional[str], _last_value]
     verify_approval: Optional[str]
     blocked_reason: Optional[str]
     failure_notes: Optional[str]

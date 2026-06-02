@@ -1489,6 +1489,30 @@ def test_discovery_routes_back_to_itself_after_answer(tmp_path):
     assert len(detail["discovery_history"]) == 1
 
 
+def test_pending_discovery_falls_back_to_question_event():
+    iteration_id = create_manual_iteration("discovery-event-fallback", mode="dry-run")
+    pipeline.db.update_iteration(iteration_id, status="awaiting_requirements_input", current_node=None)
+    pipeline.db.add_event(
+        iteration_id,
+        event_type="discovery.question",
+        payload={
+            "round": 1,
+            "question": "Which user segment should be prioritized?",
+            "options": ["Admins", "Operators", "其他（请说明）"],
+            "assumptions": ["dashboard workflow"],
+        },
+    )
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+
+    assert detail["pending_discovery"] == {
+        "round": 1,
+        "question": "Which user segment should be prioritized?",
+        "options": ["Admins", "Operators", "其他（请说明）"],
+        "assumptions": ["dashboard workflow"],
+    }
+
+
 def test_multi_round_discovery_with_resume(monkeypatch):
     from specforge.core.contracts import PlannerDiscoveryArtifact
 

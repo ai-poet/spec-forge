@@ -32,6 +32,7 @@ export const nodeLabel: Record<NodeName, string> = {
   integrity_check: '测试完整性检查',
   code_tester: '代码验证',
   ui_tester: 'UI 验证',
+  ui_driver: 'UI Driver',
   planner_clarification: '规划澄清',
   planner_verify: '规格复核',
 }
@@ -92,7 +93,6 @@ export function eventLabel(value: string) {
     'code_tester.review_fallback.completed': '代码审查兜底完成',
     'code_tester.review_fallback.failed': '代码审查兜底失败',
     'ui_tester.started': 'UI 验证已开始',
-    'ui_tester.completed': 'UI 验证已完成',
     'ui_tester.cua_busy': 'CuaDriver 会话占用',
     'ui_tester.warning': '部分 UI 未执行',
     'ui_tester.failed': 'UI 验证需复核',

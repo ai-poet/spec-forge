@@ -10,18 +10,30 @@ interface Props {
   onSkip: () => Promise<void>
 }
 
+function discoveryDraftKey(iterationId: string, round: number, question: string) {
+  return `specforge:discovery-draft:${iterationId}:${round}:${encodeURIComponent(question).slice(0, 120)}`
+}
+
 export function RequirementsDiscoveryPanel({ detail, busy, onSubmitAnswer, onSkip }: Props) {
   const pending = detail.pending_discovery
   const [customAnswer, setCustomAnswer] = useState('')
-  const [customOpen, setCustomOpen] = useState(false)
   const history = detail.discovery_history ?? []
 
   const { presets, customLabel } = splitDiscoveryOptions(pending?.options ?? [])
+  const draftKey = pending ? discoveryDraftKey(detail.id, pending.round, pending.question) : null
 
   useEffect(() => {
-    setCustomAnswer('')
-    setCustomOpen(false)
-  }, [pending?.round, pending?.question])
+    if (!draftKey) {
+      setCustomAnswer('')
+      return
+    }
+    setCustomAnswer(window.sessionStorage.getItem(draftKey) ?? '')
+  }, [draftKey])
+
+  useEffect(() => {
+    if (!draftKey) return
+    window.sessionStorage.setItem(draftKey, customAnswer)
+  }, [customAnswer, draftKey])
 
   if (!pending) return null
 
@@ -34,13 +46,13 @@ export function RequirementsDiscoveryPanel({ detail, busy, onSubmitAnswer, onSki
     const text = customAnswer.trim()
     if (!text || busy) return
     await onSubmitAnswer(text)
+    if (draftKey) window.sessionStorage.removeItem(draftKey)
     setCustomAnswer('')
-    setCustomOpen(false)
   }
 
-  function openCustom() {
+  function focusCustomInput() {
     if (busy) return
-    setCustomOpen(true)
+    document.getElementById('discovery-custom-answer')?.focus()
   }
 
   return (
@@ -78,58 +90,46 @@ export function RequirementsDiscoveryPanel({ detail, busy, onSubmitAnswer, onSki
           <li>
             <button
               type="button"
-              className={`${styles.choiceOption} ${customOpen ? styles.choiceOptionActive : ''}`.trim()}
+              className={styles.choiceOption}
               disabled={busy}
               role="option"
-              aria-expanded={customOpen}
-              onClick={openCustom}
+              onClick={focusCustomInput}
             >
               <span className={styles.choiceIndex}>{presets.length + 1}</span>
               <span className={styles.choiceLabel}>{customLabel}</span>
             </button>
           </li>
         </ul>
-        {customOpen ? (
-          <div className={styles.customBlock}>
-            <label className={styles.freeformLabel} htmlFor="discovery-custom-answer">
-              请说明你的选择
-            </label>
-            <textarea
-              id="discovery-custom-answer"
-              className={styles.input}
-              rows={3}
-              placeholder="输入自定义回答…"
-              value={customAnswer}
-              disabled={busy}
-              autoFocus
-              onChange={(event) => setCustomAnswer(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault()
-                  void submitCustomAnswer()
-                }
-              }}
-            />
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className="btn primary"
-                disabled={busy || !customAnswer.trim()}
-                onClick={submitCustomAnswer}
-              >
-                提交自定义回答
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={busy}
-                onClick={() => setCustomOpen(false)}
-              >
-                取消
-              </button>
-            </div>
+        <div className={styles.customBlock}>
+          <label className={styles.freeformLabel} htmlFor="discovery-custom-answer">
+            请说明你的选择
+          </label>
+          <textarea
+            id="discovery-custom-answer"
+            className={styles.input}
+            rows={3}
+            placeholder="输入自定义回答…"
+            value={customAnswer}
+            disabled={busy}
+            onChange={(event) => setCustomAnswer(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault()
+                void submitCustomAnswer()
+              }
+            }}
+          />
+          <div className={styles.actions}>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={busy || !customAnswer.trim()}
+              onClick={submitCustomAnswer}
+            >
+              提交自定义回答
+            </button>
           </div>
-        ) : null}
+        </div>
       </div>
 
       <div className={styles.footerActions}>
