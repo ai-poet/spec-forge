@@ -128,7 +128,7 @@ Project（项目）
 
 ## 流水线怎么跑（通俗版）
 
-你可以把整个流程想成一条工厂流水线：**需求澄清** → **PRD 规划**（`prd_planner`）→ **测试规划**（`test_planner`，在 Coder 之前写受保护测试）→ **实现** → **代码验证 + UI 验证** → **规格复核** → 你签字交付。下图对应 LangGraph 的真实边（见 `pipeline/graph.py` 的 `_build_graph` 与 `pipeline/routes.py` 的条件路由）。
+你可以把整个流程想成一条工厂流水线：**需求澄清** → **PRD 规划**（`prd_planner`）→ **测试规划**（`test_planner`，输出 testing_plan.md）→ **实现** → **代码验证**（编写测试 + 审查）→ **测试完整性**（保护测试基线）→ **UI 验证** → **规格复核** → 你签字交付。下图对应 LangGraph 的真实边（见 `pipeline/graph.py` 的 `_build_graph` 与 `pipeline/routes.py` 的条件路由）。
 
 ```mermaid
 flowchart TB
@@ -137,7 +137,7 @@ flowchart TB
   subgraph agentNodes ["Agent 节点（调用 CLI）"]
     plannerDiscovery["planner_discovery\n需求澄清 CLI"]
     prdPlanner["prd_planner\nPRD + context manifests"]
-    testPlanner["test_planner\n受保护测试（Coder 前）"]
+    testPlanner["test_planner\n测试计划（Coder 前）"]
     coder["coder\nClaude CLI"]
     plannerClarification["planner_clarification\nClaude CLI"]
     codeTester["code_tester\n代码审查 CLI"]
@@ -146,7 +146,7 @@ flowchart TB
 
   subgraph gateNodes ["程序门禁 / 人工检查点"]
     requirementsInput["requirements_input\ninterrupt：你回答问题"]
-    integrityCheck["integrity_check\n受保护测试 checksum"]
+    integrityCheck["integrity_check\nCode Tester 测试基线 checksum"]
     plannerVerify["planner_verify\n验证报告格式复核"]
     verifyApproval["verify_approval\ninterrupt：你点「确认交付」"]
     doneNode["done\n写入 iteration_log"]
@@ -164,20 +164,20 @@ flowchart TB
   testPlanner -->|"blocked / stopped"| endBlocked
 
   coder -->|"clarification"| plannerClarification
-  coder -->|"integrity"| integrityCheck
+  coder -->|"code_tester"| codeTester
   coder -->|"blocked / stopped"| endBlocked
 
   plannerClarification -->|"coder"| coder
   plannerClarification -->|"blocked / stopped"| endBlocked
 
-  integrityCheck -->|"code_tester"| codeTester
-  integrityCheck -->|"blocked"| endBlocked
-
-  codeTester -->|"ui"| uiTester
+  codeTester -->|"integrity"| integrityCheck
   codeTester -->|"retry"| coder
   codeTester -->|"self_retry"| codeTester
   codeTester -->|"test_planner_retry"| testPlanner
   codeTester -->|"blocked"| endBlocked
+
+  integrityCheck -->|"ui_tester"| uiTester
+  integrityCheck -->|"blocked"| endBlocked
 
   uiTester -->|"verify"| plannerVerify
   uiTester -->|"retry"| coder
@@ -343,8 +343,8 @@ flowchart LR
 ```mermaid
 sequenceDiagram
   participant Coder
-  participant Integrity as integrity_check
   participant CodeTester as code_tester
+  participant Integrity as integrity_check
   participant UiTester as ui_tester
   participant TestPlanner as test_planner
   participant Gate as 写盘闸门
@@ -356,28 +356,36 @@ sequenceDiagram
   alt CLI 失败且无合法产物
     CodeTester->>CodeTester: review_only 代码审查兜底
   end
-  CodeTester->>UiTester: pending artifact
-  UiTester->>UI: Agent CLI 执行 tests/ui/*.json + testing_plan.md 人工场景
-  UiTester->>Gate: 写盘后 build/test（若已配置）
-  alt 闸门失败
-    Gate-->>UiTester: 回滚 adversarial → ②b
-    UiTester-->>CodeTester: code_tester 自修
-  else passed=false
-    alt owner=coder
-      UiTester-->>Coder: coder_tester += 1
-      Coder->>Integrity: checksum
-      Integrity->>CodeTester: 再验证
-    else owner=test_planner
-      UiTester-->>TestPlanner: test_planner_self（修订 testing_plan.md）
-    else owner=code_tester
-      UiTester-->>CodeTester: code_tester_self 自修
+  CodeTester->>CodeTester: CLI 产出 verify_report + defects[] + test_files[]
+  alt CLI 失败且无合法产物
+    CodeTester->>CodeTester: review_only 代码审查兜底
+  end
+  CodeTester->>Integrity: 建立测试基线
+  alt 测试完整性失败
+    Integrity-->>CodeTester: 测试被改 → blocked
+  else 完整性通过
+    Integrity->>UiTester: pending artifact
+    UiTester->>UI: Agent CLI 执行 tests/ui/*.json + testing_plan.md 人工场景
+    UiTester->>Gate: 写盘后 build/test（若已配置）
+    alt 闸门失败
+      Gate-->>UiTester: 回滚 adversarial → ②b
+      UiTester-->>CodeTester: code_tester 自修
+    else passed=false
+      alt owner=coder
+        UiTester-->>Coder: coder_tester += 1
+        Coder->>CodeTester: 重新验证
+      else owner=test_planner
+        UiTester-->>TestPlanner: test_planner_self（修订 testing_plan.md）
+      else owner=code_tester
+        UiTester-->>CodeTester: code_tester_self 自修
+      end
+    else passed=true
+      UiTester->>Verify: planner_verify
     end
-  else passed=true
-    UiTester->>Verify: planner_verify
   end
 ```
 
-**与主流程图的关系：** 回环 ① 在 `coder` ↔ `planner_clarification`；②a 经 `integrity_check → code_tester → ui_tester`；②b 在 `code_tester` 自修；②c 回到 `test_planner`；③ 在 `planner_verify` 与 `code_tester` 之间。
+**与主流程图的关系：** 回环 ① 在 `coder` ↔ `planner_clarification`；②a 经 `code_tester → integrity_check → ui_tester`；②b 在 `code_tester` 自修；②c 回到 `test_planner`；③ 在 `planner_verify` 与 `code_tester` 之间。
 
 下面把各回环叠在同一条主骨架上（边上标注 ①②a②b③ 与默认上限）：
 
@@ -389,9 +397,9 @@ flowchart TD
   coder -->|"① clarification_request\n≤3"| clar["planner_clarification"]
   clar --> coder
 
-  coder --> integrity["integrity_check"]
-  integrity --> ct["code_tester"]
-  ct --> uit["ui_tester\nplaywright-cli / cua-driver\n+ 写盘闸门"]
+  coder --> ct["code_tester\n编写测试 + 代码审查"]
+  ct --> integrity["integrity_check"]
+  integrity --> uit["ui_tester\nplaywright-cli / cua-driver\n+ 写盘闸门"]
 
   uit -->|"②a owner=coder\n≤5"| coder
   uit -->|"②b owner=code_tester\n≤3"| ct

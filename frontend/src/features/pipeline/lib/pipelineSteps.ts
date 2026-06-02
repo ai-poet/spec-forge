@@ -13,10 +13,10 @@ export type PipelineStepKey =
 
 export const PIPELINE_STEPS: { key: PipelineStepKey; label: string; hint: string }[] = [
   { key: 'prd_planning', label: 'PRD 规划', hint: '需求澄清与 prd.md、上下文清单' },
-  { key: 'test_planning', label: '测试规划', hint: 'testing_plan.md 与受保护测试' },
+  { key: 'test_planning', label: '测试规划', hint: 'testing_plan.md（自动化测试策略 + 人工测试场景）' },
   { key: 'coder', label: '实现', hint: '写入代码变更' },
-  { key: 'integrity_check', label: '测试完整性', hint: '保护测试基线' },
-  { key: 'code_tester', label: '代码验证', hint: '独立代码审查与测试命令' },
+  { key: 'code_tester', label: '代码验证', hint: '按 testing_plan 编写自动化测试；独立代码审查' },
+  { key: 'integrity_check', label: '测试完整性', hint: '保护 Code Tester 建立的测试基线' },
   { key: 'ui_tester', label: 'UI 验证', hint: 'playwright-cli / cua-driver Agent' },
   { key: 'planner_verify', label: '规格复核', hint: '机械检查报告' },
   { key: 'verify_approval', label: '交付确认', hint: '人工确认交付' },
@@ -85,8 +85,8 @@ export function pipelineStepState(key: string, detail: IterationDetail | null): 
     return 'active'
   }
   if (key === 'coder' && ['coding', 'retrying'].includes(status)) return 'active'
-  if (key === 'integrity_check' && status === 'testing' && currentNode === 'integrity_check') return 'active'
   if (key === 'code_tester' && status === 'testing' && currentNode === 'code_tester') return 'active'
+  if (key === 'integrity_check' && status === 'testing' && currentNode === 'integrity_check') return 'active'
   if (key === 'ui_tester' && status === 'testing' && currentNode === 'ui_tester') return 'active'
   if (key === 'planner_verify' && currentNode === 'planner_verify') return 'active'
   const stepIndex = PIPELINE_STEPS.findIndex((step) => step.key === key)
@@ -118,18 +118,18 @@ export function inferFocusStep(detail: IterationDetail): PipelineStepKey {
   if (['queued', 'planning', 'created'].includes(status)) return focusPlanningStep(detail)
   if (['coding', 'retrying'].includes(status)) return 'coder'
   if (status === 'testing') {
+    if (node === 'code_tester') return 'code_tester'
     if (node === 'integrity_check') return 'integrity_check'
     if (node === 'planner_verify') return 'planner_verify'
     if (node === 'ui_tester' || node === 'ui_driver') return 'ui_tester'
-    if (node === 'code_tester') return 'code_tester'
     return 'code_tester'
   }
   if (status === 'awaiting_verify_approval') return 'verify_approval'
   if (status === 'delivered') return 'done'
   if (node === 'planner_verify') return 'planner_verify'
   if (node === 'ui_tester' || node === 'ui_driver') return 'ui_tester'
-  if (node === 'code_tester') return 'code_tester'
   if (node === 'integrity_check') return 'integrity_check'
+  if (node === 'code_tester') return 'code_tester'
   if (node === 'coder' || node === 'coder_retry' || node === 'planner_clarification') return 'coder'
   if (node && TEST_PLANNING_NODES.has(node)) return 'test_planning'
   if (node && PRD_PLANNING_NODES.has(node)) return 'prd_planning'
