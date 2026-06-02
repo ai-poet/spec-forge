@@ -22,7 +22,12 @@ from specforge.core.contracts import (
     parse_json_artifact,
     validate_ui_spec_content,
 )
-from specforge.documents.docs_io import IterationDocs, compare_test_integrity, test_integrity_manifest as build_test_integrity_manifest
+from specforge.documents.docs_io import (
+    IterationDocs,
+    compare_test_integrity,
+    planning_integrity_manifest as build_planning_integrity_manifest,
+    test_integrity_manifest as build_test_integrity_manifest,
+)
 from specforge.main import app, job_queue, pipeline
 from specforge.core.models import IterationStatus
 
@@ -65,6 +70,16 @@ def create_manual_iteration(project_name: str, *, mode: str = "real-cli") -> str
     )
     pipeline.project_root(iteration_id).mkdir(parents=True, exist_ok=True)
     return iteration_id
+
+
+def write_planning_docs(iteration_id: str) -> IterationDocs:
+    docs = IterationDocs(pipeline.docs_root(iteration_id))
+    docs.ensure()
+    docs.write_text("prd.md", "# PRD\n")
+    docs.write_text("testing_plan.md", "# Testing Plan\n")
+    docs.write_text("context/for_coder.jsonl", '{"file":"prd.md"}\n{"file":"testing_plan.md"}\n')
+    docs.write_text("context/for_tester.jsonl", '{"file":"prd.md"}\n{"file":"testing_plan.md"}\n')
+    return docs
 
 
 class SequenceRunner:
@@ -1262,6 +1277,28 @@ def test_checksum_gate_blocks_modified_protected_tests():
     classified = [event for event in payload["events"] if event["type"] == "error.classified"]
     assert classified
     assert "测试基线" in classified[-1]["payload"]["action_hint"]
+
+
+def test_planning_integrity_blocks_modified_plan_after_coder():
+    iteration_id = create_manual_iteration("planning-integrity", mode="dry-run")
+    docs = write_planning_docs(iteration_id)
+    pipeline._update_iteration(
+        iteration_id,
+        status="coding",
+        current_node=None,
+        planning_integrity_baseline=build_planning_integrity_manifest(docs.root),
+    )
+
+    (docs.root / "testing_plan.md").write_text("# Tampered Plan\n", encoding="utf-8")
+
+    result = pipeline._coder_node({"iteration_id": iteration_id, "mode": "dry-run", "retry_counts": {}})
+
+    assert result["status"] == "blocked"
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert "modified planning document: testing_plan.md" in detail["last_error"]
+    assert any(event["type"] == "planning_integrity.failed" for event in detail["events"])
+    classified = [event for event in detail["events"] if event["type"] == "error.classified"]
+    assert classified[-1]["payload"]["title"] == "规划文档完整性失败"
 
 
 def test_artifact_invalid_emits_classified_error():

@@ -23,7 +23,7 @@ from ...core.contracts import (
     validate_ui_spec_content,
 )
 from ...core.models import IterationStatus, NodeName
-from ...documents.docs_io import IterationDocs, compare_test_integrity, safe_relative_path
+from ...documents.docs_io import IterationDocs, compare_planning_integrity, compare_test_integrity, safe_relative_path
 from ...policy.artifact_gate import run_project_commands
 from ...policy.context_manifest import (
     ManifestLine,
@@ -325,6 +325,42 @@ class PipelineArtifactsMixin:
         row = self._require_iteration(iteration_id)
         baseline = self._json(row["test_integrity_baseline"], {})
         return compare_test_integrity(self.docs_root(iteration_id), baseline)
+
+
+    def _planning_integrity_problems(self, iteration_id: str) -> list[str]:
+        row = self._require_iteration(iteration_id)
+        baseline = self._json(
+            row["planning_integrity_baseline"] if "planning_integrity_baseline" in row.keys() else "{}",
+            {},
+        )
+        if not baseline:
+            return []
+        return compare_planning_integrity(self.docs_root(iteration_id), baseline)
+
+
+    def _planning_integrity_failure(
+        self,
+        iteration_id: str,
+        *,
+        node: str,
+        run_id: Optional[str] = None,
+        action_hint: Optional[str] = None,
+    ) -> PipelineState | None:
+        problems = self._planning_integrity_problems(iteration_id)
+        if not problems:
+            return None
+        message = "; ".join(problems)
+        self._node_event(
+            iteration_id,
+            "node.failed",
+            node,
+            "规划文档完整性失败",
+            message,
+            severity="error",
+            run_id=run_id,
+            action_hint=action_hint or "检查 PRD、testing_plan 与 context manifests 是否被非规划节点修改。",
+        )
+        return self._block(iteration_id, "planning_integrity.failed", run_id, message)
 
 
     def _normalize_tester_artifact(self, artifact: VerificationArtifact) -> VerificationArtifact:

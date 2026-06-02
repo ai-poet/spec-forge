@@ -5,6 +5,13 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Iterable
 
+PLANNING_INTEGRITY_PATHS = (
+    "prd.md",
+    "testing_plan.md",
+    "context/for_coder.jsonl",
+    "context/for_tester.jsonl",
+)
+
 
 def checksum(path: Path) -> str:
     digest = sha256()
@@ -66,6 +73,35 @@ def compare_test_integrity(root: Path, baseline: dict[str, dict[str, Any]]) -> l
             continue
         if actual["sha256"] != expected["sha256"]:
             problems.append(f"modified protected test: {path}")
+    return problems
+
+
+def _planning_integrity_manifest(root: Path, *, require_all: bool) -> dict[str, dict[str, Any]]:
+    manifest: dict[str, dict[str, Any]] = {}
+    for relative_path in PLANNING_INTEGRITY_PATHS:
+        path = root / relative_path
+        if not path.exists() or not path.is_file():
+            if require_all:
+                raise FileNotFoundError(f"missing planning document: {relative_path}")
+            continue
+        manifest[relative_path] = {"sha256": checksum(path), "size": path.stat().st_size}
+    return manifest
+
+
+def planning_integrity_manifest(root: Path) -> dict[str, dict[str, Any]]:
+    return _planning_integrity_manifest(root, require_all=True)
+
+
+def compare_planning_integrity(root: Path, baseline: dict[str, dict[str, Any]]) -> list[str]:
+    current = _planning_integrity_manifest(root, require_all=False)
+    problems: list[str] = []
+    for path, expected in baseline.items():
+        actual = current.get(path)
+        if actual is None:
+            problems.append(f"missing planning document: {path}")
+            continue
+        if actual["sha256"] != expected["sha256"]:
+            problems.append(f"modified planning document: {path}")
     return problems
 
 

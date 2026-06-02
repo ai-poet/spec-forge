@@ -29,6 +29,14 @@ class VerificationNodesMixin:
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.code_tester.value, run_result)
+        planning_failure = self._planning_integrity_failure(
+            iteration_id,
+            node=NodeName.code_tester.value,
+            run_id=run_id,
+            action_hint="Code Tester 不得修改 PRD、testing_plan 或 context manifests。",
+        )
+        if planning_failure is not None:
+            return planning_failure
         try:
             code_artifact: CodeTesterArtifact | None = None
             if run_result.returncode:
@@ -56,6 +64,14 @@ class VerificationNodesMixin:
                         return self._abort_state()
                     review_run_id = self._record_run(iteration_id, NodeName.code_tester.value, review_result)
                     run_id = review_run_id
+                    planning_failure = self._planning_integrity_failure(
+                        iteration_id,
+                        node=NodeName.code_tester.value,
+                        run_id=run_id,
+                        action_hint="Code Tester 不得修改 PRD、testing_plan 或 context manifests。",
+                    )
+                    if planning_failure is not None:
+                        return planning_failure
                     if review_result.returncode:
                         notes = self._tester_failure_notes(run_result, review_result)
                         return self._route_tester_failure(
@@ -78,12 +94,28 @@ class VerificationNodesMixin:
                 tester_pending = verification_from_code(code_artifact)
             if code_artifact is None:
                 raise ValueError("code tester artifact was not resolved")
+            planning_failure = self._planning_integrity_failure(
+                iteration_id,
+                node=NodeName.code_tester.value,
+                run_id=run_id,
+                action_hint="Code Tester 不得修改 PRD、testing_plan 或 context manifests。",
+            )
+            if planning_failure is not None:
+                return planning_failure
             self._write_tester_artifact(iteration_id, IterationDocs(self.docs_root(iteration_id)), tester_pending, run_id=run_id)
             baseline = test_integrity_manifest(self.docs_root(iteration_id))
             self._update_iteration(iteration_id, test_integrity_baseline=baseline)
             self._node_event(iteration_id, "node.completed", NodeName.code_tester.value, "代码验证完成", "已建立测试基线，进入测试完整性检查。", severity="success", run_id=run_id)
             return {"pending_code_tester_json": tester_pending.model_dump_json(), "code_tester_run_id": run_id, "current_node": NodeName.integrity_check.value}
         except Exception as exc:
+            planning_failure = self._planning_integrity_failure(
+                iteration_id,
+                node=NodeName.code_tester.value,
+                run_id=run_id,
+                action_hint="Code Tester 不得修改 PRD、testing_plan 或 context manifests。",
+            )
+            if planning_failure is not None:
+                return planning_failure
             self._node_event(iteration_id, "node.failed", NodeName.code_tester.value, "验证产物无效", "Code Tester 输出无法被解析为合法 artifact。", severity="error", run_id=run_id)
             return self._block(iteration_id, "artifact.invalid", run_id, str(exc))
 
@@ -122,6 +154,14 @@ class VerificationNodesMixin:
                     run_id=run_id,
                 )
                 artifact = baseline
+            planning_failure = self._planning_integrity_failure(
+                iteration_id,
+                node=NodeName.ui_tester.value,
+                run_id=run_id,
+                action_hint="UI Tester 不得修改 PRD、testing_plan 或 context manifests。",
+            )
+            if planning_failure is not None:
+                return planning_failure
             self._emit_ui_tester_result_events(iteration_id, artifact, run_id=run_id)
             self._write_tester_artifact(iteration_id, docs, artifact, run_id=run_id)
             gate_ok, gate_msg = self._run_artifact_gate(state)
@@ -161,6 +201,14 @@ class VerificationNodesMixin:
             self._node_event(iteration_id, "node.completed", NodeName.ui_tester.value, "验证通过", "验证报告和交付建议已生成，等待规格复核和最终确认。", severity="success", run_id=run_id)
             return {"status": IterationStatus.awaiting_verify_approval.value, "route": "", "current_node": None, "verification_run_id": run_id}
         except Exception as exc:
+            planning_failure = self._planning_integrity_failure(
+                iteration_id,
+                node=NodeName.ui_tester.value,
+                run_id=run_id,
+                action_hint="UI Tester 不得修改 PRD、testing_plan 或 context manifests。",
+            )
+            if planning_failure is not None:
+                return planning_failure
             event_type = ui_spec_error_type(str(exc))
             hint = "检查 tests/ui/*.json 动作名与字段是否符合 UITestSpec schema。" if event_type == "ui_spec.invalid" else "查看验证产物。"
             title = "UI 测试规格无效" if event_type == "ui_spec.invalid" else "验证产物无效"
@@ -173,6 +221,9 @@ class VerificationNodesMixin:
         iteration_id = state["iteration_id"]
         self._update_iteration(iteration_id, status=IterationStatus.testing.value, current_node=NodeName.planner_verify.value)
         self._node_event(iteration_id, "node.started", NodeName.planner_verify.value, "规格复核已启动", "Planner 正在机械检查验证报告是否满足基本结构要求。")
+        planning_failure = self._planning_integrity_failure(iteration_id, node=NodeName.planner_verify.value)
+        if planning_failure is not None:
+            return planning_failure
         docs = IterationDocs(self.docs_root(iteration_id))
         try:
             text = docs.read_text("verify_report.md")

@@ -37,6 +37,14 @@ class ImplementationNodesMixin:
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.coder.value, run_result)
+        planning_failure = self._planning_integrity_failure(
+            iteration_id,
+            node=NodeName.coder.value,
+            run_id=run_id,
+            action_hint="Coder 不得修改 PRD、testing_plan 或 context manifests。",
+        )
+        if planning_failure is not None:
+            return planning_failure
         if run_result.returncode:
             self._node_event(iteration_id, "node.failed", NodeName.coder.value, "实现失败", "Coder CLI 执行失败。", severity="error", run_id=run_id, action_hint="查看运行日志，确认 claude CLI 和工作区权限。")
             return self._block(iteration_id, "coder.failed", run_id, run_result.stderr)
@@ -61,6 +69,15 @@ class ImplementationNodesMixin:
                 encoding="utf-8",
             )
             artifact.changed_paths.append(str(app_file.relative_to(self.project_root(iteration_id))))
+
+        planning_failure = self._planning_integrity_failure(
+            iteration_id,
+            node=NodeName.coder.value,
+            run_id=run_id,
+            action_hint="Coder 不得修改 PRD、testing_plan 或 context manifests。",
+        )
+        if planning_failure is not None:
+            return planning_failure
 
         self._add_event(
             iteration_id,
@@ -180,6 +197,9 @@ class ImplementationNodesMixin:
         if problems:
             self._node_event(iteration_id, "node.failed", NodeName.integrity_check.value, "测试完整性失败", "; ".join(problems), severity="error", action_hint="检查测试文件是否被意外修改。")
             return self._block(iteration_id, "test_integrity.failed", None, "; ".join(problems))
+        planning_failure = self._planning_integrity_failure(iteration_id, node=NodeName.integrity_check.value)
+        if planning_failure is not None:
+            return planning_failure
         self._add_event(iteration_id, event_type="test_integrity.passed", payload={"stage": "after_tester"})
         self._node_event(iteration_id, "node.completed", NodeName.integrity_check.value, "测试完整性通过", "测试基线未被未授权修改，可以进入 UI 验证。", severity="success")
         return {"status": IterationStatus.testing.value, "current_node": NodeName.ui_tester.value}

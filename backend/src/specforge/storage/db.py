@@ -52,6 +52,7 @@ class Database:
                     test_command TEXT,
                     retry_counts TEXT NOT NULL DEFAULT '{}',
                     test_integrity_baseline TEXT NOT NULL DEFAULT '{}',
+                    planning_integrity_baseline TEXT NOT NULL DEFAULT '{}',
                     last_error TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -128,6 +129,8 @@ class Database:
                 conn.execute("ALTER TABLE iterations ADD COLUMN retry_counts TEXT NOT NULL DEFAULT '{}'")
             if "test_integrity_baseline" not in iteration_columns:
                 conn.execute("ALTER TABLE iterations ADD COLUMN test_integrity_baseline TEXT NOT NULL DEFAULT '{}'")
+            if "planning_integrity_baseline" not in iteration_columns:
+                conn.execute("ALTER TABLE iterations ADD COLUMN planning_integrity_baseline TEXT NOT NULL DEFAULT '{}'")
             if "last_error" not in iteration_columns:
                 conn.execute("ALTER TABLE iterations ADD COLUMN last_error TEXT")
             if "stopped_at_node" not in iteration_columns:
@@ -399,10 +402,10 @@ class Database:
                 """
                 INSERT INTO iterations (
                     id, project_id, project_name, goal, mode, status, current_node,
-                    test_command, build_command, retry_counts, test_integrity_baseline, last_error, epic_id,
-                    docs_slug, created_at, updated_at
+                    test_command, build_command, retry_counts, test_integrity_baseline,
+                    planning_integrity_baseline, last_error, epic_id, docs_slug, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     iteration_id,
@@ -414,6 +417,7 @@ class Database:
                     None,
                     resolved_test_command,
                     resolved_build_command,
+                    "{}",
                     "{}",
                     "{}",
                     None,
@@ -444,6 +448,7 @@ class Database:
         build_command: Optional[str] = None,
         retry_counts: Optional[dict[str, int]] = None,
         test_integrity_baseline: Optional[dict[str, Any]] = None,
+        planning_integrity_baseline: Optional[dict[str, Any]] = None,
         last_error: Any = _UNSET,
         stopped_at_node: Any = _UNSET,
     ) -> None:
@@ -467,6 +472,9 @@ class Database:
         if test_integrity_baseline is not None:
             fields.append("test_integrity_baseline = ?")
             values.append(json.dumps(test_integrity_baseline))
+        if planning_integrity_baseline is not None:
+            fields.append("planning_integrity_baseline = ?")
+            values.append(json.dumps(planning_integrity_baseline))
         if last_error is not _UNSET:
             fields.append("last_error = ?")
             values.append(last_error)
