@@ -4,6 +4,7 @@ import {
   approveVerify,
   createIteration,
   listIterationsForProject,
+  manualSkipIteration,
   resumeIteration,
   skipDiscovery,
   stopIteration,
@@ -225,6 +226,20 @@ export function DashboardPage() {
     }
   }
 
+  async function handleManualSkip(node?: string | null) {
+    if (!selectedIterationId) return
+    setBusy(true)
+    try {
+      await manualSkipIteration(selectedIterationId, node, '人工调试跳过')
+      await live.loadDetail()
+      await refreshIterations(epics.selectedEpicId ?? undefined, selectedIterationId)
+      await epics.refreshEpics(epics.selectedEpicId ?? undefined)
+      await projects.refreshProjects()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function handleSaveProject(projectId: string, input: UpdateProjectInput) {
     setBusy(true)
     try {
@@ -392,6 +407,8 @@ export function DashboardPage() {
           lastMessageAt={live.lastMessageAt}
           reviewStepKey={reviewStepKey}
           onSelectStep={setReviewStepKey}
+          onManualSkip={handleManualSkip}
+          manualSkipBusy={busy}
         />
       ) : null}
     </div>

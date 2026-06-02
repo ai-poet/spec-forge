@@ -273,3 +273,8 @@ class AnswerRequirementsRequest(BaseModel):
 
 class RetryRequest(BaseModel):
     note: Optional[str] = None
+
+
+class ManualSkipRequest(BaseModel):
+    node: Optional[str] = None
+    note: Optional[str] = None

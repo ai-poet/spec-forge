@@ -31,6 +31,7 @@ from specforge.core.models import (
     PendingDiscovery,
     ProjectSummary,
     RetryRequest,
+    ManualSkipRequest,
     UpdateEpicRequest,
     UpdateProjectRequest,
     CliBindings,
@@ -453,6 +454,19 @@ def resume_iteration(iteration_id: str, payload: RetryRequest) -> IterationSumma
         raise HTTPException(status_code=409, detail="iteration is not resumable")
     db.add_event(iteration_id, event_type="resume.queued", payload={"kind": "stopped"})
     job_queue.enqueue_resume_stopped(iteration_id, payload.note)
+    refresh_iteration_epic(iteration_id)
+    return get_iteration(iteration_id)
+
+
+@app.post("/api/iterations/{iteration_id}/manual-skip", response_model=IterationSummary)
+def manual_skip_iteration(iteration_id: str, payload: ManualSkipRequest) -> IterationSummary:
+    try:
+        node = pipeline.prepare_manual_skip(iteration_id, payload.node, payload.note)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="iteration not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    job_queue.enqueue_manual_skip(iteration_id, node, payload.note)
     refresh_iteration_epic(iteration_id)
     return get_iteration(iteration_id)
 

@@ -12,8 +12,14 @@ from langgraph.types import Command
 from ..agents.cli_runner import BaseRunner, DryRunRunner, RealCLIRunner
 from ..agents.cli_event_presenter import CliEventPresenter
 from ..core.config import settings
+from ..core.contracts import (
+    ContextManifestEntry,
+    PrdPlannerArtifact,
+    TestPlannerArtifact,
+    VerificationArtifact,
+)
 from ..core.models import IterationStatus, Mode, NodeName
-from ..documents.docs_io import IterationDocs
+from ..documents.docs_io import IterationDocs, planning_integrity_manifest, test_integrity_manifest
 from ..documents.docs_scaffold import append_iteration_log, ensure_iteration_docs, ensure_project_docs, iteration_docs_root
 from ..policy.context_manifest import RUNTIME_NOTES, append_runtime_note
 from ..runtime.events import EventBroker
@@ -29,6 +35,31 @@ from .nodes.planning import PlanningNodesMixin
 from .nodes.verification import VerificationNodesMixin
 from .routes import PipelineRoutesMixin
 from .state import PipelineState
+
+
+MANUAL_SKIP_NEXT_NODE: dict[str, str] = {
+    NodeName.planner_discovery.value: NodeName.prd_planner.value,
+    "requirements_input": NodeName.prd_planner.value,
+    NodeName.prd_planner.value: NodeName.test_planner.value,
+    NodeName.test_planner.value: NodeName.coder.value,
+    NodeName.planner_clarification.value: NodeName.coder.value,
+    NodeName.coder.value: NodeName.code_tester.value,
+    NodeName.code_tester.value: NodeName.integrity_check.value,
+    NodeName.integrity_check.value: NodeName.ui_tester.value,
+    NodeName.ui_tester.value: NodeName.planner_verify.value,
+    NodeName.planner_verify.value: "verify_approval",
+    "verify_approval": "done",
+}
+
+MANUAL_SKIP_ACTIVE_STATUSES = {
+    IterationStatus.created.value,
+    IterationStatus.queued.value,
+    IterationStatus.planning.value,
+    IterationStatus.awaiting_requirements_input.value,
+    IterationStatus.coding.value,
+    IterationStatus.retrying.value,
+    IterationStatus.testing.value,
+}
 
 
 class LangGraphPipeline(
@@ -144,6 +175,259 @@ class LangGraphPipeline(
 
     def approve_verify(self, iteration_id: str, note: Optional[str] = None) -> None:
         self.resume(iteration_id, "verify_approval", note or "approved")
+
+
+    def prepare_manual_skip(self, iteration_id: str, node: Optional[str] = None, note: Optional[str] = None) -> str:
+        row = self._require_iteration(iteration_id)
+        if row["status"] == IterationStatus.delivered.value:
+            raise ValueError("delivered iteration cannot be skipped")
+        skip_node = self._resolve_manual_skip_node(row, node)
+        next_node = self._manual_skip_next(skip_node)
+        if row["status"] in MANUAL_SKIP_ACTIVE_STATUSES:
+            self.cancel_cli(iteration_id)
+        else:
+            self._clear_live_cli(iteration_id)
+        self._update_iteration(
+            iteration_id,
+            status=IterationStatus.stopped.value,
+            current_node=None,
+            stopped_at_node=skip_node,
+            last_error=f"manual skip queued: {skip_node}",
+        )
+        self._add_event(
+            iteration_id,
+            event_type="manual_skip.queued",
+            payload={"node": skip_node, "next_node": next_node, "note": note},
+        )
+        return skip_node
+
+
+    def manual_skip(self, iteration_id: str, node: str, note: Optional[str] = None) -> None:
+        skip_node = self._normalize_manual_skip_node(node)
+        next_node = self._manual_skip_next(skip_node)
+        self._aborted_iterations.discard(iteration_id)
+        self._clear_live_cli(iteration_id)
+        state_updates = self._ensure_manual_skip_prerequisites(iteration_id, skip_node, next_node, note)
+        status = IterationStatus.delivered if next_node == "done" else self._status_for_node(next_node)
+        current_node = None if next_node in {"verify_approval", "done"} else next_node
+        self._update_iteration(
+            iteration_id,
+            status=status.value,
+            current_node=current_node,
+            stopped_at_node=None,
+            last_error=None,
+        )
+        self._add_event(
+            iteration_id,
+            event_type="manual_skip.started",
+            payload={"node": skip_node, "next_node": next_node, "note": note},
+        )
+        self._node_event(
+            iteration_id,
+            "node.completed",
+            skip_node,
+            "人工跳过",
+            note or "该环节已由人工调试操作跳过。",
+            severity="warning",
+            action_hint="这是调试操作，产物可能由系统生成的最小占位内容补齐。",
+        )
+
+        state = self._build_state(iteration_id)
+        graph_state = self.graph.get_state(self._config(iteration_id))
+        if graph_state.values:
+            merged = dict(graph_state.values)
+            merged.update(state)
+            state = merged
+        state.update(
+            {
+                "status": status.value,
+                "current_node": current_node,
+                "route": "",
+                "blocked_reason": None,
+                **state_updates,
+            }
+        )
+        if self._manual_skip_order(next_node) < self._manual_skip_order(NodeName.integrity_check.value):
+            state["pending_code_tester_json"] = None
+            state["code_tester_run_id"] = None
+        self.graph.update_state(self._config(iteration_id), state)
+        self._begin_invoke(iteration_id)
+        try:
+            self.graph.invoke(Command(goto=next_node), config=self._config(iteration_id))
+        finally:
+            self._end_invoke(iteration_id)
+        self._publish_snapshot(iteration_id)
+
+
+    def _resolve_manual_skip_node(self, row: Any, node: Optional[str]) -> str:
+        if node:
+            return self._normalize_manual_skip_node(node)
+        if row["status"] == IterationStatus.awaiting_requirements_input.value:
+            return "requirements_input"
+        if row["status"] == IterationStatus.awaiting_verify_approval.value:
+            return "verify_approval"
+        if row["current_node"]:
+            return self._normalize_manual_skip_node(row["current_node"])
+        if "stopped_at_node" in row.keys() and row["stopped_at_node"]:
+            return self._normalize_manual_skip_node(row["stopped_at_node"])
+        inferred = self._infer_node_from_status(row["status"])
+        if inferred:
+            return self._normalize_manual_skip_node(inferred)
+        event_node = self._last_event_node(row["id"])
+        if event_node:
+            return event_node
+        raise ValueError("cannot determine node to skip")
+
+
+    def _normalize_manual_skip_node(self, node: str) -> str:
+        aliases = {
+            "coder_retry": NodeName.coder.value,
+            "ui_driver": NodeName.ui_tester.value,
+        }
+        normalized = aliases.get(node, node)
+        if normalized not in MANUAL_SKIP_NEXT_NODE:
+            raise ValueError(f"node cannot be manually skipped: {node}")
+        return normalized
+
+
+    def _manual_skip_next(self, node: str) -> str:
+        try:
+            return MANUAL_SKIP_NEXT_NODE[node]
+        except KeyError as exc:
+            raise ValueError(f"node cannot be manually skipped: {node}") from exc
+
+
+    def _last_event_node(self, iteration_id: str) -> Optional[str]:
+        runs = {run["id"]: run["node"] for run in self.db.list_runs(iteration_id)}
+        for event in reversed(self.db.list_events(iteration_id)):
+            try:
+                payload = json.loads(event["payload"])
+            except Exception:
+                continue
+            node = payload.get("node")
+            if isinstance(node, str) and node in MANUAL_SKIP_NEXT_NODE:
+                return node
+            run_id = payload.get("run_id")
+            run_node = runs.get(run_id) if isinstance(run_id, str) else None
+            if run_node in MANUAL_SKIP_NEXT_NODE:
+                return run_node
+        return None
+
+
+    def _manual_skip_order(self, node: str) -> int:
+        order = {
+            NodeName.prd_planner.value: 1,
+            NodeName.test_planner.value: 2,
+            NodeName.coder.value: 3,
+            NodeName.code_tester.value: 4,
+            NodeName.integrity_check.value: 5,
+            NodeName.ui_tester.value: 6,
+            NodeName.planner_verify.value: 7,
+            "verify_approval": 8,
+            "done": 9,
+        }
+        return order.get(node, 0)
+
+
+    def _ensure_manual_skip_prerequisites(
+        self,
+        iteration_id: str,
+        skip_node: str,
+        next_node: str,
+        note: Optional[str],
+    ) -> dict[str, Any]:
+        self._prepare_iteration_docs(iteration_id)
+        docs = IterationDocs(self.docs_root(iteration_id))
+        docs.ensure()
+        state_updates: dict[str, Any] = {
+            "requirements_brief": self._manual_requirements_brief(iteration_id, note),
+            "failure_notes": note or f"manual skip from {skip_node}",
+        }
+        if self._manual_skip_order(next_node) >= self._manual_skip_order(NodeName.test_planner.value):
+            self._ensure_manual_prd(iteration_id, docs, note)
+        if self._manual_skip_order(next_node) >= self._manual_skip_order(NodeName.coder.value):
+            self._ensure_manual_testing_plan(iteration_id, docs, note)
+            self._update_iteration(iteration_id, planning_integrity_baseline=planning_integrity_manifest(docs.root))
+        if self._manual_skip_order(next_node) >= self._manual_skip_order(NodeName.integrity_check.value):
+            artifact = self._ensure_manual_verification(iteration_id, docs, skip_node, note)
+            state_updates["pending_code_tester_json"] = artifact.model_dump_json()
+            state_updates["code_tester_run_id"] = None
+        return state_updates
+
+
+    def _manual_requirements_brief(self, iteration_id: str, note: Optional[str]) -> str:
+        row = self._require_iteration(iteration_id)
+        brief = f"Goal: {row['goal']}\n\nManual skip note: {note or 'debug skip'}"
+        docs = IterationDocs(self.docs_root(iteration_id))
+        docs.ensure()
+        path = docs.write_text(
+            "discovery/requirements_brief.md",
+            f"---\ndoc: discovery\nstatus: manual\nowner: user\n---\n\n# Requirements Brief\n\n{brief}\n",
+        )
+        self._record_document(iteration_id, "requirements_brief", path)
+        return brief
+
+
+    def _ensure_manual_prd(self, iteration_id: str, docs: IterationDocs, note: Optional[str]) -> None:
+        prd_path = docs.root / "prd.md"
+        coder_context = docs.root / "context" / "for_coder.jsonl"
+        tester_context = docs.root / "context" / "for_tester.jsonl"
+        if prd_path.exists() and coder_context.exists() and tester_context.exists():
+            return
+        row = self._require_iteration(iteration_id)
+        prd = prd_path.read_text(encoding="utf-8") if prd_path.exists() else (
+            "---\ndoc: prd\nstatus: manual\nowner: user\n---\n\n"
+            "# Manual PRD Placeholder\n\n"
+            f"Goal: {row['goal']}\n\n"
+            f"Manual skip note: {note or 'debug skip'}\n\n"
+            "## Acceptance Criteria\n- Continue pipeline debugging with manually supplied assumptions.\n"
+        )
+        artifact = PrdPlannerArtifact(
+            prd=prd,
+            context_for_coder=[ContextManifestEntry(file="prd.md", reason="Manual skip PRD placeholder")],
+            context_for_tester=[ContextManifestEntry(file="prd.md", reason="Manual skip PRD placeholder")],
+        )
+        self._write_prd_planner_artifact(iteration_id, docs, artifact)
+
+
+    def _ensure_manual_testing_plan(self, iteration_id: str, docs: IterationDocs, note: Optional[str]) -> None:
+        plan_path = docs.root / "testing_plan.md"
+        if not plan_path.exists():
+            artifact = TestPlannerArtifact(
+                testing_plan=(
+                    "---\ndoc: testing_plan\nstatus: manual\nowner: user\n---\n\n"
+                    "# Manual Testing Plan Placeholder\n\n"
+                    "## Automated Tests\n- Skipped by manual debug control.\n\n"
+                    "## Manual Tests\n- Continue to the next pipeline stage for debugging.\n\n"
+                    f"Note: {note or 'debug skip'}\n"
+                )
+            )
+            self._write_test_planner_artifact(iteration_id, docs, artifact)
+
+
+    def _ensure_manual_verification(
+        self,
+        iteration_id: str,
+        docs: IterationDocs,
+        skip_node: str,
+        note: Optional[str],
+    ) -> VerificationArtifact:
+        report_path = docs.root / "verify_report.md"
+        report = report_path.read_text(encoding="utf-8") if report_path.exists() else (
+            "---\ndoc: verify_report\nstatus: manual\nowner: user\n---\n\n"
+            "# Manual Verify Report Placeholder\n\n"
+            "## Summary\n- Tests executed: 0\n- Pass: 0\n- Fail: 0\n\n"
+            f"Manually skipped `{skip_node}` for pipeline debugging.\n"
+        )
+        artifact = VerificationArtifact(
+            verify_report=report,
+            passed=True,
+            ux_notes=[f"Manual skip from {skip_node}: {note or 'debug skip'}"],
+            delivery_recommendations=["Manual skip was used; rerun the skipped agent before treating this as production evidence."],
+        )
+        self._write_tester_artifact(iteration_id, docs, artifact)
+        self._update_iteration(iteration_id, test_integrity_baseline=test_integrity_manifest(docs.root))
+        return artifact
 
 
     def resume(self, iteration_id: str, expected_checkpoint: str, note: str) -> None:
@@ -345,6 +629,7 @@ class LangGraphPipeline(
             NodeName.ui_tester.value: IterationStatus.testing,
             NodeName.planner_verify.value: IterationStatus.testing,
             "verify_approval": IterationStatus.awaiting_verify_approval,
+            "done": IterationStatus.delivered,
         }
         return mapping.get(node, IterationStatus.queued)
 

@@ -13,6 +13,8 @@ interface Props {
   lastMessageAt: string | null
   reviewStepKey: PipelineStepKey | null
   onSelectStep: (key: PipelineStepKey | null) => void
+  onManualSkip: (node?: string | null) => void
+  manualSkipBusy?: boolean
 }
 
 const ROW_STATE_CLASS: Record<string, string | undefined> = {
@@ -29,6 +31,18 @@ function stepIcon(state: string, isLive: boolean) {
   return '○'
 }
 
+function manualSkipNode(detail: IterationDetail | null): string | null {
+  if (!detail) return null
+  if (detail.status === 'awaiting_requirements_input') return 'requirements_input'
+  if (detail.status === 'awaiting_verify_approval') return 'verify_approval'
+  return detail.current_node ?? detail.stopped_at_node ?? null
+}
+
+function canManualSkip(detail: IterationDetail | null) {
+  if (!detail) return false
+  return detail.status !== 'delivered'
+}
+
 export function PipelineRail({
   detail,
   epic,
@@ -37,6 +51,8 @@ export function PipelineRail({
   lastMessageAt,
   reviewStepKey,
   onSelectStep,
+  onManualSkip,
+  manualSkipBusy = false,
 }: Props) {
   const uiEvents = detail?.events.filter((event) => event.type.startsWith('ui_driver.')) ?? []
   const lastUiEvent = uiEvents[uiEvents.length - 1]
@@ -46,6 +62,8 @@ export function PipelineRail({
   const progress = latestNodeProgress(detail)
   const currentNode = runningNodeLabel(detail)
   const elapsed = running ? formatElapsed(detail?.updated_at ?? lastMessageAt) : null
+  const skipNode = manualSkipNode(detail)
+  const skipAllowed = canManualSkip(detail)
 
   return (
     <aside className={styles.rail}>
@@ -74,6 +92,21 @@ export function PipelineRail({
         {running && !progress && currentNode ? (
           <div className={styles.railProgress}>
             <RunningIndicator size="sm" mode="dot" label={`${currentNode} 执行中…`} />
+          </div>
+        ) : null}
+        {skipAllowed ? (
+          <div className={styles.manualSkip}>
+            <button
+              type="button"
+              className={`btn btn-ghost btn-sm ${styles.manualSkipButton}`}
+              onClick={() => onManualSkip(skipNode)}
+              disabled={manualSkipBusy}
+            >
+              跳过当前环节
+            </button>
+            <span className={styles.manualSkipHint}>
+              {skipNode ? graphNodeLabel(skipNode) : '最近失败节点'}
+            </span>
           </div>
         ) : null}
       </div>

@@ -1251,6 +1251,43 @@ def test_resume_stopped_iteration(tmp_path):
     assert any(event["type"] == "iteration.resumed" for event in detail["events"])
 
 
+def test_manual_skip_code_tester_reaches_verify_approval():
+    iteration_id = create_manual_iteration("manual-skip-code-tester", mode="dry-run")
+    pipeline.db.update_iteration(
+        iteration_id,
+        status="blocked",
+        current_node=None,
+        last_error="tester artifact invalid",
+    )
+
+    resp = client.post(
+        f"/api/iterations/{iteration_id}/manual-skip",
+        json={"node": "code_tester", "note": "debug skip"},
+    )
+    assert resp.status_code == 200
+
+    drain_jobs()
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "awaiting_verify_approval"
+    assert detail["last_error"] is None
+    event_types = [event["type"] for event in detail["events"]]
+    assert "manual_skip.queued" in event_types
+    assert "manual_skip.started" in event_types
+    assert "ui_tester.completed" in event_types
+
+
+def test_manual_skip_rejects_delivered_iteration():
+    iteration_id = create_manual_iteration("manual-skip-delivered", mode="dry-run")
+    pipeline.db.update_iteration(iteration_id, status="delivered", current_node=None, last_error=None)
+
+    resp = client.post(
+        f"/api/iterations/{iteration_id}/manual-skip",
+        json={"node": "verify_approval", "note": "too late"},
+    )
+
+    assert resp.status_code == 409
+
+
 def test_ui_spec_schema_validates():
     spec = UITestSpec.model_validate(
         {

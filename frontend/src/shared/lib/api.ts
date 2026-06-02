@@ -227,3 +227,10 @@ export function resumeIteration(id: string, note?: string): Promise<IterationSum
     body: JSON.stringify({ note }),
   })
 }
+
+export function manualSkipIteration(id: string, node?: string | null, note?: string): Promise<IterationSummary> {
+  return request(`/api/iterations/${id}/manual-skip`, {
+    method: 'POST',
+    body: JSON.stringify({ node, note }),
+  })
+}
