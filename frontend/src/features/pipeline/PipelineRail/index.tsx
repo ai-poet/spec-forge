@@ -52,9 +52,11 @@ export function PipelineRail({
       <div className={styles.top}>
         <h2 className={styles.railTitle}>进度</h2>
         <div className={styles.railMeta}>
-          <span className={`${styles.connectionDot} ${connected ? styles.online : ''} ${connectionStatus === 'connecting' || connectionStatus === 'reconnecting' ? styles.connecting : ''}`} />
-          <span className="muted">{connectionLabel[connectionStatus]}</span>
-          {epic ? <span className="muted">· {epic.title}</span> : null}
+          <span className={styles.connectionStatus}>
+            <span className={`${styles.connectionDot} ${connected ? styles.online : ''} ${connectionStatus === 'connecting' || connectionStatus === 'reconnecting' ? styles.connecting : ''}`} />
+            <span>{connectionLabel[connectionStatus]}</span>
+          </span>
+          {epic ? <span className={styles.epicTitle}>{epic.title}</span> : null}
         </div>
         {detail ? (
           <p className={`muted ${styles.railStatus}`}>

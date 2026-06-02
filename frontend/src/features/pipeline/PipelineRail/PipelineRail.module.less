@@ -124,6 +124,28 @@
   gap: 6px;
   font-size: 12px;
   margin-top: 8px;
+  min-width: 0;
+}
+
+.connectionStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.epicTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+
+  &::before {
+    content: '· ';
+  }
 }
 
 .connectionDot {
@@ -161,6 +183,7 @@
   font-size: 11px;
   color: var(--text-secondary);
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .railBanner {
