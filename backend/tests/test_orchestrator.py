@@ -18,10 +18,8 @@ from specforge.core.contracts import (
     ContextManifestEntry,
     PrdPlannerArtifact,
     TestPlannerArtifact,
-    UITestSpec,
     verification_from_code,
     parse_json_artifact,
-    validate_ui_spec_content,
 )
 from specforge.documents.docs_io import (
     IterationDocs,

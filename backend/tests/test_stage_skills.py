@@ -135,13 +135,14 @@ def test_compose_ui_tester_includes_tool_routing() -> None:
             "playwright_install_hint": "npx playwright-cli install-browser",
             "cua_install_hint": "install cua-driver",
             "code_tester_artifact_json": '{"passed": true}',
-            "ui_specs_section": "### web_smoke (web)",
+            "testing_plan_section": "### MT-01: Web smoke",
+            "prd_section": "# PRD\n\nWeb smoke acceptance.",
             "cua_session_section": "CuaDriver session: available",
         },
     )
     assert "playwright-cli" in text
     assert "cua-driver" in text
-    assert "web_smoke" in text
+    assert "MT-01: Web smoke" in text
 
 
 def test_compose_unknown_stage_raises() -> None:
