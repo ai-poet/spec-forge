@@ -292,10 +292,17 @@ flowchart LR
 
   subgraph loop2b ["回环 ②b Code Tester 自修（默认 ≤ 3 次）"]
     direction TB
-    t2s["验证失败\nowner=code_tester\n或写盘闸门失败"] --> t2s2["code_tester 自修\nadversarial / 验证文档"]
+    t2s["验证失败\nowner=code_tester"] --> t2s2["code_tester 自修\nadversarial / 验证文档"]
     t2s2 --> uit2["ui_tester 写盘"]
     uit2 --> t2s
     t2s -->|"code_tester_self > max"| b2s["blocked"]
+  end
+
+  subgraph loopArtifact ["回环 A Agent 产物自修（默认 ≤ 3 次）"]
+    direction TB
+    ai["Agent 输出/产物不合法\nJSON/schema/落盘路径"] --> ar["同一 Agent 重跑\n携带错误原文"]
+    ar --> ai
+    ai -->|"*_artifact_self > max"| ba["blocked"]
   end
 
   subgraph loop2tp ["回环 ②c 测试计划修订（默认 ≤ 3 次）"]
@@ -321,13 +328,16 @@ flowchart LR
 |------|----------------------|----------|----------|----------|----------|
 | **① 澄清** | `coder_planner_clarify` | 3 | Coder artifact 含 `clarification_request` | `coder → planner_clarification → coder` | `blocked_user` |
 | **②a 实现/验证** | `coder_tester` | 5 | `defects` 含 `owner=coder`（如 `src/**` 实现缺陷），或审查兜底失败且推断为 Coder 责任 | `ui_tester → coder → integrity_check → code_tester → ui_tester` | `blocked` |
-| **②b Code Tester 自修** | `code_tester_self` | 3 | `defects` 仅 `owner=code_tester`（如 `tests/adversarial/**`、验证文档），或写盘闸门失败 | `code_tester → code_tester`（带 `failure_notes`） | `blocked` |
+| **②b Code Tester 自修** | `code_tester_self` | 3 | `defects` 仅 `owner=code_tester`（如 `tests/adversarial/**`、验证文档） | `code_tester → code_tester`（带 `failure_notes`） | `blocked` |
 | **②c 测试计划修订** | `test_planner_self` | 3 | `defects` 含 `owner=test_planner` / 测试计划需要调整 | `ui_tester → test_planner → coder → …` | `blocked` |
 | **③ 规格复核** | `planner_verify_reject` | 2 | `verify_report.md` 缺少标题或 Pass 摘要 | `planner_verify → code_tester → ui_tester → planner_verify` | `blocked` |
+| **A Agent 产物自修** | `{node}_artifact_self` | 3 | Agent 输出 JSON/schema 不合法，或 artifact 落盘路径/内容不合法 | 回到同一 Agent，prompt 注入 rejected artifact error | `blocked` |
 
 **owner=prd_planner**（PRD 范围硬冲突等）不进入自动回环，直接 `blocked`，需人工处理。
 
-**UI Tester**（`ui_tester` CLI 阶段）不再读取或生成 `tests/ui/*.json` 结构化 spec。它的测试来源是 `testing_plan.md` 的 **Manual Tests**：Web 场景优先用 **playwright-cli**（`open` → `snapshot` → `click eN`）；native 用 **cua-driver**（`launch_app` → `get_window_state` → `element_index`）。本机 CUA 会话互斥时 native 可记 `warning`。**UI 断言失败不触发 ②a/②b/②c**，只写入 `ui_warnings` 与交付建议。
+**Agent 产物自修只处理产物问题**：JSON 解析失败、schema 校验失败、artifact 文件路径不允许、试图覆盖已有测试文件等，都会记录 `artifact.invalid` / `artifact.retry_to_self`，并把错误原文作为 retry notes 丢回同一个 Agent。真实产品/实现缺陷不走这条路，仍按 `defects[].owner` 进入 ②a/②b/②c；超出 `{node}_artifact_self` 上限后才发 `artifact.self_max_retries` 并阻断。
+
+**UI Tester**（`ui_tester` CLI 阶段）不再读取或生成 `tests/ui/*.json` 结构化 spec。它的测试来源是 `testing_plan.md` 的 **Manual Tests**：Web 场景优先用 **playwright-cli**（`open` → `snapshot` → `click eN`）；native 用 **cua-driver**（`launch_app` → `get_window_state` → `element_index`）。本机 CUA 会话互斥时 native 可记 `warning`。工具/环境降级不触发 ②a/②b/②c；只有 UI Tester 成功汇总出 P0/P1 `defects[]` 时才按 owner 回环。
 
 **Code Tester 容错（`code_tester` 节点；UI 在后续 `ui_tester`）：**
 
@@ -337,7 +347,7 @@ flowchart LR
 | CLI 非零退出且无合法产物 | **代码审查兜底**（`review_only`，禁止 Playwright/CUA），发 `code_tester.review_fallback.*` |
 | 审查兜底成功 | 进入 `ui_tester` → `planner_verify` |
 | 审查兜底也失败 | 按 `defects`/owner 进入 ②a / ②b / ②c |
-| Code Tester 产物写盘后 `build_command` / `test_command` 失败 | 回滚 adversarial，以 `owner=code_tester` 进入 **②b**；失败时跳过 UI Tester |
+| Code Tester 产物写盘后 `build_command` / `test_command` 失败 | 回滚 adversarial，按失败证据 owner 分流；失败时跳过 UI Tester |
 | UI 自动化执行失败 | `ui_tester.failed`（无 P0/P1 时 `blocking: false`）；UI Tester 汇总出 P0/P1 缺陷时才按 owner 分流，默认回 Coder |
 
 ```mermaid
@@ -579,7 +589,7 @@ python computer-use/backend/install_cua_driver.py
 
 - 默认测试命令（`default_test_command`）与构建命令（`default_build_command`，如 `npm run build`、`cargo check`）
 - Coder↔验证 重试上限（`max_coder_tester_retries`，默认 5）
-- Code Tester 自修与 Test Planner 测试修订上限（共用 `max_tester_self_retries`，默认 3；计数键分别为 `code_tester_self`、`test_planner_self`）
+- Code Tester 自修、Test Planner 测试修订、Agent 产物自修上限（共用 `max_tester_self_retries`，默认 3；计数键分别为 `code_tester_self`、`test_planner_self`、`{node}_artifact_self`）
 - 各阶段 CLI 提供商（`planner_discovery`、`prd_planner`、`test_planner`、`planner_clarification`、`coder`、`code_tester`、`ui_tester`；无 `planner`/`tester` 绑定别名）
 - Coder 澄清上限（默认 3）
 - Planner 验证驳回上限（默认 2）
