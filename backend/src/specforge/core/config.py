@@ -31,5 +31,9 @@ class Settings:
     def langgraph_db_path(self) -> Path:
         return self.data_dir / "langgraph_checkpoints.sqlite3"
 
+    @property
+    def active_cli_registry_path(self) -> Path:
+        return self.data_dir / "active_cli.json"
+
 
 settings = Settings()

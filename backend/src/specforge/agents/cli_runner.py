@@ -5,10 +5,11 @@ import json
 import os
 import signal
 import subprocess
+import time
 from queue import Queue
 from threading import Lock, Thread
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 
 @dataclass
@@ -59,9 +60,10 @@ class DryRunRunner(BaseRunner):
 
 
 class RealCLIRunner(BaseRunner):
-    def __init__(self) -> None:
+    def __init__(self, *, registry_path: Optional[Path] = None) -> None:
         self._lock = Lock()
         self._active: dict[str, subprocess.Popen[str]] = {}
+        self._registry_path = registry_path
 
     def run(
         self,
@@ -86,6 +88,7 @@ class RealCLIRunner(BaseRunner):
         if iteration_id:
             with self._lock:
                 self._active[iteration_id] = proc
+                self._write_registry_entry(iteration_id, proc, command, cwd)
 
         stdout_parts: list[str] = []
         stderr_parts: list[str] = []
@@ -122,6 +125,7 @@ class RealCLIRunner(BaseRunner):
             if iteration_id:
                 with self._lock:
                     self._active.pop(iteration_id, None)
+                    self._remove_registry_entry(iteration_id)
 
         returncode = proc.returncode if proc.returncode is not None else proc.wait()
         return CLIResult(command=command, returncode=returncode, stdout="".join(stdout_parts), stderr="".join(stderr_parts))
@@ -132,19 +136,69 @@ class RealCLIRunner(BaseRunner):
         if proc is None or proc.poll() is not None:
             return False
         self._terminate_process(proc)
+        with self._lock:
+            self._active.pop(iteration_id, None)
+            self._remove_registry_entry(iteration_id)
         return True
 
+    def cancel_all(self) -> list[str]:
+        with self._lock:
+            active = dict(self._active)
+        cancelled: list[str] = []
+        for iteration_id, proc in active.items():
+            if proc.poll() is None:
+                self._terminate_process(proc)
+                cancelled.append(iteration_id)
+        if cancelled:
+            with self._lock:
+                for iteration_id in cancelled:
+                    self._active.pop(iteration_id, None)
+                    self._remove_registry_entry(iteration_id)
+        return cancelled
+
+    def cleanup_registry_processes(self) -> list[str]:
+        entries = self._read_registry()
+        cleaned: list[str] = []
+        for iteration_id, entry in entries.items():
+            pid = self._entry_int(entry, "pid")
+            pgid = self._entry_int(entry, "pgid")
+            if pid is None:
+                cleaned.append(iteration_id)
+                continue
+            if not self._pid_running(pid):
+                cleaned.append(iteration_id)
+                continue
+            if pgid is not None and hasattr(os, "getpgid"):
+                try:
+                    if os.getpgid(pid) != pgid:
+                        cleaned.append(iteration_id)
+                        continue
+                except ProcessLookupError:
+                    cleaned.append(iteration_id)
+                    continue
+            self._terminate_pid(pid, pgid)
+            cleaned.append(iteration_id)
+        if cleaned:
+            with self._lock:
+                current = self._read_registry()
+                for iteration_id in cleaned:
+                    current.pop(iteration_id, None)
+                self._write_registry(current)
+        return cleaned
+
     def _terminate_process(self, proc: subprocess.Popen[str]) -> None:
+        pgid: int | None = None
         try:
             if hasattr(os, "killpg"):
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                pgid = os.getpgid(proc.pid)
+                os.killpg(pgid, signal.SIGTERM)
             else:
                 proc.terminate()
             proc.wait(timeout=5)
         except (ProcessLookupError, subprocess.TimeoutExpired):
             try:
                 if hasattr(os, "killpg"):
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    os.killpg(pgid if pgid is not None else os.getpgid(proc.pid), signal.SIGKILL)
                 else:
                     proc.kill()
             except ProcessLookupError:
@@ -153,3 +207,107 @@ class RealCLIRunner(BaseRunner):
                 proc.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 pass
+
+    def _terminate_pid(self, pid: int, pgid: Optional[int]) -> None:
+        try:
+            if hasattr(os, "killpg") and pgid is not None:
+                os.killpg(pgid, signal.SIGTERM)
+            else:
+                os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if not self._pid_running(pid):
+                return
+            time.sleep(0.05)
+        try:
+            if hasattr(os, "killpg") and pgid is not None:
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+
+    def _write_registry_entry(self, iteration_id: str, proc: subprocess.Popen[str], command: list[str], cwd: Optional[Path]) -> None:
+        if self._registry_path is None:
+            return
+        entries = self._read_registry()
+        try:
+            pgid = os.getpgid(proc.pid) if hasattr(os, "getpgid") else None
+        except ProcessLookupError:
+            pgid = None
+        entries[iteration_id] = {
+            "pid": proc.pid,
+            "pgid": pgid,
+            "command": command,
+            "cwd": str(cwd) if cwd else None,
+            "started_at": time.time(),
+        }
+        self._write_registry(entries)
+
+    def _remove_registry_entry(self, iteration_id: str) -> None:
+        if self._registry_path is None:
+            return
+        entries = self._read_registry()
+        if iteration_id not in entries:
+            return
+        entries.pop(iteration_id, None)
+        self._write_registry(entries)
+
+    def _read_registry(self) -> dict[str, dict[str, Any]]:
+        if self._registry_path is None or not self._registry_path.exists():
+            return {}
+        try:
+            raw = json.loads(self._registry_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        if not isinstance(raw, dict):
+            return {}
+        return {str(key): value for key, value in raw.items() if isinstance(value, dict)}
+
+    def _write_registry(self, entries: dict[str, dict[str, Any]]) -> None:
+        if self._registry_path is None:
+            return
+        self._registry_path.parent.mkdir(parents=True, exist_ok=True)
+        if not entries:
+            try:
+                self._registry_path.unlink()
+            except FileNotFoundError:
+                pass
+            return
+        temp_path = self._registry_path.with_suffix(f"{self._registry_path.suffix}.tmp")
+        temp_path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+        temp_path.replace(self._registry_path)
+
+    @staticmethod
+    def _entry_int(entry: dict[str, Any], key: str) -> Optional[int]:
+        value = entry.get(key)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        return None
+
+    @staticmethod
+    def _pid_running(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        try:
+            proc = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "stat="],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            )
+            if proc.returncode != 0:
+                return False
+            if proc.stdout.strip().startswith("Z"):
+                return False
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        return True

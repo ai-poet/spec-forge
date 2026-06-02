@@ -47,8 +47,8 @@ class LangGraphPipeline(
         self.db = db
         self.runner = runner
         self.broker = broker or EventBroker()
-        self.dry_runner = DryRunRunner()
-        self.real_runner = RealCLIRunner()
+        self.dry_runner = runner if isinstance(runner, DryRunRunner) else DryRunRunner()
+        self.real_runner = runner if isinstance(runner, RealCLIRunner) else RealCLIRunner(registry_path=settings.active_cli_registry_path)
         self.cli_presenter = CliEventPresenter()
         settings.langgraph_db_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpointer_context = SqliteSaver.from_conn_string(str(settings.langgraph_db_path))
@@ -167,6 +167,57 @@ class LangGraphPipeline(
         self._aborted_iterations.add(iteration_id)
         self.real_runner.cancel(iteration_id)
         self._clear_live_cli(iteration_id)
+
+
+    def shutdown(self) -> list[str]:
+        cancelled = self.real_runner.cancel_all()
+        for iteration_id in cancelled:
+            self._clear_live_cli(iteration_id)
+            self.stop_iteration(iteration_id, "service shutting down")
+        self._stop_active_runtime_iterations("service shutting down")
+        return cancelled
+
+
+    def resync_runtime_state(self) -> list[str]:
+        cleaned = self.real_runner.cleanup_registry_processes()
+        for iteration_id in cleaned:
+            self._clear_live_cli(iteration_id)
+            self._mark_runtime_stopped(iteration_id, "service restarted while CLI was running")
+        self._stop_active_runtime_iterations("service restarted; CLI state was not active")
+        return cleaned
+
+
+    def _stop_active_runtime_iterations(self, reason: str) -> None:
+        for row in self.db.list_iterations():
+            if row["status"] in {
+                IterationStatus.created.value,
+                IterationStatus.queued.value,
+                IterationStatus.planning.value,
+                IterationStatus.coding.value,
+                IterationStatus.retrying.value,
+                IterationStatus.testing.value,
+            }:
+                self._mark_runtime_stopped(row["id"], reason)
+
+
+    def _mark_runtime_stopped(self, iteration_id: str, reason: str) -> None:
+        row = self.db.get_iteration_row(iteration_id)
+        if row is None or row["status"] in {"delivered", "blocked", "blocked_user", "failed", "stopped"}:
+            return
+        stopped_at_node = self._stopped_resume_node(row)
+        self._aborted_iterations.add(iteration_id)
+        self._update_iteration(
+            iteration_id,
+            status=IterationStatus.stopped.value,
+            current_node=None,
+            stopped_at_node=stopped_at_node,
+            last_error=reason,
+        )
+        self._add_event(
+            iteration_id,
+            event_type="runtime.resynced",
+            payload={"reason": reason, "node": stopped_at_node},
+        )
 
 
     def stop_iteration(self, iteration_id: str, reason: str = "stopped by user") -> None:

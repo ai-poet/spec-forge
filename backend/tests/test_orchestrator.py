@@ -102,6 +102,23 @@ class SequenceRunner:
         return False
 
 
+class RuntimeSyncRunner:
+    def __init__(self, *, cleaned: list[str] | None = None, cancelled_all: list[str] | None = None) -> None:
+        self.cleaned = cleaned or []
+        self.cancelled_all = cancelled_all or []
+        self.cancelled: list[str] = []
+
+    def cleanup_registry_processes(self) -> list[str]:
+        return list(self.cleaned)
+
+    def cancel_all(self) -> list[str]:
+        return list(self.cancelled_all)
+
+    def cancel(self, iteration_id: str) -> bool:
+        self.cancelled.append(iteration_id)
+        return iteration_id in self.cancelled_all
+
+
 def run_code_and_ui_tester(state: dict) -> dict:
     code_state = pipeline._code_tester_node(state)
     if code_state.get("pending_code_tester_json"):
@@ -981,6 +998,56 @@ def test_stop_iteration_records_stopped_at_node():
     row = pipeline.db.get_iteration_row(iteration_id)
     assert row["status"] == "stopped"
     assert row["stopped_at_node"] == "planner_discovery"
+
+
+def test_resync_runtime_state_stops_active_iterations():
+    iteration_id = create_manual_iteration("runtime-resync", mode="real-cli")
+    pipeline.db.update_iteration(iteration_id, status="coding", current_node="coder", last_error=None)
+    original_runner = pipeline.real_runner
+    pipeline.real_runner = RuntimeSyncRunner(cleaned=[iteration_id])  # type: ignore[assignment]
+    try:
+        assert pipeline.resync_runtime_state() == [iteration_id]
+    finally:
+        pipeline.real_runner = original_runner
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "stopped"
+    assert detail["stopped_at_node"] == "coder"
+    assert "service restarted" in detail["last_error"]
+    assert any(event["type"] == "runtime.resynced" for event in detail["events"])
+
+
+def test_resync_runtime_state_preserves_waiting_iterations():
+    waiting_id = create_manual_iteration("runtime-waiting", mode="dry-run")
+    approval_id = create_manual_iteration("runtime-approval", mode="dry-run")
+    pipeline.db.update_iteration(waiting_id, status="awaiting_requirements_input", current_node=None, last_error=None)
+    pipeline.db.update_iteration(approval_id, status="awaiting_verify_approval", current_node=None, last_error=None)
+    original_runner = pipeline.real_runner
+    pipeline.real_runner = RuntimeSyncRunner()  # type: ignore[assignment]
+    try:
+        pipeline.resync_runtime_state()
+    finally:
+        pipeline.real_runner = original_runner
+
+    assert client.get(f"/api/iterations/{waiting_id}").json()["status"] == "awaiting_requirements_input"
+    assert client.get(f"/api/iterations/{approval_id}").json()["status"] == "awaiting_verify_approval"
+
+
+def test_shutdown_cancels_cli_and_stops_active_iteration():
+    iteration_id = create_manual_iteration("runtime-shutdown", mode="real-cli")
+    pipeline.db.update_iteration(iteration_id, status="testing", current_node="code_tester", last_error=None)
+    original_runner = pipeline.real_runner
+    runner = RuntimeSyncRunner(cancelled_all=[iteration_id])
+    pipeline.real_runner = runner  # type: ignore[assignment]
+    try:
+        assert pipeline.shutdown() == [iteration_id]
+    finally:
+        pipeline.real_runner = original_runner
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "stopped"
+    assert detail["stopped_at_node"] == "code_tester"
+    assert detail["last_error"] == "service shutting down"
 
 
 def test_planner_clarification_writes_question_and_answer(tmp_path):

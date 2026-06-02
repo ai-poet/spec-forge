@@ -51,12 +51,13 @@ db.init()
 
 def make_runner():
     if settings.mode == "real-cli":
-        return RealCLIRunner()
+        return RealCLIRunner(registry_path=settings.active_cli_registry_path)
     return DryRunRunner()
 
 
 broker = EventBroker()
 pipeline = LangGraphPipeline(db=db, runner=make_runner(), broker=broker)
+pipeline.resync_runtime_state()
 job_queue = PipelineJobQueue(pipeline)
 job_queue.start()
 
@@ -75,8 +76,14 @@ def on_startup() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.projects_dir.mkdir(parents=True, exist_ok=True)
     db.init()
+    pipeline.resync_runtime_state()
     job_queue.start()
     log_ui_runtime_status()
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    pipeline.shutdown()
 
 
 @app.get("/api/health")
