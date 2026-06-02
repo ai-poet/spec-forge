@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { validateProjectPath } from '../../../shared/lib/api'
 import type { CreateProjectInput } from '../../../shared/lib/types'
 import { FolderPicker } from '../FolderPicker'
@@ -11,11 +11,17 @@ interface Props {
   onCreate: (input: CreateProjectInput) => Promise<void>
 }
 
+function folderBaseName(path: string): string {
+  const parts = path.split('/').filter(Boolean)
+  return parts[parts.length - 1] ?? ''
+}
+
 export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
   const [mode, setMode] = useState<FolderMode>('open')
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [folderName, setFolderName] = useState('')
   const [name, setName] = useState('')
+  const [nameEdited, setNameEdited] = useState(false)
   const [busy, setBusy] = useState(false)
   const [validationMessage, setValidationMessage] = useState<string | null>(null)
   const [validationOk, setValidationOk] = useState<boolean | null>(null)
@@ -31,9 +37,14 @@ export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
   const suggestedName = useMemo(() => {
     if (mode === 'create' && folderName.trim()) return folderName.trim()
     if (!targetPath) return ''
-    const parts = targetPath.split('/').filter(Boolean)
-    return parts[parts.length - 1] ?? ''
+    return folderBaseName(targetPath)
   }, [targetPath, folderName, mode])
+
+  useEffect(() => {
+    if (!nameEdited) {
+      setName(suggestedName)
+    }
+  }, [nameEdited, suggestedName])
 
   async function handleValidate() {
     if (!targetPath) return
@@ -45,9 +56,8 @@ export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
       })
       setValidationOk(result.ok)
       setValidationMessage(result.ok ? `可用：${result.resolved_path}` : result.message)
-      if (result.ok && !name.trim() && result.resolved_path) {
-        const parts = result.resolved_path.split('/').filter(Boolean)
-        setName(parts[parts.length - 1] ?? '')
+      if (result.ok && !nameEdited && result.resolved_path) {
+        setName(folderBaseName(result.resolved_path))
       }
     } catch (error) {
       setValidationOk(false)
@@ -69,6 +79,7 @@ export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
       setSelectedPath(null)
       setFolderName('')
       setName('')
+      setNameEdited(false)
       setValidationMessage(null)
       setValidationOk(null)
     } finally {
@@ -89,10 +100,6 @@ export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
     setSelectedPath(path)
     setValidationOk(null)
     setValidationMessage(null)
-    if (mode === 'open' && !name.trim()) {
-      const parts = path.split('/').filter(Boolean)
-      setName(parts[parts.length - 1] ?? '')
-    }
   }
 
   return (
@@ -116,14 +123,12 @@ export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
         <label className={styles.nameField}>
           <span>新建文件夹名称</span>
           <input
+            className={styles.textInput}
             value={folderName}
             onChange={(event) => {
               setFolderName(event.target.value)
               setValidationOk(null)
               setValidationMessage(null)
-              if (!name.trim()) {
-                setName(event.target.value.trim())
-              }
             }}
             placeholder="my-app"
           />
@@ -133,8 +138,12 @@ export function CreateProjectDialog({ embedded = false, onCreate }: Props) {
       <label className={styles.nameField}>
         <span>项目显示名称（可选）</span>
         <input
+          className={styles.textInput}
           value={name}
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) => {
+            setName(event.target.value)
+            setNameEdited(true)
+          }}
           placeholder={suggestedName || '默认使用文件夹名'}
         />
       </label>
