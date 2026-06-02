@@ -20,7 +20,6 @@ from ...core.contracts import (
     merge_cli_artifact_output,
     parse_json_artifact,
     verification_from_code,
-    validate_ui_spec_content,
 )
 from ...core.models import IterationStatus, NodeName
 from ...documents.docs_io import IterationDocs, compare_planning_integrity, compare_test_integrity, safe_relative_path
@@ -258,8 +257,8 @@ class PipelineArtifactsMixin:
             relative = safe_relative_path(file.path)
             if not relative.parts or relative.parts[0] != "tests" or (len(relative.parts) > 1 and relative.parts[1] == "adversarial"):
                 raise ValueError(f"tester test_files path not allowed: {file.path}")
-            if len(relative.parts) >= 3 and relative.parts[1] == "ui" and relative.suffix == ".json":
-                validate_ui_spec_content(relative.as_posix(), file.content)
+            if len(relative.parts) >= 2 and relative.parts[:2] == ("tests", "ui"):
+                raise ValueError(f"tests/ui artifacts are no longer generated: {file.path}")
             path = docs.write_text(relative.as_posix(), file.content)
             self._record_document(iteration_id, relative.as_posix(), path)
             self._node_event(iteration_id, "artifact.created", NodeName.code_tester.value, "测试文件已生成", relative.as_posix(), severity="success", document=relative.as_posix(), run_id=run_id)

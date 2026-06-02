@@ -305,8 +305,8 @@ class PlanningNodesMixin:
             return {"status": IterationStatus.coding.value, "current_node": None, "test_planner_run_id": run_id, "route": "coder"}
         except Exception as exc:
             event_type = ui_spec_error_type(str(exc))
-            hint = "检查 tests/ui/*.json 是否使用 snake_case 动作名，并符合 UITestSpec schema。" if event_type == "ui_spec.invalid" else "查看 Test Planner 原始日志。"
-            title = "UI 测试规格无效" if event_type == "ui_spec.invalid" else "测试规划产物无效"
-            body = "Test Planner 写入了无法执行的 UI trajectory。" if event_type == "ui_spec.invalid" else "Test Planner 输出无法被解析为合法 artifact。"
+            hint = "查看 Test Planner 原始日志。"
+            title = "测试规划产物无效"
+            body = "Test Planner 输出无法被解析为合法 artifact。"
             self._node_event(iteration_id, "node.failed", NodeName.test_planner.value, title, body, severity="error", run_id=run_id, action_hint=hint)
             return self._block(iteration_id, event_type, run_id, str(exc))

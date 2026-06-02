@@ -148,22 +148,15 @@ class VerificationNodesMixin:
         try:
             baseline = VerificationArtifact.model_validate_json(pending)
             docs = IterationDocs(self.docs_root(iteration_id))
-            specs = self._load_ui_specs(docs)
-            title = "UI 验证已启动" if specs else "UI 验证已启动（测试计划模式）"
-            message = (
-                f"UI Tester Agent 将执行 {len(specs)} 条 tests/ui 验收场景（playwright-cli / cua-driver）。"
-                if specs
-                else "未提供 tests/ui/*.json 场景，UI Tester Agent 将读取 testing_plan.md/PRD 并执行适用的 UI 验收检查。"
-            )
             self._node_event(
                 iteration_id,
                 "node.started",
                 NodeName.ui_tester.value,
-                title,
-                message,
+                "UI 验证已启动",
+                "UI Tester Agent 将读取 testing_plan.md/PRD 并执行适用的 UI 验收检查。",
                 run_id=run_id,
             )
-            artifact, run_id = self._run_ui_tester_agent(state, baseline, docs, specs, run_id=run_id)
+            artifact, run_id = self._run_ui_tester_agent(state, baseline, docs, run_id=run_id)
             planning_failure = self._planning_integrity_failure(
                 iteration_id,
                 node=NodeName.ui_tester.value,
@@ -205,9 +198,9 @@ class VerificationNodesMixin:
             if planning_failure is not None:
                 return planning_failure
             event_type = ui_spec_error_type(str(exc))
-            hint = "检查 tests/ui/*.json 动作名与字段是否符合 UITestSpec schema。" if event_type == "ui_spec.invalid" else "查看验证产物。"
-            title = "UI 测试规格无效" if event_type == "ui_spec.invalid" else "验证产物无效"
-            body = "受保护 UI 场景无法加载。" if event_type == "ui_spec.invalid" else "UI Tester 产物无法被解析。"
+            hint = "查看验证产物。"
+            title = "验证产物无效"
+            body = "UI Tester 产物无法被解析。"
             self._node_event(iteration_id, "node.failed", NodeName.ui_tester.value, title, body, severity="error", run_id=run_id, action_hint=hint)
             return self._block(iteration_id, event_type, run_id, str(exc))
 

@@ -389,7 +389,7 @@ class PipelineRuntimeMixin:
     def _error_action_hint(self, event_type: str) -> str:
         hints = {
             "artifact.invalid": "查看对应 agent 的原始日志，确认输出是否为合法 JSON artifact。",
-            "ui_spec.invalid": "检查 tests/ui/*.json 是否使用 snake_case 动作名，并符合 UITestSpec schema。",
+            "ui_spec.invalid": "查看对应 agent 的原始日志，确认输出是否为合法 JSON artifact。",
             "test_integrity.failed": "检查受保护测试是否被修改；必要时重新生成规划和测试基线。",
             "planning_integrity.failed": "检查 PRD、testing_plan 与 context manifests 是否被非规划节点修改；必要时回到 Test Planner 重新生成 baseline。",
             "prd_planner.failed": "检查 Claude CLI、模型配置和 API 凭据。",

@@ -114,7 +114,6 @@ class IterationDocs:
         (self.root / "tests").mkdir(exist_ok=True)
         (self.root / "tests" / "unit").mkdir(parents=True, exist_ok=True)
         (self.root / "tests" / "integration").mkdir(parents=True, exist_ok=True)
-        (self.root / "tests" / "ui").mkdir(parents=True, exist_ok=True)
         (self.root / "tests" / "adversarial").mkdir(parents=True, exist_ok=True)
         (self.root / "clarifications").mkdir(parents=True, exist_ok=True)
         (self.root / "discovery").mkdir(parents=True, exist_ok=True)

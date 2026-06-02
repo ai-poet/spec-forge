@@ -8,7 +8,7 @@ from specforge.policy.artifact_gate import read_convention_excerpt, read_framewo
 def test_read_framework_conventions_returns_rules() -> None:
     text = read_framework_conventions()
     assert "Write zones" in text
-    assert "tests/ui" in text
+    assert "Do not create `tests/ui/*.json` specs" in text
 
 
 def test_read_spec_index_missing_returns_empty(tmp_path: Path) -> None:
