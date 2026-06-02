@@ -24,6 +24,7 @@ interface Props {
   onApproveVerify: () => Promise<void>
   onStop: () => Promise<void>
   onResume: () => Promise<void>
+  onManualSkip: (node?: string | null) => Promise<void> | void
   onRuntimeNoteSubmitted?: () => void
 }
 
@@ -40,6 +41,7 @@ export function StageFocusPanel({
   onApproveVerify,
   onStop,
   onResume,
+  onManualSkip,
   onRuntimeNoteSubmitted,
 }: Props) {
   const reviewMode = Boolean(reviewStepKey)
@@ -150,6 +152,7 @@ export function StageFocusPanel({
           onApproveVerify={onApproveVerify}
           onStop={onStop}
           onResume={onResume}
+          onManualSkip={onManualSkip}
         />
       </div>
 

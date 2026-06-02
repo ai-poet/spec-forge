@@ -49,7 +49,7 @@ class CliDisplayEvent:
             parts.append(self.tool)
         return ":".join(parts)
 
-    def payload(self) -> dict[str, Any]:
+    def payload(self, *, include_raw: bool = True) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "provider": self.provider,
             "node": self.node,
@@ -57,8 +57,9 @@ class CliDisplayEvent:
             "title": self.title,
             "message": self.message,
             "severity": self.severity,
-            "raw_event": self.raw_event,
         }
+        if include_raw:
+            payload["raw_event"] = self.raw_event
         if self.item_id:
             payload["item_id"] = self.item_id
         if self.status:

@@ -98,7 +98,7 @@ export function PipelineRail({
           <div className={styles.manualSkip}>
             <button
               type="button"
-              className={`btn btn-ghost btn-sm ${styles.manualSkipButton}`}
+              className={styles.manualSkipButton}
               onClick={() => onManualSkip(skipNode)}
               disabled={manualSkipBusy}
             >

@@ -86,6 +86,24 @@
   flex-shrink: 0;
 }
 
+.skipButton {
+  border: 1px solid rgba(234, 179, 8, 0.5);
+  background: rgba(234, 179, 8, 0.12);
+  color: #fde68a;
+  border-radius: var(--radius-sm);
+  padding: 7px 11px;
+  font-size: 13px;
+
+  &:hover:not(:disabled) {
+    background: rgba(234, 179, 8, 0.2);
+    border-color: rgba(234, 179, 8, 0.72);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+  }
+}
+
 .alert {
   font-size: 13px;
   display: grid;

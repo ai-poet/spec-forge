@@ -17,6 +17,10 @@ from ..state import PipelineState
 
 
 class PipelineRuntimeMixin:
+    _LIVE_CLI_MAX_CHARS = 64 * 1024
+    _CLI_OUTPUT_FLUSH_INTERVAL = 0.25
+    _PERSISTED_CLI_PHASES = {"session", "tool", "command", "file_change", "mcp", "todo", "hook", "retry", "result", "error"}
+    _PREVIEW_CLI_PHASES = {"text", "thinking"}
 
     def _live_cli_snapshot(self, iteration_id: str) -> Optional[dict[str, str]]:
         with self._live_cli_lock:
@@ -36,6 +40,7 @@ class PipelineRuntimeMixin:
             else:
                 self._live_cli[iteration_id] = {"node": node, "stdout": "", "stderr": ""}
             self._live_cli_last_publish.pop(iteration_id, None)
+            self._live_cli_chunk_last_publish.pop(iteration_id, None)
 
 
     def _append_live_cli(self, iteration_id: str, stream: str, chunk: str) -> None:
@@ -45,6 +50,8 @@ class PipelineRuntimeMixin:
             if live is None:
                 return
             live[stream] += chunk
+            if len(live[stream]) > self._LIVE_CLI_MAX_CHARS:
+                live[stream] = live[stream][-self._LIVE_CLI_MAX_CHARS :]
             node = live["node"]
         self._maybe_publish_cli_output(iteration_id, node, stream, chunk)
 
@@ -53,16 +60,48 @@ class PipelineRuntimeMixin:
         with self._live_cli_lock:
             self._live_cli.pop(iteration_id, None)
             self._live_cli_last_publish.pop(iteration_id, None)
-            self._live_cli_chunk_last_publish.pop(iteration_id, None)
+            for key in list(self._live_cli_chunk_last_publish):
+                if key == iteration_id or str(key).startswith(f"{iteration_id}:"):
+                    self._live_cli_chunk_last_publish.pop(key, None)
+            for key in list(self._live_cli_pending_chunks):
+                if key[0] == iteration_id:
+                    self._live_cli_pending_chunks.pop(key, None)
 
 
     def _maybe_publish_cli_output(self, iteration_id: str, node: str, stream: str, chunk: str) -> None:
         now = time.monotonic()
+        publish_chunk: str | None = None
         with self._live_cli_lock:
-            last = self._live_cli_chunk_last_publish.get(iteration_id, 0.0)
-            if now - last < 0.05:
+            key = (iteration_id, stream)
+            pending = self._live_cli_pending_chunks.setdefault(key, {"node": node, "chunk": ""})
+            pending["node"] = node
+            pending["chunk"] += chunk
+            last = self._live_cli_chunk_last_publish.get(f"{iteration_id}:{stream}", 0.0)
+            if now - last < self._CLI_OUTPUT_FLUSH_INTERVAL:
                 return
-            self._live_cli_chunk_last_publish[iteration_id] = now
+            self._live_cli_chunk_last_publish[f"{iteration_id}:{stream}"] = now
+            publish_chunk = pending["chunk"]
+            pending["chunk"] = ""
+        if not publish_chunk:
+            return
+        self._publish_cli_output_chunk(iteration_id, node, stream, publish_chunk)
+
+
+    def _flush_cli_output(self, iteration_id: str) -> None:
+        pending_items: list[tuple[str, str, str]] = []
+        with self._live_cli_lock:
+            for key, pending in list(self._live_cli_pending_chunks.items()):
+                if key[0] != iteration_id:
+                    continue
+                chunk = pending.get("chunk", "")
+                if chunk:
+                    pending_items.append((pending.get("node") or "", key[1], chunk))
+                self._live_cli_pending_chunks.pop(key, None)
+        for node, stream, chunk in pending_items:
+            self._publish_cli_output_chunk(iteration_id, node, stream, chunk)
+
+
+    def _publish_cli_output_chunk(self, iteration_id: str, node: str, stream: str, chunk: str) -> None:
         try:
             self.broker.publish(
                 iteration_id,
@@ -127,6 +166,8 @@ class PipelineRuntimeMixin:
 
 
     def _record_run(self, iteration_id: str, node: str, run_result: CLIResult) -> str:
+        started_at = iso(run_result.started_at) if run_result.started_at else None
+        finished_at = iso(run_result.finished_at) if run_result.finished_at else iso(utcnow())
         run_id = self.db.add_run(
             iteration_id,
             node=node,
@@ -135,7 +176,11 @@ class PipelineRuntimeMixin:
             stdout=run_result.stdout,
             stderr=run_result.stderr,
             exit_code=run_result.returncode,
-            finished_at=iso(utcnow()),
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=run_result.duration_ms,
+            stdout_bytes=run_result.stdout_bytes,
+            stderr_bytes=run_result.stderr_bytes,
         )
         self._clear_live_cli(iteration_id)
         self._publish_snapshot(iteration_id)
@@ -160,7 +205,7 @@ class PipelineRuntimeMixin:
             "payload": json.loads(event["payload"]),
             "created_at": event["created_at"],
         }
-        self.broker.publish(iteration_id, EventEnvelope(type="event", event=event_payload, snapshot=self.dashboard_snapshot(iteration_id)))
+        self.broker.publish(iteration_id, EventEnvelope(type="event", event=event_payload))
 
 
     def _publish_snapshot(self, iteration_id: str) -> None:
@@ -212,7 +257,6 @@ class PipelineRuntimeMixin:
             if not chunk:
                 return
             self._append_live_cli(iteration_id, stream, chunk)
-            self._maybe_publish_live_cli(iteration_id)
             if not chunk.strip():
                 return
             if self._is_real_cli(state.get("mode")):
@@ -252,12 +296,39 @@ class PipelineRuntimeMixin:
                 iteration_id=iteration_id,
             )
         finally:
+            self._flush_cli_output(iteration_id)
             if not self._is_iteration_gone(iteration_id):
                 self._publish_snapshot(iteration_id)
 
 
     def _cli_display_event(self, iteration_id: str, event: CliDisplayEvent) -> None:
-        self._add_event(iteration_id, event_type="cli.display", payload=event.payload())
+        if event.phase in self._PERSISTED_CLI_PHASES:
+            self._add_event(iteration_id, event_type="cli.display", payload=event.payload(include_raw=False))
+            return
+        if event.phase in self._PREVIEW_CLI_PHASES:
+            now = time.monotonic()
+            key = f"{iteration_id}:cli.display:{event.node}:{event.phase}"
+            with self._live_cli_lock:
+                last = self._live_cli_chunk_last_publish.get(key, 0.0)
+                if now - last < 1.0:
+                    return
+                self._live_cli_chunk_last_publish[key] = now
+            try:
+                self.broker.publish(
+                    iteration_id,
+                    EventEnvelope(
+                        type="event",
+                        event={
+                            "id": f"preview_{event.node}_{event.phase}_{int(now * 1000)}",
+                            "iteration_id": iteration_id,
+                            "type": "cli.display",
+                            "payload": event.payload(include_raw=False),
+                            "created_at": iso(utcnow()),
+                        },
+                    ),
+                )
+            except Exception:
+                pass
 
 
     def _is_real_cli(self, mode: Optional[str]) -> bool:

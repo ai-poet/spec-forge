@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import os
 import signal
@@ -18,6 +19,26 @@ class CLIResult:
     returncode: int
     stdout: str
     stderr: str
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+    @property
+    def duration_ms(self) -> int | None:
+        if self.started_at is None or self.finished_at is None:
+            return None
+        return max(0, int((self.finished_at - self.started_at).total_seconds() * 1000))
+
+    @property
+    def stdout_bytes(self) -> int:
+        return len((self.stdout or "").encode("utf-8"))
+
+    @property
+    def stderr_bytes(self) -> int:
+        return len((self.stderr or "").encode("utf-8"))
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class BaseRunner:
@@ -29,15 +50,17 @@ class BaseRunner:
         *,
         iteration_id: Optional[str] = None,
     ) -> CLIResult:
+        started_at = _utcnow()
         try:
             proc = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
+            finished_at = _utcnow()
             if on_output and proc.stdout:
                 on_output("stdout", proc.stdout)
             if on_output and proc.stderr:
                 on_output("stderr", proc.stderr)
-            return CLIResult(command=command, returncode=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
+            return CLIResult(command=command, returncode=proc.returncode, stdout=proc.stdout, stderr=proc.stderr, started_at=started_at, finished_at=finished_at)
         except FileNotFoundError as exc:
-            return CLIResult(command=command, returncode=127, stdout="", stderr=str(exc))
+            return CLIResult(command=command, returncode=127, stdout="", stderr=str(exc), started_at=started_at, finished_at=_utcnow())
 
     def cancel(self, iteration_id: str) -> bool:
         return False
@@ -52,11 +75,12 @@ class DryRunRunner(BaseRunner):
         *,
         iteration_id: Optional[str] = None,
     ) -> CLIResult:
+        started_at = _utcnow()
         payload = {"command": command, "cwd": str(cwd) if cwd else None, "mode": "dry-run"}
         stdout = json.dumps(payload, indent=2)
         if on_output:
             on_output("stdout", stdout)
-        return CLIResult(command=command, returncode=0, stdout=stdout, stderr="")
+        return CLIResult(command=command, returncode=0, stdout=stdout, stderr="", started_at=started_at, finished_at=_utcnow())
 
 
 class RealCLIRunner(BaseRunner):
@@ -73,6 +97,7 @@ class RealCLIRunner(BaseRunner):
         *,
         iteration_id: Optional[str] = None,
     ) -> CLIResult:
+        started_at = _utcnow()
         try:
             proc = subprocess.Popen(
                 command,
@@ -83,7 +108,7 @@ class RealCLIRunner(BaseRunner):
                 start_new_session=True,
             )
         except FileNotFoundError as exc:
-            return CLIResult(command=command, returncode=127, stdout="", stderr=str(exc))
+            return CLIResult(command=command, returncode=127, stdout="", stderr=str(exc), started_at=started_at, finished_at=_utcnow())
 
         if iteration_id:
             with self._lock:
@@ -128,7 +153,7 @@ class RealCLIRunner(BaseRunner):
                     self._remove_registry_entry(iteration_id)
 
         returncode = proc.returncode if proc.returncode is not None else proc.wait()
-        return CLIResult(command=command, returncode=returncode, stdout="".join(stdout_parts), stderr="".join(stderr_parts))
+        return CLIResult(command=command, returncode=returncode, stdout="".join(stdout_parts), stderr="".join(stderr_parts), started_at=started_at, finished_at=_utcnow())
 
     def cancel(self, iteration_id: str) -> bool:
         with self._lock:

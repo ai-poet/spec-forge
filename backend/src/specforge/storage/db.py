@@ -53,6 +53,8 @@ class Database:
                     retry_counts TEXT NOT NULL DEFAULT '{}',
                     test_integrity_baseline TEXT NOT NULL DEFAULT '{}',
                     planning_integrity_baseline TEXT NOT NULL DEFAULT '{}',
+                    planning_cli_session_id TEXT,
+                    planning_cli_session_started INTEGER NOT NULL DEFAULT 0,
                     last_error TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -113,7 +115,10 @@ class Database:
                     stderr TEXT NOT NULL,
                     exit_code INTEGER,
                     started_at TEXT NOT NULL,
-                    finished_at TEXT
+                    finished_at TEXT,
+                    duration_ms INTEGER,
+                    stdout_bytes INTEGER NOT NULL DEFAULT 0,
+                    stderr_bytes INTEGER NOT NULL DEFAULT 0
                 );
                 """
             )
@@ -139,6 +144,10 @@ class Database:
                 conn.execute("ALTER TABLE iterations ADD COLUMN docs_slug TEXT")
             if "build_command" not in iteration_columns:
                 conn.execute("ALTER TABLE iterations ADD COLUMN build_command TEXT")
+            if "planning_cli_session_id" not in iteration_columns:
+                conn.execute("ALTER TABLE iterations ADD COLUMN planning_cli_session_id TEXT")
+            if "planning_cli_session_started" not in iteration_columns:
+                conn.execute("ALTER TABLE iterations ADD COLUMN planning_cli_session_started INTEGER NOT NULL DEFAULT 0")
 
             project_columns = {
                 row["name"]
@@ -165,6 +174,22 @@ class Database:
                 conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_root_path ON projects(root_path) WHERE root_path IS NOT NULL")
             if "cli_bindings" not in project_columns:
                 conn.execute("ALTER TABLE projects ADD COLUMN cli_bindings TEXT")
+            run_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(runs)").fetchall()
+            }
+            if "duration_ms" not in run_columns:
+                conn.execute("ALTER TABLE runs ADD COLUMN duration_ms INTEGER")
+            if "stdout_bytes" not in run_columns:
+                conn.execute("ALTER TABLE runs ADD COLUMN stdout_bytes INTEGER NOT NULL DEFAULT 0")
+                conn.execute("UPDATE runs SET stdout_bytes = length(CAST(stdout AS BLOB)) WHERE stdout_bytes = 0 AND stdout != ''")
+            if "stderr_bytes" not in run_columns:
+                conn.execute("ALTER TABLE runs ADD COLUMN stderr_bytes INTEGER NOT NULL DEFAULT 0")
+                conn.execute("UPDATE runs SET stderr_bytes = length(CAST(stderr AS BLOB)) WHERE stderr_bytes = 0 AND stderr != ''")
+
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_iteration_created ON documents(iteration_id, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_events_iteration_created ON events(iteration_id, created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_iteration_started ON runs(iteration_id, started_at)")
 
     def get_project_by_root_path(self, root_path: str) -> Optional[sqlite3.Row]:
         with self.connect() as conn:
@@ -449,6 +474,8 @@ class Database:
         retry_counts: Optional[dict[str, int]] = None,
         test_integrity_baseline: Optional[dict[str, Any]] = None,
         planning_integrity_baseline: Optional[dict[str, Any]] = None,
+        planning_cli_session_id: Any = _UNSET,
+        planning_cli_session_started: Any = _UNSET,
         last_error: Any = _UNSET,
         stopped_at_node: Any = _UNSET,
     ) -> None:
@@ -475,6 +502,12 @@ class Database:
         if planning_integrity_baseline is not None:
             fields.append("planning_integrity_baseline = ?")
             values.append(json.dumps(planning_integrity_baseline))
+        if planning_cli_session_id is not _UNSET:
+            fields.append("planning_cli_session_id = ?")
+            values.append(planning_cli_session_id)
+        if planning_cli_session_started is not _UNSET:
+            fields.append("planning_cli_session_started = ?")
+            values.append(1 if planning_cli_session_started else 0)
         if last_error is not _UNSET:
             fields.append("last_error = ?")
             values.append(last_error)
@@ -564,17 +597,40 @@ class Database:
         stdout: str,
         stderr: str,
         exit_code: Optional[int] = None,
+        started_at: Optional[str] = None,
         finished_at: Optional[str] = None,
+        duration_ms: Optional[int] = None,
+        stdout_bytes: Optional[int] = None,
+        stderr_bytes: Optional[int] = None,
     ) -> str:
         run_id = f"run_{uuid4().hex[:8]}"
-        now = iso(utcnow())
+        now = started_at or iso(utcnow())
+        resolved_stdout_bytes = stdout_bytes if stdout_bytes is not None else len((stdout or "").encode("utf-8"))
+        resolved_stderr_bytes = stderr_bytes if stderr_bytes is not None else len((stderr or "").encode("utf-8"))
         with self.connect() as conn:
             conn.execute(
                 """
-                INSERT INTO runs (id, iteration_id, node, status, command, stdout, stderr, exit_code, started_at, finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO runs (
+                    id, iteration_id, node, status, command, stdout, stderr, exit_code,
+                    started_at, finished_at, duration_ms, stdout_bytes, stderr_bytes
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (run_id, iteration_id, node, status, command, stdout, stderr, exit_code, now, finished_at),
+                (
+                    run_id,
+                    iteration_id,
+                    node,
+                    status,
+                    command,
+                    stdout,
+                    stderr,
+                    exit_code,
+                    now,
+                    finished_at,
+                    duration_ms,
+                    resolved_stdout_bytes,
+                    resolved_stderr_bytes,
+                ),
             )
         return run_id
 
@@ -604,3 +660,22 @@ class Database:
                 (iteration_id,),
             ).fetchall()
         return list(rows)
+
+    def iteration_detail_rows(self, iteration_id: str) -> Optional[dict[str, list[sqlite3.Row] | sqlite3.Row]]:
+        with self.connect() as conn:
+            iteration = conn.execute("SELECT * FROM iterations WHERE id = ?", (iteration_id,)).fetchone()
+            if iteration is None:
+                return None
+            documents = conn.execute(
+                "SELECT * FROM documents WHERE iteration_id = ? ORDER BY created_at",
+                (iteration_id,),
+            ).fetchall()
+            events = conn.execute(
+                "SELECT * FROM events WHERE iteration_id = ? ORDER BY created_at",
+                (iteration_id,),
+            ).fetchall()
+            runs = conn.execute(
+                "SELECT * FROM runs WHERE iteration_id = ? ORDER BY started_at",
+                (iteration_id,),
+            ).fetchall()
+        return {"iteration": iteration, "documents": list(documents), "events": list(events), "runs": list(runs)}

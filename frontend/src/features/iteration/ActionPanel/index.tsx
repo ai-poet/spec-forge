@@ -1,5 +1,5 @@
 import type { IterationDetail } from '../../../shared/lib/types'
-import { retryLabel } from '../../../shared/lib/labels'
+import { graphNodeLabel, retryLabel } from '../../../shared/lib/labels'
 import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
 import {
   isPipelineRunning,
@@ -22,6 +22,7 @@ interface Props {
   onApproveVerify: () => Promise<void>
   onStop: () => Promise<void>
   onResume: () => Promise<void>
+  onManualSkip: (node?: string | null) => Promise<void> | void
 }
 
 const readable: Record<string, { title: string; body: string }> = {
@@ -107,6 +108,13 @@ function resolveStatusCopy(detail: IterationDetail) {
   return base
 }
 
+function manualSkipNode(detail: IterationDetail | null): string | null {
+  if (!detail) return null
+  if (detail.status === 'awaiting_requirements_input') return 'requirements_input'
+  if (detail.status === 'awaiting_verify_approval') return 'verify_approval'
+  return detail.current_node ?? detail.stopped_at_node ?? null
+}
+
 export function ActionPanel({
   detail,
   reviewMode = false,
@@ -116,6 +124,7 @@ export function ActionPanel({
   onApproveVerify,
   onStop,
   onResume,
+  onManualSkip,
 }: Props) {
   const state = detail ? resolveStatusCopy(detail) : null
   const stoppedStep = detail?.stopped_at_node ? presentNodeName(detail.stopped_at_node) : null
@@ -125,6 +134,8 @@ export function ActionPanel({
   const progress = latestNodeProgress(detail)
   const currentNode = runningNodeLabel(detail)
   const statusClass = detail?.status ? BAR_STATUS_CLASS[detail.status] ?? RUNNING_BAR_CLASS[detail.status] ?? '' : ''
+  const skipNode = manualSkipNode(detail)
+  const canManualSkip = Boolean(detail && !reviewMode && detail.status !== 'delivered')
 
   return (
     <section className={`${styles.bar} ${statusClass} ${running ? styles.barRunning : ''} ${reviewMode ? styles.barReview : ''}`.trim()}>
@@ -186,6 +197,17 @@ export function ActionPanel({
         <button type="button" className="btn primary" onClick={onResume} disabled={busy || detail?.status !== 'stopped' || !detail.stopped_at_node}>
           继续执行
         </button>
+        {canManualSkip ? (
+          <button
+            type="button"
+            className={styles.skipButton}
+            onClick={() => onManualSkip(skipNode)}
+            disabled={busy}
+            title={skipNode ? `跳过 ${graphNodeLabel(skipNode)}` : '跳过最近失败节点'}
+          >
+            跳过当前环节
+          </button>
+        ) : null}
         <button type="button" className="btn btn-ghost" onClick={onStop} disabled={busy || !detail || ['delivered', 'blocked', 'stopped'].includes(detail.status)}>
           停止
         </button>

@@ -218,17 +218,41 @@ class PipelinePromptsMixin:
         existing = state.get("planning_cli_session_id")
         if existing:
             return existing
+        iteration_id = state.get("iteration_id")
+        if iteration_id:
+            row = self.db.get_iteration_row(iteration_id)
+            if row is not None and "planning_cli_session_id" in row.keys() and row["planning_cli_session_id"]:
+                state["planning_cli_session_id"] = row["planning_cli_session_id"]
+                return row["planning_cli_session_id"]
         session_id = str(uuid4())
         state["planning_cli_session_id"] = session_id
+        if iteration_id:
+            self.db.update_iteration(iteration_id, planning_cli_session_id=session_id)
         return session_id
 
 
     def _planning_session_started(self, state: PipelineState) -> bool:
-        return bool(state.get("planning_cli_session_started"))
+        if state.get("planning_cli_session_started"):
+            return True
+        iteration_id = state.get("iteration_id")
+        if not iteration_id:
+            return False
+        row = self.db.get_iteration_row(iteration_id)
+        started = bool(row is not None and "planning_cli_session_started" in row.keys() and row["planning_cli_session_started"])
+        if started:
+            state["planning_cli_session_started"] = True
+        return started
 
 
     def _mark_planning_session_started(self, state: PipelineState) -> None:
         state["planning_cli_session_started"] = True
+        iteration_id = state.get("iteration_id")
+        if iteration_id:
+            self.db.update_iteration(
+                iteration_id,
+                planning_cli_session_id=state.get("planning_cli_session_id"),
+                planning_cli_session_started=True,
+            )
 
 
     def _planner_discovery_command(self, state: PipelineState) -> list[str]:

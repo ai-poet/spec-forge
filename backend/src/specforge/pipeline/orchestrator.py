@@ -89,6 +89,7 @@ class LangGraphPipeline(
         self._live_cli: dict[str, dict[str, str]] = {}
         self._live_cli_last_publish: dict[str, float] = {}
         self._live_cli_chunk_last_publish: dict[str, float] = {}
+        self._live_cli_pending_chunks: dict[tuple[str, str], dict[str, str]] = {}
         self._aborted_iterations: set[str] = set()
         self._invoking: set[str] = set()
 
@@ -160,8 +161,8 @@ class LangGraphPipeline(
             "max_discovery_rounds": int(project["max_discovery_rounds"]) if project and "max_discovery_rounds" in project.keys() else 8,
             "discovery_qa": [],
             "requirements_brief": "",
-            "planning_cli_session_id": None,
-            "planning_cli_session_started": False,
+            "planning_cli_session_id": row["planning_cli_session_id"] if "planning_cli_session_id" in row.keys() else None,
+            "planning_cli_session_started": bool(row["planning_cli_session_started"]) if "planning_cli_session_started" in row.keys() else False,
         }
 
 
