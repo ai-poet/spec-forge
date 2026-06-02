@@ -248,6 +248,22 @@ export interface LiveMessage {
 
 export type LiveConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
 export type TimelineFilter = 'all' | 'decisions' | 'failures' | 'tests' | 'runs'
+export type EnvironmentCheckStatus = 'ok' | 'warning' | 'error'
+
+export interface EnvironmentCheckItem {
+  id: string
+  label: string
+  status: EnvironmentCheckStatus
+  message: string
+  detail: string | null
+  hint: string | null
+}
+
+export interface EnvironmentChecksResult {
+  status: EnvironmentCheckStatus
+  checked_at: string
+  checks: EnvironmentCheckItem[]
+}
 
 export interface UpdateProjectInput {
   name?: string

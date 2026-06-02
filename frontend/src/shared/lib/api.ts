@@ -3,6 +3,7 @@ import type {
   CreateProjectInput,
   EpicDetail,
   EpicSummary,
+  EnvironmentChecksResult,
   IterationDetail,
   IterationSummary,
   Mode,
@@ -67,6 +68,10 @@ export function listIterationsForEpic(epicId: string): Promise<IterationSummary[
 
 export function listProjects(): Promise<ProjectSummary[]> {
   return request('/api/projects')
+}
+
+export function getEnvironmentChecks(): Promise<EnvironmentChecksResult> {
+  return request('/api/environment/checks')
 }
 
 export function validateProjectPath(input: { root_path: string; create_if_missing: boolean }): Promise<ValidateProjectPathResult> {

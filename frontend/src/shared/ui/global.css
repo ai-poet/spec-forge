@@ -339,6 +339,7 @@ button {
 }
 
 .status-dot.delivered,
+.status-dot.ok,
 .status-dot.passed,
 .status-dot.success,
 .pill.good {

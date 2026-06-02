@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CliBindingProvider, CliBindings, ProjectSummary, UpdateProjectInput } from '../../../shared/lib/types'
 import { DEFAULT_CLI_BINDINGS } from '../../../shared/lib/types'
+import { EnvironmentCheckPanel } from '../EnvironmentCheckPanel'
 import { ProjectFolderPanel } from '../ProjectFolderPanel'
 
 interface Props {
@@ -67,6 +68,7 @@ export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDele
   return (
     <>
     <ProjectFolderPanel project={project} busy={busy} onBind={onBindFolder} />
+    <EnvironmentCheckPanel />
 
     <section className="surface stack">
       <div className="section-row">

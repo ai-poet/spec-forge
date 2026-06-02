@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Thread
 from uuid import uuid4
 from fastapi.testclient import TestClient
+from unittest.mock import patch
 
 from specforge.core import contracts as contract_models
 from specforge.agents.cli_runner import CLIResult
@@ -173,6 +174,31 @@ def test_health():
     resp = client.get("/api/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+    payload = resp.json()
+    assert "ui" in payload
+    assert "ui_install_hint" in payload
+
+
+def test_environment_checks_api_shape():
+    payload = {
+        "status": "warning",
+        "checked_at": "2026-06-02T00:00:00+00:00",
+        "checks": [
+            {
+                "id": "claude_cli",
+                "label": "Claude Code CLI",
+                "status": "ok",
+                "message": "Available",
+                "detail": "claude 1.0",
+                "hint": None,
+            }
+        ],
+    }
+    with patch("specforge.main.environment_checks", return_value=payload):
+        resp = client.get("/api/environment/checks")
+
+    assert resp.status_code == 200
+    assert resp.json() == payload
 
 
 def test_browse_project_directory(tmp_path):

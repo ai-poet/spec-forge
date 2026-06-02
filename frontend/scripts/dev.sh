@@ -103,7 +103,11 @@ fi
 ensure_backend_deps() {
   if command -v uv >/dev/null 2>&1; then
     echo "Syncing backend dependencies with uv..."
-    (cd "$ROOT_DIR/backend" && uv sync --extra dev)
+    if [[ "${SPECFORGE_SKIP_UI:-}" != "1" ]]; then
+      (cd "$ROOT_DIR/backend" && uv sync --extra dev --extra ui)
+    else
+      (cd "$ROOT_DIR/backend" && uv sync --extra dev)
+    fi
     return 0
   fi
 
@@ -117,11 +121,28 @@ ensure_backend_deps() {
     python -m ensurepip --upgrade
   fi
   python -m pip install -q --upgrade pip setuptools wheel
-  pip install -q -e "$ROOT_DIR/backend"[dev]
+  if [[ "${SPECFORGE_SKIP_UI:-}" != "1" ]]; then
+    pip install -q -e "$ROOT_DIR/backend[dev,ui]"
+  else
+    pip install -q -e "$ROOT_DIR/backend[dev]"
+  fi
 }
 
 ensure_backend_deps
 source "$ROOT_DIR/backend/.venv/bin/activate"
+
+if [[ "${SPECFORGE_SKIP_UI:-}" != "1" ]]; then
+  python -m playwright install chromium || \
+    echo "warn: Python Playwright browser install failed (Web UI smoke may warn)" >&2
+  if command -v npx >/dev/null 2>&1; then
+    npx --yes --package @playwright/cli playwright-cli install-browser || \
+      echo "warn: playwright-cli browser install failed (Web UI Agent may warn)" >&2
+  else
+    echo "warn: npx not found; install Node.js for playwright-cli Web UI verification" >&2
+  fi
+else
+  echo "Skipping UI automation setup (SPECFORGE_SKIP_UI=1)." >&2
+fi
 
 if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
   (cd "$FRONTEND_DIR" && npm install)

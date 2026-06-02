@@ -42,6 +42,7 @@ from specforge.documents.docs_scaffold import ensure_project_docs
 from specforge.ui.ui_runtime import log_ui_runtime_status, ui_runtime_status
 from specforge.ui.native_dialog import pick_folder, resolve_picked_folder
 from specforge.documents.project_paths import ProjectPathError, browse_directory, prepare_project_root, validate_project_root
+from specforge.environment import environment_checks
 
 
 db = Database(settings.db_path)
@@ -92,6 +93,11 @@ def health() -> dict[str, object]:
         },
         "ui_install_hint": ui["install_hint"],
     }
+
+
+@app.get("/api/environment/checks")
+def get_environment_checks() -> dict[str, object]:
+    return environment_checks()
 
 
 @app.get("/api/projects", response_model=list[ProjectSummary])
