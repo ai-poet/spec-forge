@@ -217,11 +217,15 @@ class NodeRunRecord(BaseModel):
     node: NodeName
     status: str
     command: str
-    stdout: str
-    stderr: str
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
     exit_code: Optional[int]
     started_at: datetime
     finished_at: Optional[datetime]
+    duration_ms: Optional[int] = None
+    stdout_bytes: int = 0
+    stderr_bytes: int = 0
+    logs_url: Optional[str] = None
 
 
 class EventRecord(BaseModel):

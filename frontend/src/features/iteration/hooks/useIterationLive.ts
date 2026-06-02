@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getIteration, getIterationDocument } from '../../../shared/lib/api'
 import { iterationWebSocketUrl } from '../../../shared/lib/wsUrl'
 import type { CliOutputPayload, IterationDetail, LiveConnectionStatus, LiveMessage } from '../../../shared/lib/types'
+import { mergeLiveCliOutput, mergeLiveEvent } from './iterationLiveMerge'
 
 function documentsMetaKey(documents: IterationDetail['documents'] | undefined): string {
   return (documents ?? []).map((item) => `${item.name}:${item.checksum}`).join('|')
@@ -145,19 +146,14 @@ export function useIterationLive(iterationId: string | null) {
           if (message.type === 'pong') return
 
           if (message.type === 'cli.output' && isCliOutputEvent(message.event)) {
-            const { node, stream, chunk } = message.event.payload
-            setDetail((prev) => {
-              if (!prev) return prev
-              const existing = prev.live_cli ?? { node, stdout: '', stderr: '' }
-              return {
-                ...prev,
-                live_cli: {
-                  node,
-                  stdout: stream === 'stdout' ? existing.stdout + chunk : existing.stdout,
-                  stderr: stream === 'stderr' ? existing.stderr + chunk : existing.stderr,
-                },
-              }
-            })
+            setDetail((prev) => mergeLiveCliOutput(prev, message.event.payload))
+            setLastMessageAt(new Date().toISOString())
+            setLiveError(null)
+            return
+          }
+
+          if (message.type === 'event' && message.event && 'id' in message.event) {
+            setDetail((prev) => mergeLiveEvent(prev, message.event as IterationDetail['events'][number]))
             setLastMessageAt(new Date().toISOString())
             setLiveError(null)
             return

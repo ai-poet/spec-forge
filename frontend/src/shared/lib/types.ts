@@ -176,11 +176,15 @@ export interface NodeRunRecord {
   node: NodeName
   status: string
   command: string
-  stdout: string
-  stderr: string
+  stdout?: string | null
+  stderr?: string | null
   exit_code: number | null
   started_at: string
   finished_at: string | null
+  duration_ms?: number | null
+  stdout_bytes: number
+  stderr_bytes: number
+  logs_url?: string | null
 }
 
 export interface UIArtifactLink {
@@ -243,7 +247,7 @@ export interface IterationDetail extends IterationSummary {
 export interface LiveMessage {
   type: 'snapshot' | 'event' | 'cli.output' | 'pong'
   event?: EventRecord | { type: 'cli.output'; payload: CliOutputPayload }
-  snapshot?: IterationDetail
+  snapshot?: IterationDetail | null
 }
 
 export type LiveConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected'

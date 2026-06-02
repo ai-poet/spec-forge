@@ -415,7 +415,7 @@ class PipelineArtifactsMixin:
 
 
     def _gate_failed_artifact(self, artifact: VerificationArtifact, gate_msg: str) -> VerificationArtifact:
-        defect = Defect(severity="P0", owner="code_tester", message=gate_msg)
+        defect = Defect(severity="P0", owner="coder", message=gate_msg)
         defects = [*artifact.defects, defect] if artifact.defects else [defect]
         return artifact.model_copy(update={"passed": False, "defects": defects, "failure_notes": gate_msg})
 

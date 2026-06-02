@@ -646,7 +646,13 @@ class LangGraphPipeline(
 
 
     def dashboard_snapshot(self, iteration_id: str) -> dict[str, Any]:
-        row = self._require_iteration(iteration_id)
+        detail_rows = self.db.iteration_detail_rows(iteration_id)
+        if detail_rows is None:
+            raise KeyError(iteration_id)
+        row = detail_rows["iteration"]
+        documents = detail_rows["documents"]
+        events = detail_rows["events"]
+        runs = detail_rows["runs"]
         if iteration_id in self._invoking:
             graph_next: list[str] = []
         else:
@@ -676,7 +682,7 @@ class LangGraphPipeline(
                     "created_at": doc["created_at"],
                     "updated_at": doc["updated_at"],
                 }
-                for doc in self.db.list_documents(iteration_id)
+                for doc in documents
             ],
             "events": [
                 {
@@ -686,7 +692,7 @@ class LangGraphPipeline(
                     "payload": json.loads(event["payload"]),
                     "created_at": event["created_at"],
                 }
-                for event in self.db.list_events(iteration_id)
+                for event in events
             ],
             "runs": [
                 {
@@ -695,13 +701,15 @@ class LangGraphPipeline(
                     "node": run["node"],
                     "status": run["status"],
                     "command": run["command"],
-                    "stdout": run["stdout"],
-                    "stderr": run["stderr"],
                     "exit_code": run["exit_code"],
                     "started_at": run["started_at"],
                     "finished_at": run["finished_at"],
+                    "duration_ms": run["duration_ms"] if "duration_ms" in run.keys() else None,
+                    "stdout_bytes": run["stdout_bytes"] if "stdout_bytes" in run.keys() else len((run["stdout"] or "").encode("utf-8")),
+                    "stderr_bytes": run["stderr_bytes"] if "stderr_bytes" in run.keys() else len((run["stderr"] or "").encode("utf-8")),
+                    "logs_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/logs",
                 }
-                for run in self.db.list_runs(iteration_id)
+                for run in runs
             ],
             "ui_results": [result.model_dump() for result in self._ui_results(iteration_id)],
             "live_cli": self._live_cli_snapshot(iteration_id),

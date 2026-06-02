@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from queue import Queue
 from threading import Thread
+import time
 from typing import Literal, Optional
 
 
@@ -13,6 +14,7 @@ class PipelineJob:
     checkpoint: Optional[str] = None
     node: Optional[str] = None
     note: Optional[str] = None
+    enqueued_at: float = 0.0
 
 
 class PipelineJobQueue:
@@ -29,16 +31,16 @@ class PipelineJobQueue:
         self._thread.start()
 
     def enqueue_start(self, iteration_id: str) -> None:
-        self._queue.put(PipelineJob(kind="start", iteration_id=iteration_id))
+        self._queue.put(PipelineJob(kind="start", iteration_id=iteration_id, enqueued_at=time.monotonic()))
 
     def enqueue_resume(self, iteration_id: str, checkpoint: str, note: Optional[str]) -> None:
-        self._queue.put(PipelineJob(kind="resume", iteration_id=iteration_id, checkpoint=checkpoint, note=note))
+        self._queue.put(PipelineJob(kind="resume", iteration_id=iteration_id, checkpoint=checkpoint, note=note, enqueued_at=time.monotonic()))
 
     def enqueue_resume_stopped(self, iteration_id: str, note: Optional[str] = None) -> None:
-        self._queue.put(PipelineJob(kind="resume_stopped", iteration_id=iteration_id, note=note))
+        self._queue.put(PipelineJob(kind="resume_stopped", iteration_id=iteration_id, note=note, enqueued_at=time.monotonic()))
 
     def enqueue_manual_skip(self, iteration_id: str, node: str, note: Optional[str] = None) -> None:
-        self._queue.put(PipelineJob(kind="manual_skip", iteration_id=iteration_id, node=node, note=note))
+        self._queue.put(PipelineJob(kind="manual_skip", iteration_id=iteration_id, node=node, note=note, enqueued_at=time.monotonic()))
 
     def join(self) -> None:
         self._queue.join()
@@ -47,6 +49,12 @@ class PipelineJobQueue:
         while True:
             job = self._queue.get()
             try:
+                if job.enqueued_at:
+                    self.pipeline._add_event(
+                        job.iteration_id,
+                        event_type="job.started",
+                        payload={"kind": job.kind, "queue_wait_ms": int((time.monotonic() - job.enqueued_at) * 1000)},
+                    )
                 if job.kind == "start":
                     self.pipeline.start(job.iteration_id)
                 elif job.kind == "resume":

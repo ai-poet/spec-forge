@@ -392,6 +392,7 @@ class Database:
         goal: str,
         mode: Optional[str],
         test_command: Optional[str],
+        build_command: Optional[str] = None,
         project_id: Optional[str] = None,
         epic_id: Optional[str] = None,
     ) -> str:
@@ -414,8 +415,8 @@ class Database:
         resolved_test_command = test_command
         if resolved_test_command is None and project_row is not None:
             resolved_test_command = project_row["default_test_command"]
-        resolved_build_command = None
-        if project_row is not None and "default_build_command" in project_row.keys():
+        resolved_build_command = build_command
+        if resolved_build_command is None and project_row is not None and "default_build_command" in project_row.keys():
             resolved_build_command = project_row["default_build_command"]
         with self.connect() as conn:
             sequence = conn.execute(

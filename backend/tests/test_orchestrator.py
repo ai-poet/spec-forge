@@ -948,6 +948,7 @@ def test_append_live_cli_publishes_cli_output_event():
     queue = pipeline.broker.subscribe(iteration_id)
     try:
         pipeline._append_live_cli(iteration_id, "stdout", "hello")
+        pipeline._flush_cli_output(iteration_id)
         envelope = queue.get(timeout=1)
         assert envelope.type == "cli.output"
         assert envelope.event is not None

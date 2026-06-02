@@ -103,6 +103,21 @@ class VerificationNodesMixin:
             if planning_failure is not None:
                 return planning_failure
             self._write_tester_artifact(iteration_id, IterationDocs(self.docs_root(iteration_id)), tester_pending, run_id=run_id)
+            gate_ok, gate_msg = self._run_artifact_gate(state)
+            if not gate_ok:
+                self._rollback_tester_adversarial(iteration_id, tester_pending.adversarial_tests)
+                gate_artifact = self._gate_failed_artifact(tester_pending, gate_msg)
+                self._node_event(
+                    iteration_id,
+                    "node.failed",
+                    NodeName.code_tester.value,
+                    "验证命令未通过",
+                    gate_msg,
+                    severity="error",
+                    run_id=run_id,
+                    action_hint="系统将按写权限分区自动回环；配置的 build/test 未通过时跳过 UI 验证。",
+                )
+                return self._route_tester_failure(state, run_id, gate_artifact)
             baseline = test_integrity_manifest(self.docs_root(iteration_id))
             self._update_iteration(iteration_id, test_integrity_baseline=baseline)
             self._node_event(iteration_id, "node.completed", NodeName.code_tester.value, "代码验证完成", "已建立测试基线，进入测试完整性检查。", severity="success", run_id=run_id)
@@ -164,21 +179,6 @@ class VerificationNodesMixin:
                 return planning_failure
             self._emit_ui_tester_result_events(iteration_id, artifact, run_id=run_id)
             self._write_tester_artifact(iteration_id, docs, artifact, run_id=run_id)
-            gate_ok, gate_msg = self._run_artifact_gate(state)
-            if not gate_ok:
-                self._rollback_tester_adversarial(iteration_id, artifact.adversarial_tests)
-                artifact = self._gate_failed_artifact(artifact, gate_msg)
-                self._node_event(
-                    iteration_id,
-                    "node.failed",
-                    NodeName.ui_tester.value,
-                    "验证产物未通过写盘闸门",
-                    gate_msg,
-                    severity="error",
-                    run_id=run_id,
-                    action_hint="Tester 将自修 adversarial 或验证产物，无需 Coder 改 src。",
-                )
-                return self._route_tester_failure(state, run_id, artifact)
             problems = self._integrity_problems(iteration_id)
             if problems:
                 self._node_event(iteration_id, "node.failed", NodeName.ui_tester.value, "验证后测试完整性失败", "; ".join(problems), severity="error", run_id=run_id, action_hint="Code Tester 只能写入 adversarial 和 UI recordings；请检查异常测试文件。")

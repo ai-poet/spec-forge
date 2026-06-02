@@ -343,6 +343,7 @@ def create_iteration(payload: CreateIterationRequest) -> IterationSummary:
         goal=payload.goal,
         mode=payload.mode.value if payload.mode else None,
         test_command=payload.test_command,
+        build_command=payload.build_command,
         epic_id=payload.epic_id,
     )
     db.update_iteration(iteration_id, status="queued", current_node=None)
@@ -574,7 +575,12 @@ async def ws_iteration(websocket: WebSocket, iteration_id: str) -> None:
             except Empty:
                 await asyncio.sleep(0.1)
                 continue
-            sent = await _safe_send_json({"type": envelope.type, "event": envelope.event, "snapshot": envelope.snapshot})
+            payload = {"type": envelope.type}
+            if envelope.event is not None:
+                payload["event"] = envelope.event
+            if envelope.snapshot is not None:
+                payload["snapshot"] = envelope.snapshot
+            sent = await _safe_send_json(payload)
             if not sent:
                 return
     except asyncio.CancelledError:

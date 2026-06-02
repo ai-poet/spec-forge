@@ -131,10 +131,10 @@ export function classifyIterationProblem(detail: IterationDetail | null): Readab
 }
 
 export function summarizeRun(run: NodeRunRecord) {
-  const outputSize = run.stdout.length + run.stderr.length
+  const outputSize = (run.stdout_bytes ?? run.stdout?.length ?? 0) + (run.stderr_bytes ?? run.stderr?.length ?? 0)
   const status = run.status === 'success' ? '成功' : '失败'
   const message = outputSize
-    ? `已捕获 ${outputSize} 个字符的原始输出。`
+    ? `已捕获 ${outputSize} bytes 的原始输出。`
     : '没有原始输出。'
   return {
     title: `${presentNodeName(run.node)}运行${status}`,
