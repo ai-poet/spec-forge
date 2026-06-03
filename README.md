@@ -335,7 +335,7 @@ flowchart LR
 
 **owner=prd_planner**（PRD 范围硬冲突等）不进入自动回环，直接 `blocked`，需人工处理。
 
-**Agent 产物自修只处理产物问题**：JSON 解析失败、schema 校验失败、artifact 文件路径不允许、试图覆盖已有测试文件等，都会记录 `artifact.invalid` / `artifact.retry_to_self`，并把错误原文作为 retry notes 丢回同一个 Agent。真实产品/实现缺陷不走这条路，仍按 `defects[].owner` 进入 ②a/②b/②c；超出 `{node}_artifact_self` 上限后才发 `artifact.self_max_retries` 并阻断。
+**Agent 产物自修只处理产物问题**：JSON 解析失败、schema 校验失败、artifact 文件路径不允许、试图覆盖受保护规划/测试区域等，都会记录 `artifact.invalid` / `artifact.retry_to_self`，并把错误原文作为 retry notes 丢回同一个 Agent。非保护区内的测试产物允许更新已有测试文件。真实产品/实现缺陷不走这条路，仍按 `defects[].owner` 进入 ②a/②b/②c；超出 `{node}_artifact_self` 上限后才发 `artifact.self_max_retries` 并阻断。
 
 **UI Tester**（`ui_tester` CLI 阶段）不再读取或生成 `tests/ui/*.json` 结构化 spec。它的测试来源是 `testing_plan.md` 的 **Manual Tests**：Web 场景优先用 **playwright-cli**（`open` → `snapshot` → `click eN`）；native 用 **cua-driver**（`launch_app` → `get_window_state` → `element_index`）。本机 CUA 会话互斥时 native 可记 `warning`。工具/环境降级不触发 ②a/②b/②c；只有 UI Tester 成功汇总出 P0/P1 `defects[]` 时才按 owner 回环。
 

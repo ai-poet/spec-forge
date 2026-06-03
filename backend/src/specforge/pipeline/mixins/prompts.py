@@ -554,8 +554,8 @@ class PipelinePromptsMixin:
                     "{verify_report:string, passed:boolean, failure_notes?:string, "
                     "defects:[{severity:'P0'|'P1'|'P2', path?:string, owner?:'coder'|'code_tester'|'test_planner', message:string}], "
                     "ux_notes:[string], delivery_recommendations:[string], "
-                    "adversarial_tests:[{path:'tests/adversarial/**', content:string}], "
-                    "test_files:[{path:'new test file under project repo; do not overwrite existing files; not tests/ui/**', content:string}]}"
+                    "adversarial_tests:[{path:'tests/adversarial/** or project test file path', content:string}], "
+                    "test_files:[{path:'new or existing non-protected project test file path; not tests/ui/**', content:string}]}"
                 ),
                 "test_command_section": test_command_section,
                 "build_command_section": build_command_section,

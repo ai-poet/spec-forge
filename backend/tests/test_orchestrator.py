@@ -1557,7 +1557,7 @@ def test_tester_write_allows_new_project_test_file(tmp_path):
     assert "TestPublicSettings" in path.read_text(encoding="utf-8")
 
 
-def test_tester_write_rejects_overwriting_existing_project_file(tmp_path):
+def test_tester_write_allows_overwriting_existing_project_test_file(tmp_path):
     project = post_project(tmp_path, "project-test-overwrite", default_mode="dry-run")
     project_id = project.json()["id"]
     project_root = Path(project.json()["root_path"])
@@ -1567,7 +1567,7 @@ def test_tester_write_rejects_overwriting_existing_project_file(tmp_path):
     iteration_id = pipeline.db.create_iteration(
         project_name=project.json()["name"],
         project_id=project_id,
-        goal="reject overwrite",
+        goal="allow overwrite",
         mode="dry-run",
         test_command=None,
     )
@@ -1584,9 +1584,8 @@ def test_tester_write_rejects_overwriting_existing_project_file(tmp_path):
         ],
     )
 
-    with pytest.raises(ValueError, match="would overwrite existing file"):
-        pipeline._write_tester_artifact(iteration_id, docs, artifact)
-    assert existing.read_text(encoding="utf-8") == "package service\n"
+    pipeline._write_tester_artifact(iteration_id, docs, artifact)
+    assert existing.read_text(encoding="utf-8") == "package service\n\nfunc TestPublicSettings(t *testing.T) {}\n"
 
 
 def test_tester_write_allows_idempotent_existing_project_test_file(tmp_path):
@@ -1653,7 +1652,7 @@ def test_tester_write_allows_project_adversarial_test_file(tmp_path):
     assert "TestChangelogAdversarial" in path.read_text(encoding="utf-8")
 
 
-def test_tester_write_rejects_overwriting_project_adversarial_file(tmp_path):
+def test_tester_write_allows_overwriting_project_adversarial_file(tmp_path):
     project = post_project(tmp_path, "project-adversarial-overwrite", default_mode="dry-run")
     project_id = project.json()["id"]
     project_root = Path(project.json()["root_path"])
@@ -1663,7 +1662,7 @@ def test_tester_write_rejects_overwriting_project_adversarial_file(tmp_path):
     iteration_id = pipeline.db.create_iteration(
         project_name=project.json()["name"],
         project_id=project_id,
-        goal="reject adversarial overwrite",
+        goal="allow adversarial overwrite",
         mode="dry-run",
         test_command=None,
     )
@@ -1680,9 +1679,8 @@ def test_tester_write_rejects_overwriting_project_adversarial_file(tmp_path):
         ],
     )
 
-    with pytest.raises(ValueError, match="adversarial_tests would overwrite existing file"):
-        pipeline._write_tester_artifact(iteration_id, docs, artifact)
-    assert existing.read_text(encoding="utf-8") == "package service\n"
+    pipeline._write_tester_artifact(iteration_id, docs, artifact)
+    assert existing.read_text(encoding="utf-8") == "package service\n\nfunc TestChangelogAdversarial(t *testing.T) {}\n"
 
 
 def test_tester_write_rejects_non_test_project_file(tmp_path):
@@ -1846,10 +1844,6 @@ def test_artifact_invalid_blocks_after_self_retry_limit():
 def test_code_tester_write_error_routes_to_self_retry(tmp_path):
     project = post_project(tmp_path, "tester-artifact-self", default_mode="dry-run")
     project_id = project.json()["id"]
-    project_root = Path(project.json()["root_path"])
-    existing = project_root / "backend/internal/service/setting_service_public_test.go"
-    existing.parent.mkdir(parents=True)
-    existing.write_text("package service\n", encoding="utf-8")
     iteration_id = pipeline.db.create_iteration(
         project_name=project.json()["name"],
         project_id=project_id,
@@ -1865,8 +1859,8 @@ def test_code_tester_write_error_routes_to_self_retry(tmp_path):
             passed=True,
             test_files=[
                 ArtifactFile(
-                    path="backend/internal/service/setting_service_public_test.go",
-                    content="package service\n\nfunc TestPublicSettings(t *testing.T) {}\n",
+                    path="backend/internal/service/setting_service.go",
+                    content="package service\n",
                 )
             ],
         )
@@ -1908,13 +1902,13 @@ def test_code_tester_artifact_retry_notes_are_in_prompt(tmp_path):
         "mode": "real-cli",
         "route": "artifact_self_retry",
         "retry_target": "code_tester",
-        "failure_notes": "tester test_files would overwrite existing file: backend/foo_test.go",
+        "failure_notes": "tester test_files path is not a recognized test file: backend/foo.go",
     }
 
     prompt = pipeline._code_tester_prompt(state, review_only=False)
 
     assert "Artifact self-retry" in prompt
-    assert "tester test_files would overwrite existing file" in prompt
+    assert "tester test_files path is not a recognized test file" in prompt
 
 
 def test_tester_failure_retries_until_blocked(tmp_path):

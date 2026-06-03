@@ -284,9 +284,10 @@ class PipelineArtifactsMixin:
             raise ValueError(f"tester {field} path is not a recognized test file: {relative.as_posix()}")
         path = self.project_repo_root(iteration_id) / relative
         if path.exists():
-            if path.is_file() and path.read_text(encoding="utf-8") == content:
+            if not path.is_file():
+                raise ValueError(f"tester {field} path is not a file: {relative.as_posix()}")
+            if path.read_text(encoding="utf-8") == content:
                 return path
-            raise ValueError(f"tester {field} would overwrite existing file: {relative.as_posix()}")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return path
