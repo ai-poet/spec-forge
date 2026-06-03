@@ -1,6 +1,8 @@
 Requirements brief:
 {requirements_brief}
 
+{planner_context}
+
 Epic / goal:
 {brief}
 

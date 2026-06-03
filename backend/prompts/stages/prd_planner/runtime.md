@@ -1,6 +1,8 @@
 Requirements brief:
 {requirements_brief}
 
+{planner_context}
+
 Discovery Q&A:
 {discovery_qa}
 

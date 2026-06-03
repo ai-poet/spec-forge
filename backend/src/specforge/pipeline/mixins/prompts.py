@@ -19,6 +19,7 @@ from ...core.contracts import (
 )
 from ...core.models import IterationStatus, NodeName
 from ...policy.artifact_gate import read_convention_excerpt, read_framework_conventions, read_spec_index
+from ...policy.context_cache import format_planner_context
 from ...policy.context_manifest import (
     FOR_CODER,
     FOR_TESTER,
@@ -83,6 +84,10 @@ class PipelinePromptsMixin:
         if not index:
             return ""
         return f"Project docs/spec-index.md:\n{index}\n"
+
+
+    def _planner_context_prompt(self, repo_root: Path) -> str:
+        return format_planner_context(repo_root)
 
 
     def _planner_brief(self, state: PipelineState) -> str:
@@ -287,6 +292,7 @@ class PipelinePromptsMixin:
                     ),
                     "brief": self._planner_brief(state),
                     "discovery_context": self._discovery_context_prompt(state),
+                    "planner_context": self._planner_context_prompt(repo_root),
                     "framework_conventions": read_framework_conventions(),
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.planner_discovery.value),
@@ -344,6 +350,7 @@ class PipelinePromptsMixin:
                     "brief": brief,
                     "requirements_brief": requirements_brief,
                     "discovery_qa": discovery_qa,
+                    "planner_context": self._planner_context_prompt(repo_root),
                     "framework_conventions": read_framework_conventions(),
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.prd_planner.value),
@@ -380,6 +387,7 @@ class PipelinePromptsMixin:
                     "brief": brief,
                     "requirements_brief": requirements_brief,
                     "failure_notes": state.get("failure_notes") or "(none)",
+                    "planner_context": self._planner_context_prompt(repo_root),
                     "framework_conventions": read_framework_conventions(),
                     "convention_excerpt": self._project_convention_prompt(repo_root) + self._spec_index_prompt(repo_root),
                     "workflow_state": self._workflow_state_section(state, node=NodeName.test_planner.value),

@@ -14,6 +14,13 @@ class ArtifactFile(BaseModel):
 class ContextManifestEntry(BaseModel):
     file: str = Field(min_length=1)
     reason: str = ""
+    summary: str = ""
+    symbols: list[str] = Field(default_factory=list)
+    public_api: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    sha256: Optional[str] = None
+    last_scanned_at: Optional[str] = None
+    freshness: Optional[str] = None
 
 
 class PrdPlannerArtifact(BaseModel):

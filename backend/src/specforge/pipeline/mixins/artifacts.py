@@ -24,9 +24,11 @@ from ...core.contracts import (
 from ...core.models import IterationStatus, NodeName
 from ...documents.docs_io import IterationDocs, compare_planning_integrity, compare_test_integrity, safe_relative_path
 from ...policy.artifact_gate import run_project_commands
+from ...policy.context_cache import enrich_manifest_lines
 from ...policy.context_manifest import (
     ManifestLine,
     append_manifest_lines,
+    read_jsonl,
     resolve_coder_manifest,
     resolve_tester_manifest,
     write_jsonl,
@@ -189,8 +191,15 @@ class PipelineArtifactsMixin:
         self._record_document(iteration_id, "prd", path)
         self._node_event(iteration_id, "artifact.created", NodeName.prd_planner.value, "PRD 已生成", "prd.md 已写入 iteration 文档目录。", severity="success", document="prd", run_id=run_id)
         context_root = docs.root / "context"
-        write_jsonl(context_root / "for_coder.jsonl", resolve_coder_manifest(artifact))
-        write_jsonl(context_root / "for_tester.jsonl", resolve_tester_manifest(artifact))
+        repo_root = self.project_repo_root(iteration_id)
+        write_jsonl(
+            context_root / "for_coder.jsonl",
+            enrich_manifest_lines(repo_root, docs.root, resolve_coder_manifest(artifact)),
+        )
+        write_jsonl(
+            context_root / "for_tester.jsonl",
+            enrich_manifest_lines(repo_root, docs.root, resolve_tester_manifest(artifact)),
+        )
         self._record_document(iteration_id, "context/for_coder.jsonl", context_root / "for_coder.jsonl")
         self._record_document(iteration_id, "context/for_tester.jsonl", context_root / "for_tester.jsonl")
 
@@ -203,8 +212,13 @@ class PipelineArtifactsMixin:
             ManifestLine(file="testing_plan.md", reason="Test strategy for Code Tester"),
         ]
         context_root = docs.root / "context"
-        append_manifest_lines(context_root / "for_coder.jsonl", test_lines)
-        append_manifest_lines(context_root / "for_tester.jsonl", test_lines)
+        repo_root = self.project_repo_root(iteration_id)
+        coder_manifest = context_root / "for_coder.jsonl"
+        tester_manifest = context_root / "for_tester.jsonl"
+        append_manifest_lines(coder_manifest, test_lines)
+        append_manifest_lines(tester_manifest, test_lines)
+        write_jsonl(coder_manifest, enrich_manifest_lines(repo_root, docs.root, read_jsonl(coder_manifest)))
+        write_jsonl(tester_manifest, enrich_manifest_lines(repo_root, docs.root, read_jsonl(tester_manifest)))
 
 
     def _ensure_verify_report_markers(self, text: str) -> str:

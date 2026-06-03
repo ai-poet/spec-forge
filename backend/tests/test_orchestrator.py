@@ -29,7 +29,8 @@ from specforge.documents.docs_io import (
 )
 from specforge.main import app, broker, job_queue, pipeline, ws_iteration
 from specforge.core.models import IterationStatus
-from specforge.policy.context_manifest import RUNTIME_NOTES, read_runtime_notes
+from specforge.policy.context_cache import CONTEXT_INDEX
+from specforge.policy.context_manifest import RUNTIME_NOTES, read_jsonl, read_runtime_notes
 
 
 client = TestClient(app)
@@ -338,6 +339,10 @@ def test_iteration_workspace_under_project_root(tmp_path):
     assert (Path(root_path) / "docs" / "00_convention.md").exists()
     assert (docs_root / "context" / "for_coder.jsonl").exists()
     assert (docs_root / "context" / "for_tester.jsonl").exists()
+    coder_context = read_jsonl(docs_root / "context" / "for_coder.jsonl")
+    assert any(line.file == "prd.md" and line.sha256 and line.freshness == "fresh" for line in coder_context)
+    assert any(line.file == "testing_plan.md" and line.summary and line.sha256 for line in coder_context)
+    assert (Path(root_path) / CONTEXT_INDEX).exists()
 
 
 def test_create_project_and_filter_iterations(tmp_path):

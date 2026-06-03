@@ -1,5 +1,7 @@
 {brief}
 
+{planner_context}
+
 {discovery_context}
 
 {framework_conventions}

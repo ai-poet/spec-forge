@@ -25,6 +25,7 @@ def test_compose_planner_discovery_includes_brief_context() -> None:
         variables={
             "schema_hint": "{status:ask|ready}",
             "brief": "Goal: feature X",
+            "planner_context": "## Planner project context cache\nCached facts.",
             "discovery_context": "Round 1 Q: scope?\nRound 1 A: MVP",
             "framework_conventions": "",
             "convention_excerpt": "",
@@ -33,6 +34,7 @@ def test_compose_planner_discovery_includes_brief_context() -> None:
         },
     )
     assert "## SpecForge stage: planner_discovery" in text
+    assert "Planner project context cache" in text
     assert "One question per turn" in text
     assert "Round 1 Q: scope?" in text
 
@@ -45,6 +47,7 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
             "brief": "Build feature X",
             "requirements_brief": "MVP scope for feature X",
             "discovery_qa": "(none)",
+            "planner_context": "## Planner project context cache\nCached facts.",
             "framework_conventions": "Framework rules here.",
             "convention_excerpt": "",
             "workflow_state": "",
@@ -55,7 +58,30 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "context_for_coder" in text
     assert "context/for_tester.jsonl" in text
     assert "Build feature X" in text
+    assert "Planner project context cache" in text
     assert "modification_plan" not in text
+
+
+def test_compose_test_planner_includes_planner_context() -> None:
+    text = compose_stage_prompt(
+        "test_planner",
+        variables={
+            "schema_hint": "{testing_plan:string}",
+            "brief": "Build feature X",
+            "requirements_brief": "MVP scope for feature X",
+            "failure_notes": "(none)",
+            "planner_context": "## Planner project context cache\nCached facts.",
+            "framework_conventions": "",
+            "convention_excerpt": "",
+            "workflow_state": "",
+            "session_continuation": "",
+            "artifact_retry": "",
+            "runtime_notes": "",
+        },
+    )
+    assert "## SpecForge stage: test_planner" in text
+    assert "Planner project context cache" in text
+    assert "Read `prd.md`" in text
 
 
 def test_compose_coder_includes_manifest_and_docs_root() -> None:
