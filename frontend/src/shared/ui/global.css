@@ -255,6 +255,147 @@ button {
   border-color: rgba(239, 68, 68, 0.2);
 }
 
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.provider-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-main);
+}
+
+.provider-card strong,
+.provider-card .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.provider-capabilities span {
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.profile-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.9fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.profile-list,
+.profile-editor {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.profile-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-main);
+  padding: 10px;
+  min-width: 0;
+}
+
+.profile-card div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.profile-card strong,
+.profile-card span,
+.profile-card p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.profile-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.profile-editor label {
+  display: grid;
+  gap: 5px;
+}
+
+.profile-editor span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.profile-editor input,
+.profile-editor select,
+.profile-editor textarea {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg-inset);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.profile-editor textarea {
+  resize: vertical;
+  min-height: 132px;
+}
+
+.workflow-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.workflow-policy-card {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  padding: 9px;
+}
+
+.workflow-policy-card strong,
+.workflow-policy-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workflow-policy-card span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .profile-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Forms */
 .form {
   display: grid;

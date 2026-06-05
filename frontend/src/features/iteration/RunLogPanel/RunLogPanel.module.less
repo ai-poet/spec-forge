@@ -121,6 +121,199 @@
   color: #7a8799;
 }
 
+.traceList {
+  display: grid;
+  gap: 6px;
+}
+
+.traceRow {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #202838;
+  border-radius: 8px;
+  background: #090f19;
+  color: #edf2f8;
+  text-align: left;
+
+  &:hover {
+    background: #0d1422;
+    border-color: #2f3b52;
+  }
+}
+
+.traceIndex {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #121b2b;
+  color: #9facbf;
+  font-size: 11px;
+}
+
+.traceMain {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+
+  strong,
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    color: #9facbf;
+    font-size: 12px;
+  }
+}
+
+.traceStatus {
+  border: 1px solid #263247;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #b8c4d6;
+  font-size: 11px;
+}
+
+.traceOk {
+  border-color: rgba(117, 208, 179, 0.35);
+  color: #75d0b3;
+}
+
+.traceFail {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.drawer {
+  position: fixed;
+  z-index: 20;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  width: min(760px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #2f3b52;
+  border-radius: 8px;
+  background: #0b111d;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.drawerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+
+  h3 {
+    margin: 0;
+    font-size: 16px;
+  }
+}
+
+.drawerTabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+
+  button {
+    border: 1px solid #263247;
+    border-radius: 999px;
+    background: #090f19;
+    color: #b8c4d6;
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.tabActive {
+  border-color: rgba(117, 208, 179, 0.45) !important;
+  color: #edf2f8 !important;
+  background: rgba(117, 208, 179, 0.08) !important;
+}
+
+.drawerGrid {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 8px 12px;
+  min-width: 0;
+  overflow: auto;
+
+  span {
+    color: #9facbf;
+    font-size: 12px;
+  }
+
+  strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: #edf2f8;
+    font-size: 12px;
+  }
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.rawPage {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.rawLine,
+.rawErrLine {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #b8c4d6;
+
+  span {
+    color: #7a8799;
+  }
+}
+
+.rawErrLine {
+  color: #f0b0a0;
+}
+
+.drawerCode {
+  min-height: 0;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #202838;
+  border-radius: 8px;
+  background: #090f19;
+  color: #b8c4d6;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .rawFold {
   border: 1px solid #202838;
   border-radius: 8px;

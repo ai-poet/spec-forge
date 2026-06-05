@@ -185,6 +185,103 @@ export interface NodeRunRecord {
   stdout_bytes: number
   stderr_bytes: number
   logs_url?: string | null
+  raw_log_url?: string | null
+  provider?: 'claude' | 'codex' | null
+  session_id?: string | null
+  session_mode?: 'new' | 'continue' | string | null
+  prompt_hash?: string | null
+  prompt_url?: string | null
+  worker_ref_url?: string | null
+  context_package_url?: string | null
+  supports_continue?: boolean
+  timed_out?: boolean
+}
+
+export interface RunLogLine {
+  stream: 'stdout' | 'stderr' | string
+  line: number
+  text: string
+  node?: string | null
+  created_at?: string | null
+}
+
+export interface RunLogPage {
+  items: RunLogLine[]
+  offset: number
+  limit: number
+  total: number
+  has_more: boolean
+  stdout?: string
+  stderr?: string
+}
+
+export interface PromptBundlePayload {
+  version?: string
+  system_prompt?: string
+  user_prompt?: string
+  output_schema?: string
+  metadata?: Record<string, unknown>
+  prompt_hash?: string
+}
+
+export interface WorkerRefPayload {
+  version?: string
+  provider?: string
+  mode?: string
+  supportsOpenSession?: boolean
+  supportsContinueSession?: boolean
+  continueRef?: Record<string, unknown> | null
+  openCommand?: string | null
+}
+
+export type StageProfileBindings = Partial<Record<keyof CliBindings, string | null>>
+
+export interface ProjectProfile {
+  id: string
+  name: string
+  summary: string
+  stage: keyof CliBindings | string
+  content: string
+  created_at: string
+  updated_at: string
+  path: string
+}
+
+export interface ProfileBindingsResponse {
+  bindings: StageProfileBindings
+}
+
+export interface WorkflowSnapshotNode {
+  id: string
+  label: string
+  provider?: CliBindingProvider | null
+  session_policy: string
+  retry_budget?: Record<string, number> | null
+  profile?: ProjectProfile | null
+}
+
+export interface WorkflowSnapshot {
+  version: string
+  kind: string
+  iteration_id?: string | null
+  project_id?: string | null
+  nodes: WorkflowSnapshotNode[]
+  edges: Array<Record<string, unknown>>
+  retry_budget: Record<string, number>
+  profile_bindings: StageProfileBindings
+}
+
+export interface ContextPackagePayload {
+  version: string
+  run_id: string
+  node: string
+  profile?: ProjectProfile | null
+  hot_docs: Array<Record<string, unknown>>
+  cold_manifest: Array<Record<string, unknown>>
+  runtime_notes: Array<Record<string, unknown>>
+  previous_feedback: Array<Record<string, unknown>>
+  iteration_root: string
+  docs_root: string
 }
 
 export interface UIArtifactLink {
@@ -261,6 +358,9 @@ export interface EnvironmentCheckItem {
   message: string
   detail: string | null
   hint: string | null
+  provider?: 'claude' | 'codex'
+  version?: string | null
+  capabilities?: Record<string, boolean>
 }
 
 export interface EnvironmentChecksResult {

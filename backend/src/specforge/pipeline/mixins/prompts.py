@@ -7,8 +7,10 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
-from ...agents.cli_commands import CliStage, build_cli_command, parse_cli_bindings, resolve_cli_provider
+from ...agents.cli_commands import CliStage, parse_cli_bindings, resolve_cli_provider
+from ...agents.providers import AgentCommand, build_agent_command
 from ...agents.prompt_loader import compose_stage_prompt
+from ...context_profiles import context_metadata_for_stage
 from ...core.contracts import (
     CodeTesterArtifact,
     CoderArtifact,
@@ -233,6 +235,45 @@ class PipelinePromptsMixin:
         return resolve_cli_provider(bindings, stage)
 
 
+    def _context_metadata(self, state: PipelineState, stage: CliStage, *, previous_feedback: str = "") -> dict[str, Any]:
+        iteration_id = state["iteration_id"]
+        return context_metadata_for_stage(
+            self.project_repo_root(iteration_id),
+            self.docs_root(iteration_id),
+            stage,
+            previous_feedback=previous_feedback,
+        )
+
+
+    def _agent_command(
+        self,
+        state: PipelineState,
+        *,
+        provider: str,
+        stage: CliStage,
+        prompt: str,
+        schema_inline: str,
+        schema_file: Path,
+        session_id: Optional[str] = None,
+        resume: bool = False,
+        continue_requested: bool = False,
+        continue_fallback_reason: str | None = None,
+        previous_feedback: str = "",
+    ) -> AgentCommand:
+        return build_agent_command(
+            provider=provider,  # type: ignore[arg-type]
+            stage=stage,
+            prompt=prompt,
+            schema_inline=schema_inline,
+            schema_file=schema_file,
+            session_id=session_id,
+            resume=resume,
+            continue_requested=continue_requested,
+            continue_fallback_reason=continue_fallback_reason,
+            metadata={"context_package": self._context_metadata(state, stage, previous_feedback=previous_feedback)},
+        )
+
+
     def _ensure_planning_session_id(self, state: PipelineState) -> str:
         existing = state.get("planning_cli_session_id")
         if existing:
@@ -274,7 +315,7 @@ class PipelinePromptsMixin:
             )
 
 
-    def _planner_discovery_command(self, state: PipelineState) -> list[str]:
+    def _planner_discovery_command(self, state: PipelineState) -> list[str] | AgentCommand:
         iteration_id = state["iteration_id"]
         if self._is_real_cli(state.get("mode")):
             repo_root = self.project_repo_root(iteration_id)
@@ -302,13 +343,16 @@ class PipelinePromptsMixin:
                 },
             )
             provider = self._cli_provider(state, "planner_discovery")
-            return build_cli_command(
+            return self._agent_command(
+                state,
                 provider=provider,
+                stage="planner_discovery",
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(PlannerDiscoveryArtifact),
                 schema_file=self._artifact_schema_file(iteration_id, "planner_discovery_artifact", PlannerDiscoveryArtifact),
                 session_id=session_id,
                 resume=resume,
+                continue_requested=resume,
             )
         return ["specforge", "planner_discovery", iteration_id]
 
@@ -329,7 +373,7 @@ class PipelinePromptsMixin:
         )
 
 
-    def _prd_planner_command(self, state: PipelineState) -> list[str]:
+    def _prd_planner_command(self, state: PipelineState) -> list[str] | AgentCommand:
         iteration_id = state["iteration_id"]
         brief = self._planner_brief(state)
         requirements_brief = (state.get("requirements_brief") or "").strip() or "(see iteration goal and discovery docs)"
@@ -360,18 +404,21 @@ class PipelinePromptsMixin:
                 },
             )
             provider = self._cli_provider(state, "prd_planner")
-            return build_cli_command(
+            return self._agent_command(
+                state,
                 provider=provider,
+                stage="prd_planner",
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(PrdPlannerArtifact),
                 schema_file=self._artifact_schema_file(iteration_id, "prd_planner_artifact", PrdPlannerArtifact),
                 session_id=session_id,
                 resume=resume,
+                continue_requested=resume,
             )
         return ["specforge", "prd_planner", iteration_id]
 
 
-    def _test_planner_command(self, state: PipelineState) -> list[str]:
+    def _test_planner_command(self, state: PipelineState) -> list[str] | AgentCommand:
         iteration_id = state["iteration_id"]
         brief = self._planner_brief(state)
         requirements_brief = (state.get("requirements_brief") or "").strip() or "(see prd.md)"
@@ -397,13 +444,17 @@ class PipelinePromptsMixin:
                 },
             )
             provider = self._cli_provider(state, "test_planner")
-            return build_cli_command(
+            return self._agent_command(
+                state,
                 provider=provider,
+                stage="test_planner",
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(TestPlannerArtifact),
                 schema_file=self._artifact_schema_file(iteration_id, "test_planner_artifact", TestPlannerArtifact),
                 session_id=session_id,
                 resume=resume,
+                continue_requested=resume,
+                previous_feedback=state.get("failure_notes") or "",
             )
         return ["specforge", "test_planner", iteration_id]
 
@@ -426,7 +477,7 @@ class PipelinePromptsMixin:
         return "(continuation of planning session)"
 
 
-    def _planner_clarification_command(self, state: PipelineState, clarification_request: str) -> list[str]:
+    def _planner_clarification_command(self, state: PipelineState, clarification_request: str) -> list[str] | AgentCommand:
         if self._is_real_cli(state.get("mode")):
             iteration_id = state["iteration_id"]
             docs_root = self.docs_root(iteration_id)
@@ -448,16 +499,19 @@ class PipelinePromptsMixin:
                 },
             )
             provider = self._cli_provider(state, "planner_clarification")
-            return build_cli_command(
+            return self._agent_command(
+                state,
                 provider=provider,
+                stage="planner_clarification",
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(PlannerClarificationArtifact),
                 schema_file=self._artifact_schema_file(iteration_id, "planner_clarification_artifact", PlannerClarificationArtifact),
+                previous_feedback=clarification_request,
             )
         return ["specforge", "planner_clarification", state["iteration_id"]]
 
 
-    def _coder_command(self, state: PipelineState) -> list[str]:
+    def _coder_command(self, state: PipelineState) -> list[str] | AgentCommand:
         iteration_id = state["iteration_id"]
         if self._is_real_cli(state.get("mode")):
             notes = state.get("failure_notes") or ""
@@ -482,25 +536,37 @@ class PipelinePromptsMixin:
                 },
             )
             provider = self._cli_provider(state, "coder")
-            return build_cli_command(
+            resume = bool((state.get("retry_counts") or {}).get("coder_tester"))
+            return self._agent_command(
+                state,
                 provider=provider,
+                stage="coder",
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(CoderArtifact),
                 schema_file=self._artifact_schema_file(iteration_id, "coder_artifact", CoderArtifact),
+                continue_requested=resume,
+                continue_fallback_reason="Coder retry requested continue, but direct CLI session ref capture is best-effort.",
+                previous_feedback=notes,
             )
         return ["specforge", "coder", iteration_id]
 
 
-    def _code_tester_command(self, state: PipelineState, *, review_only: bool = False, fallback_reason: str = "") -> list[str]:
+    def _code_tester_command(self, state: PipelineState, *, review_only: bool = False, fallback_reason: str = "") -> list[str] | AgentCommand:
         iteration_id = state["iteration_id"]
         if self._is_real_cli(state.get("mode")):
             prompt = self._code_tester_prompt(state, review_only=review_only, fallback_reason=fallback_reason)
             provider = self._cli_provider(state, "code_tester")
-            return build_cli_command(
+            resume = bool((state.get("retry_counts") or {}).get("code_tester_self"))
+            return self._agent_command(
+                state,
                 provider=provider,
+                stage="code_tester",
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(CodeTesterArtifact),
                 schema_file=self._artifact_schema_file(iteration_id, "code_tester_artifact", CodeTesterArtifact),
+                continue_requested=resume,
+                continue_fallback_reason="Code Tester self retry requested continue, but direct CLI session ref capture is best-effort.",
+                previous_feedback=state.get("failure_notes") or fallback_reason,
             )
         return ["specforge", "code_tester", iteration_id]
 

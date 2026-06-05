@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Literal, Optional
 
-from ...agents.cli_commands import build_cli_command
 from ...agents.cli_runner import CLIResult
 from ...agents.prompt_loader import compose_stage_prompt
 from ...core.contracts import (
@@ -90,11 +89,17 @@ class PipelineUiTesterMixin:
         if self._is_real_cli(state.get("mode")):
             prompt = self._ui_tester_prompt(state, baseline=baseline, cua_busy_holder=cua_busy_holder)
             provider = self._cli_provider(state, "ui_tester")
-            return build_cli_command(
+            resume = bool((state.get("retry_counts") or {}).get("code_tester_self"))
+            return self._agent_command(
+                state,
                 provider=provider,
+                stage="ui_tester",
                 prompt=prompt,
                 schema_inline=self._artifact_schema_inline(VerificationArtifact),
                 schema_file=self._artifact_schema_file(iteration_id, "ui_tester_artifact", VerificationArtifact),
+                continue_requested=resume,
+                continue_fallback_reason="UI Tester self retry requested continue, but direct CLI session ref capture is best-effort.",
+                previous_feedback=baseline.failure_notes or "",
             )
         return ["specforge", "ui_tester", iteration_id]
 

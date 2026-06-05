@@ -10,6 +10,7 @@ from .ui.cua_session import read_cua_session_holder
 from .ui.playwright_cli import PLAYWRIGHT_CLI_INSTALL_HINT, ensure_playwright_cli
 from .ui.ui_driver import CuaUIDriverRunner
 from .ui.ui_driver_playwright import PLAYWRIGHT_INSTALL_HINT, PlaywrightUIDriverRunner
+from .agents.providers import PROVIDERS
 
 EnvironmentStatus = Literal["ok", "warning", "error"]
 
@@ -19,18 +20,8 @@ CODEX_INSTALL_HINT = "Install Codex CLI and ensure `codex` is available on PATH.
 
 def environment_checks() -> dict[str, object]:
     checks = [
-        _cli_check(
-            "claude_cli",
-            "Claude Code CLI",
-            "claude",
-            hint=CLAUDE_INSTALL_HINT,
-        ),
-        _cli_check(
-            "codex_cli",
-            "Codex CLI",
-            "codex",
-            hint=CODEX_INSTALL_HINT,
-        ),
+        _provider_cli_check("claude", "Claude Code Provider", "claude", CLAUDE_INSTALL_HINT),
+        _provider_cli_check("codex", "Codex Provider", "codex", CODEX_INSTALL_HINT),
         _playwright_cli_check(),
         _web_ui_smoke_check(),
         _cua_driver_check(),
@@ -42,6 +33,15 @@ def environment_checks() -> dict[str, object]:
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "checks": checks,
     }
+
+
+def _provider_cli_check(provider_id: str, label: str, binary: str, hint: str) -> dict[str, object]:
+    check = dict(_cli_check(f"{provider_id}_cli", label, binary, hint=hint))
+    provider = PROVIDERS.provider(provider_id)  # type: ignore[arg-type]
+    check["provider"] = provider_id
+    check["version"] = check.get("detail")
+    check["capabilities"] = provider.describe().capabilities
+    return check
 
 
 def _aggregate_status(statuses: list[str]) -> EnvironmentStatus:

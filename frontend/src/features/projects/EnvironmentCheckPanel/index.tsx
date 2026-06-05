@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getEnvironmentChecks } from '../../../shared/lib/api'
-import type { EnvironmentChecksResult, EnvironmentCheckStatus } from '../../../shared/lib/types'
+import type { EnvironmentCheckItem, EnvironmentChecksResult, EnvironmentCheckStatus } from '../../../shared/lib/types'
 import { sortEnvironmentChecks, summarizeEnvironmentChecks } from '../lib/environmentChecks'
 
 const STATUS_LABEL: Record<EnvironmentCheckStatus, string> = {
@@ -9,7 +9,11 @@ const STATUS_LABEL: Record<EnvironmentCheckStatus, string> = {
   error: '异常',
 }
 
-export function EnvironmentCheckPanel() {
+interface Props {
+  onChecksChange?: (checks: EnvironmentCheckItem[]) => void
+}
+
+export function EnvironmentCheckPanel({ onChecksChange }: Props) {
   const [result, setResult] = useState<EnvironmentChecksResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -30,8 +34,12 @@ export function EnvironmentCheckPanel() {
     load().catch(console.error)
   }, [load])
 
-  const checks = sortEnvironmentChecks(result?.checks ?? [])
+  const checks = useMemo(() => sortEnvironmentChecks(result?.checks ?? []), [result?.checks])
   const summary = error ? '检测失败' : loading && !result ? '检测中' : summarizeEnvironmentChecks(checks)
+
+  useEffect(() => {
+    onChecksChange?.(checks)
+  }, [checks, onChecksChange])
 
   return (
     <section className="surface stack">

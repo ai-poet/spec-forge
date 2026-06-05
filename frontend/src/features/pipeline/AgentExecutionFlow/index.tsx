@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { IterationDetail } from '../../../shared/lib/types'
+import { getWorkflowSnapshot } from '../../../shared/lib/api'
+import type { IterationDetail, WorkflowSnapshot } from '../../../shared/lib/types'
 import { isStepLive, latestNodeProgress } from '../lib/pipelineLive'
 import { inferFocusStep, PIPELINE_STEPS, type PipelineStepKey } from '../lib/pipelineSteps'
 import { buildMacroFlow, buildMicroFlow, findMilestone } from '../lib/buildAgentFlow'
@@ -44,12 +45,31 @@ export function AgentExecutionFlow({
 
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null)
+  const [snapshot, setSnapshot] = useState<WorkflowSnapshot | null>(null)
 
   const runsKey = micro.runs.map((run) => run.id).join('|')
   useEffect(() => {
     setSelectedRunId(micro.defaultRunId)
     setSelectedMilestoneId(micro.defaultMilestoneId)
   }, [runsKey, selectedStepKey, micro.defaultRunId, micro.defaultMilestoneId])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!detail) {
+      setSnapshot(null)
+      return
+    }
+    getWorkflowSnapshot(detail.id)
+      .then((payload) => {
+        if (!cancelled) setSnapshot(payload)
+      })
+      .catch(() => {
+        if (!cancelled) setSnapshot(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [detail?.id])
 
   const activeRun = micro.runs.find((run) => run.id === selectedRunId) ?? micro.runs[micro.runs.length - 1] ?? null
   const selectedMilestone = findMilestone(micro, activeRun?.id ?? null, selectedMilestoneId)
@@ -109,6 +129,20 @@ export function AgentExecutionFlow({
         selectedStepKey={selectedStepKey}
         onSelectStep={handleMacroSelect}
       />
+
+      {snapshot ? (
+        <div className="workflow-policy-grid">
+          {snapshot.nodes.filter((node) => node.provider || node.profile || node.retry_budget).map((node) => (
+            <article key={node.id} className="workflow-policy-card">
+              <strong>{node.label}</strong>
+              <span>{node.provider ? `Provider: ${node.provider}` : 'System / Human'}</span>
+              <span>Session: {node.session_policy}</span>
+              <span>Profile: {node.profile?.name ?? '未绑定'}</span>
+              {node.retry_budget ? <span>Retry: {Object.entries(node.retry_budget).map(([key, value]) => `${key}=${value}`).join(', ')}</span> : null}
+            </article>
+          ))}
+        </div>
+      ) : null}
 
       {selectedStepKey ? (
         <div className={styles.microSection}>

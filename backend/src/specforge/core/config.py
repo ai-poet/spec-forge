@@ -18,6 +18,7 @@ class Settings:
     backend_cors_origin: str = os.getenv("SPECFORGE_CORS_ORIGIN", "http://127.0.0.1:5178")
     ui_driver_force: str = os.getenv("SPECFORGE_UI_DRIVER_FORCE", "auto")
     playwright_browser: str = os.getenv("SPECFORGE_PLAYWRIGHT_BROWSER", "chromium")
+    cli_timeout_seconds: int = int(os.getenv("SPECFORGE_CLI_TIMEOUT_SECONDS", "0") or "0")
 
     @property
     def db_path(self) -> Path:

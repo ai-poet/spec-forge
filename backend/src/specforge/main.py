@@ -29,8 +29,15 @@ from specforge.core.models import (
     IterationDetail,
     IterationSummary,
     PendingDiscovery,
+    ProfileBindingsRequest,
+    ProfileBindingsResponse,
+    ProjectProfile,
+    ProjectProfileRequest,
     ProjectSummary,
     RetryRequest,
+    RunLogPage,
+    WorkflowSnapshot,
+    ContextPackage,
     ManualSkipRequest,
     UpdateEpicRequest,
     UpdateProjectRequest,
@@ -39,6 +46,14 @@ from specforge.core.models import (
     ValidateProjectPathRequest,
     BrowseDirectoryResponse,
     PickFolderResponse,
+)
+from specforge.context_profiles import (
+    create_project_profile,
+    delete_project_profile,
+    list_project_profiles,
+    load_profile_bindings,
+    save_profile_bindings,
+    update_project_profile,
 )
 from specforge.pipeline import LangGraphPipeline
 from specforge.documents.docs_scaffold import ensure_project_docs
@@ -236,6 +251,80 @@ def update_project(project_id: str, payload: UpdateProjectRequest) -> ProjectSum
     updated = db.get_project_row(project_id)
     assert updated is not None
     return project_summary(updated, project_counts(project_id))
+
+
+def _project_root_or_404(project_id: str) -> Path:
+    row = db.get_project_row(project_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    if not row["root_path"]:
+        raise HTTPException(status_code=404, detail="project root not bound")
+    return Path(row["root_path"])
+
+
+@app.get("/api/projects/{project_id}/profiles", response_model=list[ProjectProfile])
+def get_project_profiles(project_id: str) -> list[ProjectProfile]:
+    root = _project_root_or_404(project_id)
+    return [ProjectProfile(**profile.payload()) for profile in list_project_profiles(root)]
+
+
+@app.post("/api/projects/{project_id}/profiles", response_model=ProjectProfile)
+def create_profile(project_id: str, payload: ProjectProfileRequest) -> ProjectProfile:
+    root = _project_root_or_404(project_id)
+    try:
+        profile = create_project_profile(
+            root,
+            name=payload.name,
+            summary=payload.summary,
+            stage=payload.stage,
+            content=payload.content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ProjectProfile(**profile.payload())
+
+
+@app.patch("/api/projects/{project_id}/profiles/{profile_id}", response_model=ProjectProfile)
+def update_profile(project_id: str, profile_id: str, payload: ProjectProfileRequest) -> ProjectProfile:
+    root = _project_root_or_404(project_id)
+    try:
+        profile = update_project_profile(
+            root,
+            profile_id,
+            name=payload.name,
+            summary=payload.summary,
+            stage=payload.stage,
+            content=payload.content,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="profile not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ProjectProfile(**profile.payload())
+
+
+@app.delete("/api/projects/{project_id}/profiles/{profile_id}")
+def delete_profile(project_id: str, profile_id: str) -> dict[str, bool]:
+    root = _project_root_or_404(project_id)
+    if not delete_project_profile(root, profile_id):
+        raise HTTPException(status_code=404, detail="profile not found")
+    return {"ok": True}
+
+
+@app.get("/api/projects/{project_id}/profile-bindings", response_model=ProfileBindingsResponse)
+def get_profile_bindings(project_id: str) -> ProfileBindingsResponse:
+    root = _project_root_or_404(project_id)
+    return ProfileBindingsResponse(bindings=load_profile_bindings(root))
+
+
+@app.patch("/api/projects/{project_id}/profile-bindings", response_model=ProfileBindingsResponse)
+def patch_profile_bindings(project_id: str, payload: ProfileBindingsRequest) -> ProfileBindingsResponse:
+    root = _project_root_or_404(project_id)
+    try:
+        bindings = save_profile_bindings(root, payload.bindings)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ProfileBindingsResponse(bindings=bindings)
 
 
 _TERMINAL_ITERATION_STATUSES = {"delivered", "blocked", "blocked_user", "failed", "stopped"}
@@ -529,12 +618,58 @@ def get_artifact(iteration_id: str, artifact_path: str):
     return FileResponse(path)
 
 
+@app.get("/api/iterations/{iteration_id}/workflow-snapshot", response_model=WorkflowSnapshot)
+def get_workflow_snapshot(iteration_id: str) -> WorkflowSnapshot:
+    try:
+        return WorkflowSnapshot(**pipeline.workflow_snapshot(iteration_id))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="iteration not found") from None
+
+
 @app.get("/api/iterations/{iteration_id}/runs/{run_id}/logs")
-def get_run_logs(iteration_id: str, run_id: str) -> dict[str, str]:
-    for run in db.list_runs(iteration_id):
-        if run["id"] == run_id:
-            return {"stdout": run["stdout"], "stderr": run["stderr"]}
-    raise HTTPException(status_code=404, detail="run not found")
+def get_run_logs(
+    iteration_id: str,
+    run_id: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=200, ge=1, le=500),
+) -> dict[str, object]:
+    try:
+        page = pipeline.run_logs_page(iteration_id, run_id, offset=offset, limit=limit)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="run not found") from None
+    legacy_stdout = "\n".join(item.get("text", "") for item in page["items"] if item.get("stream") == "stdout")
+    legacy_stderr = "\n".join(item.get("text", "") for item in page["items"] if item.get("stream") == "stderr")
+    return {**page, "stdout": legacy_stdout, "stderr": legacy_stderr}
+
+
+@app.get("/api/iterations/{iteration_id}/runs/{run_id}/prompt-bundle")
+def get_run_prompt_bundle(iteration_id: str, run_id: str) -> dict[str, object]:
+    try:
+        return pipeline.run_prompt_bundle(iteration_id, run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="run not found") from None
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="prompt bundle not found") from None
+
+
+@app.get("/api/iterations/{iteration_id}/runs/{run_id}/worker-ref")
+def get_run_worker_ref(iteration_id: str, run_id: str) -> dict[str, object]:
+    try:
+        return pipeline.run_worker_ref(iteration_id, run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="run not found") from None
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="worker ref not found") from None
+
+
+@app.get("/api/iterations/{iteration_id}/runs/{run_id}/context-package", response_model=ContextPackage)
+def get_run_context_package(iteration_id: str, run_id: str) -> ContextPackage:
+    try:
+        return ContextPackage(**pipeline.run_context_package(iteration_id, run_id))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="run not found") from None
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="context package not found") from None
 
 
 @app.websocket("/ws/iterations/{iteration_id}")

@@ -118,7 +118,15 @@ class Database:
                     finished_at TEXT,
                     duration_ms INTEGER,
                     stdout_bytes INTEGER NOT NULL DEFAULT 0,
-                    stderr_bytes INTEGER NOT NULL DEFAULT 0
+                    stderr_bytes INTEGER NOT NULL DEFAULT 0,
+                    provider TEXT,
+                    session_id TEXT,
+                    session_mode TEXT,
+                    prompt_hash TEXT,
+                    prompt_path TEXT,
+                    raw_log_path TEXT,
+                    worker_ref_path TEXT,
+                    timed_out INTEGER NOT NULL DEFAULT 0
                 );
                 """
             )
@@ -186,6 +194,19 @@ class Database:
             if "stderr_bytes" not in run_columns:
                 conn.execute("ALTER TABLE runs ADD COLUMN stderr_bytes INTEGER NOT NULL DEFAULT 0")
                 conn.execute("UPDATE runs SET stderr_bytes = length(CAST(stderr AS BLOB)) WHERE stderr_bytes = 0 AND stderr != ''")
+            run_defaults = {
+                "provider": "TEXT",
+                "session_id": "TEXT",
+                "session_mode": "TEXT",
+                "prompt_hash": "TEXT",
+                "prompt_path": "TEXT",
+                "raw_log_path": "TEXT",
+                "worker_ref_path": "TEXT",
+                "timed_out": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for column, definition in run_defaults.items():
+                if column not in run_columns:
+                    conn.execute(f"ALTER TABLE runs ADD COLUMN {column} {definition}")
 
             conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_iteration_created ON documents(iteration_id, created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_iteration_created ON events(iteration_id, created_at)")
@@ -592,6 +613,7 @@ class Database:
         self,
         iteration_id: str,
         *,
+        run_id: Optional[str] = None,
         node: str,
         status: str,
         command: str,
@@ -603,8 +625,16 @@ class Database:
         duration_ms: Optional[int] = None,
         stdout_bytes: Optional[int] = None,
         stderr_bytes: Optional[int] = None,
+        provider: Optional[str] = None,
+        session_id: Optional[str] = None,
+        session_mode: Optional[str] = None,
+        prompt_hash: Optional[str] = None,
+        prompt_path: Optional[str] = None,
+        raw_log_path: Optional[str] = None,
+        worker_ref_path: Optional[str] = None,
+        timed_out: bool = False,
     ) -> str:
-        run_id = f"run_{uuid4().hex[:8]}"
+        run_id = run_id or f"run_{uuid4().hex[:8]}"
         now = started_at or iso(utcnow())
         resolved_stdout_bytes = stdout_bytes if stdout_bytes is not None else len((stdout or "").encode("utf-8"))
         resolved_stderr_bytes = stderr_bytes if stderr_bytes is not None else len((stderr or "").encode("utf-8"))
@@ -613,9 +643,11 @@ class Database:
                 """
                 INSERT INTO runs (
                     id, iteration_id, node, status, command, stdout, stderr, exit_code,
-                    started_at, finished_at, duration_ms, stdout_bytes, stderr_bytes
+                    started_at, finished_at, duration_ms, stdout_bytes, stderr_bytes,
+                    provider, session_id, session_mode, prompt_hash, prompt_path,
+                    raw_log_path, worker_ref_path, timed_out
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -631,6 +663,14 @@ class Database:
                     duration_ms,
                     resolved_stdout_bytes,
                     resolved_stderr_bytes,
+                    provider,
+                    session_id,
+                    session_mode,
+                    prompt_hash,
+                    prompt_path,
+                    raw_log_path,
+                    worker_ref_path,
+                    1 if timed_out else 0,
                 ),
             )
         return run_id

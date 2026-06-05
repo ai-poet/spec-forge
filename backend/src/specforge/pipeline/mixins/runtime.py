@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import json
 import time
+import inspect
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 from ...agents.cli_event_presenter import CliDisplayEvent
 from ...agents.cli_runner import CLIResult
+from ...agents.providers import AgentCommand, worker_ref_from_result
 from ...core.config import settings
 from ...core.models import IterationStatus, Mode
+from ...context_profiles import context_package_for_run, workflow_snapshot
 from ...documents.docs_io import checksum
 from ...runtime.events import EventEnvelope
 from ...storage.db import iso, utcnow
@@ -22,6 +26,8 @@ class PipelineRuntimeMixin:
     _PUBLIC_EVENT_TEXT_MAX_CHARS = 4 * 1024
     _PUBLIC_RUN_COMMAND_MAX_CHARS = 4 * 1024
     _PUBLIC_CLI_DISPLAY_EVENT_LIMIT = 120
+    _RUN_LOG_PAGE_SIZE_MAX = 500
+    _RUN_OUTPUT_PREVIEW_MAX_CHARS = 8 * 1024
     _PERSISTED_CLI_PHASES = {"session", "tool", "command", "file_change", "mcp", "todo", "hook", "retry", "result", "error"}
     _PREVIEW_CLI_PHASES = {"text", "thinking"}
 
@@ -74,6 +80,16 @@ class PipelineRuntimeMixin:
             "duration_ms": run["duration_ms"] if "duration_ms" in run.keys() else None,
             "stdout_bytes": stdout_bytes,
             "stderr_bytes": stderr_bytes,
+            "provider": run["provider"] if "provider" in run.keys() else None,
+            "session_id": run["session_id"] if "session_id" in run.keys() else None,
+            "session_mode": run["session_mode"] if "session_mode" in run.keys() else None,
+            "prompt_hash": run["prompt_hash"] if "prompt_hash" in run.keys() else None,
+            "prompt_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/prompt-bundle" if "prompt_path" in run.keys() and run["prompt_path"] else None,
+            "raw_log_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/logs",
+            "worker_ref_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/worker-ref" if "worker_ref_path" in run.keys() and run["worker_ref_path"] else None,
+            "context_package_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/context-package",
+            "supports_continue": bool(run["session_id"]) if "session_id" in run.keys() else False,
+            "timed_out": bool(run["timed_out"]) if "timed_out" in run.keys() else False,
             "logs_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/logs",
         }
 
@@ -248,23 +264,191 @@ class PipelineRuntimeMixin:
     def _record_run(self, iteration_id: str, node: str, run_result: CLIResult) -> str:
         started_at = iso(run_result.started_at) if run_result.started_at else None
         finished_at = iso(run_result.finished_at) if run_result.finished_at else iso(utcnow())
+        metadata = dict(run_result.metadata or {})
+        command_meta = metadata.get("agent_command") if isinstance(metadata.get("agent_command"), AgentCommand) else None
+        run_id = str(metadata.get("run_id") or f"run_{uuid4().hex[:8]}")
+        cwd = metadata.get("cwd")
+        cwd_path = Path(cwd) if isinstance(cwd, str) and cwd else None
+        files = self._persist_run_observability(iteration_id, run_id, node, run_result, command_meta, cwd_path)
+        session_id = files.get("session_id")
+        stdout_preview = self._truncate_public_text(run_result.stdout or "", self._RUN_OUTPUT_PREVIEW_MAX_CHARS)
+        stderr_preview = self._truncate_public_text(run_result.stderr or "", self._RUN_OUTPUT_PREVIEW_MAX_CHARS)
         run_id = self.db.add_run(
             iteration_id,
+            run_id=run_id,
             node=node,
             status="failed" if run_result.returncode else "success",
-            command=" ".join(run_result.command),
-            stdout=run_result.stdout,
-            stderr=run_result.stderr,
+            command=command_meta.public_command() if command_meta else " ".join(run_result.command),
+            stdout=stdout_preview,
+            stderr=stderr_preview,
             exit_code=run_result.returncode,
             started_at=started_at,
             finished_at=finished_at,
             duration_ms=run_result.duration_ms,
             stdout_bytes=run_result.stdout_bytes,
             stderr_bytes=run_result.stderr_bytes,
+            provider=command_meta.provider if command_meta else None,
+            session_id=session_id,
+            session_mode=command_meta.session_mode if command_meta else None,
+            prompt_hash=command_meta.prompt_bundle.prompt_hash if command_meta else None,
+            prompt_path=files.get("prompt_path"),
+            raw_log_path=files.get("raw_log_path"),
+            worker_ref_path=files.get("worker_ref_path"),
+            timed_out=run_result.timed_out,
         )
+        if command_meta and command_meta.continue_requested and not session_id:
+            self._add_event(
+                iteration_id,
+                event_type="provider.continue_fallback",
+                payload={
+                    "run_id": run_id,
+                    "node": node,
+                    "provider": command_meta.provider,
+                    "reason": command_meta.continue_fallback_reason or "session ref was not captured; executed as a fresh direct CLI call",
+                },
+            )
         self._clear_live_cli(iteration_id)
         self._publish_snapshot(iteration_id)
         return run_id
+
+
+    def _run_observability_dir(self, iteration_id: str, run_id: str) -> Path:
+        path = self.project_root(iteration_id) / "runs" / run_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+
+    def _persist_run_observability(
+        self,
+        iteration_id: str,
+        run_id: str,
+        node: str,
+        run_result: CLIResult,
+        command: AgentCommand | None,
+        cwd: Path | None,
+    ) -> dict[str, str | None]:
+        run_dir = self._run_observability_dir(iteration_id, run_id)
+        raw_log_path = run_dir / "raw.jsonl"
+        self._write_raw_log(raw_log_path, node=node, run_result=run_result)
+        prompt_path: Path | None = None
+        worker_ref_path: Path | None = None
+        session_id: str | None = None
+        if command:
+            prompt_path = run_dir / "prompt-bundle.json"
+            prompt_path.write_text(json.dumps(command.prompt_bundle.payload(), ensure_ascii=False, indent=2), encoding="utf-8")
+            worker_ref = worker_ref_from_result(command=command, stdout=run_result.stdout, stderr=run_result.stderr, cwd=cwd)
+            payload = worker_ref.payload()
+            ref = payload.get("continueRef")
+            if isinstance(ref, dict):
+                session_id = ref.get("sessionId") or ref.get("threadId")
+                if session_id is not None:
+                    session_id = str(session_id)
+            worker_ref_path = run_dir / "worker-ref.json"
+            worker_ref_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {
+            "raw_log_path": str(raw_log_path),
+            "prompt_path": str(prompt_path) if prompt_path else None,
+            "worker_ref_path": str(worker_ref_path) if worker_ref_path else None,
+            "session_id": session_id,
+        }
+
+
+    def _write_raw_log(self, path: Path, *, node: str, run_result: CLIResult) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as handle:
+            for stream_name, text in (("stdout", run_result.stdout or ""), ("stderr", run_result.stderr or "")):
+                for index, line in enumerate(text.splitlines()):
+                    handle.write(
+                        json.dumps(
+                            {
+                                "stream": stream_name,
+                                "line": index + 1,
+                                "node": node,
+                                "text": line,
+                                "created_at": iso(run_result.started_at or utcnow()),
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+
+
+    def run_logs_page(self, iteration_id: str, run_id: str, *, offset: int = 0, limit: int = 200) -> dict[str, Any]:
+        run = self._find_run(iteration_id, run_id)
+        raw_path = run["raw_log_path"] if "raw_log_path" in run.keys() else None
+        limit = max(1, min(limit, self._RUN_LOG_PAGE_SIZE_MAX))
+        if raw_path and Path(raw_path).is_file():
+            return self._read_raw_log_page(Path(raw_path), offset=offset, limit=limit)
+        lines: list[dict[str, Any]] = []
+        for stream in ("stdout", "stderr"):
+            text = run[stream] or ""
+            for line_no, text_line in enumerate(text.splitlines(), start=1):
+                lines.append({"stream": stream, "line": line_no, "text": text_line})
+        total = len(lines)
+        return {"items": lines[offset : offset + limit], "offset": offset, "limit": limit, "total": total, "has_more": offset + limit < total}
+
+
+    def _read_raw_log_page(self, path: Path, *, offset: int, limit: int) -> dict[str, Any]:
+        items: list[dict[str, Any]] = []
+        total = 0
+        with path.open("r", encoding="utf-8") as handle:
+            for total, raw in enumerate(handle, start=1):
+                index = total - 1
+                if index < offset:
+                    continue
+                if len(items) >= limit:
+                    continue
+                try:
+                    payload = json.loads(raw)
+                except json.JSONDecodeError:
+                    payload = {"stream": "stdout", "line": total, "text": raw.rstrip("\n")}
+                items.append(payload)
+        return {"items": items, "offset": offset, "limit": limit, "total": total, "has_more": offset + limit < total}
+
+
+    def run_prompt_bundle(self, iteration_id: str, run_id: str) -> dict[str, Any]:
+        run = self._find_run(iteration_id, run_id)
+        path = run["prompt_path"] if "prompt_path" in run.keys() else None
+        if not path or not Path(path).is_file():
+            raise FileNotFoundError(run_id)
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+    def run_worker_ref(self, iteration_id: str, run_id: str) -> dict[str, Any]:
+        run = self._find_run(iteration_id, run_id)
+        path = run["worker_ref_path"] if "worker_ref_path" in run.keys() else None
+        if not path or not Path(path).is_file():
+            raise FileNotFoundError(run_id)
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+    def workflow_snapshot(self, iteration_id: str) -> dict[str, Any]:
+        row = self._require_iteration(iteration_id)
+        project = self.db.get_project_row(row["project_id"]) if row["project_id"] else None
+        return workflow_snapshot(project=project, iteration=row)
+
+
+    def run_context_package(self, iteration_id: str, run_id: str) -> dict[str, Any]:
+        row = self._require_iteration(iteration_id)
+        project = self.db.get_project_row(row["project_id"]) if row["project_id"] else None
+        if project is None or not project["root_path"]:
+            raise FileNotFoundError("project root is not available")
+        run = self._find_run(iteration_id, run_id)
+        return context_package_for_run(
+            project_root=Path(project["root_path"]),
+            iteration_root=self.project_root(iteration_id),
+            docs_root=self.docs_root(iteration_id),
+            run=run,
+            documents=self.db.list_documents(iteration_id),
+            events=self.db.list_events(iteration_id),
+        )
+
+
+    def _find_run(self, iteration_id: str, run_id: str) -> Any:
+        for run in self.db.list_runs(iteration_id):
+            if run["id"] == run_id:
+                return run
+        raise KeyError(run_id)
 
 
     def _record_document(self, iteration_id: str, name: str, path: Path) -> None:
@@ -311,7 +495,7 @@ class PipelineRuntimeMixin:
     def _execute(
         self,
         state: PipelineState,
-        command: list[str],
+        command: list[str] | AgentCommand,
         *,
         node: str | None = None,
     ) -> CLIResult:
@@ -322,6 +506,8 @@ class PipelineRuntimeMixin:
             current_node = row["current_node"] or "agent"
         else:
             current_node = node
+        agent_command = command if isinstance(command, AgentCommand) else None
+        command_list = agent_command.command if agent_command else command
         self._publish_snapshot(iteration_id)
         seen_output = {"stdout": False, "stderr": False}
         seen_cli_events: set[str] = set()
@@ -362,12 +548,22 @@ class PipelineRuntimeMixin:
             )
 
         try:
-            return runner.run(
-                command,
-                cwd=self._execution_cwd(state),
+            cwd = self._execution_cwd(state)
+            kwargs: dict[str, Any] = {"iteration_id": iteration_id}
+            try:
+                accepts_timeout = "timeout_seconds" in inspect.signature(runner.run).parameters
+            except (TypeError, ValueError):
+                accepts_timeout = True
+            if accepts_timeout:
+                kwargs["timeout_seconds"] = settings.cli_timeout_seconds or None
+            result = runner.run(
+                command_list,
+                cwd=cwd,
                 on_output=on_output,
-                iteration_id=iteration_id,
+                **kwargs,
             )
+            result.metadata.update({"agent_command": agent_command, "cwd": str(cwd)})
+            return result
         finally:
             self._flush_cli_output(iteration_id)
             if not self._is_iteration_gone(iteration_id):

@@ -22,6 +22,8 @@ SpecForge 的做法是：
 4. **Code Tester 做代码审查并编写自动化测试**；**UI Tester Agent 在 `ui_tester` 节点跑验收场景**（playwright-cli / cua-driver，与代码验证分离）
 5. **LangGraph 编排整条流水线**，失败按 Write Zone 自动回环，超限才阻断
 6. **React 工作台实时展示**当前阶段、Agent 活动、CLI 输出
+7. **Provider / Attempt 可观测层**记录每次 CLI 调用的 provider、session、PromptBundle、WorkerRef 与分页 raw log
+8. **Workflow Snapshot + Context Package**解释每个阶段为什么这么跑、绑定了哪个 Profile、实际带了哪些上下文
 
 ---
 
@@ -74,6 +76,10 @@ Project（项目）
 │               ├── ui/
 │               └── adversarial/
 └── .specforge/
+    ├── context/                       # 项目级上下文治理
+    │   ├── profiles/                  # Project Profile（Markdown + frontmatter）
+    │   │   └── pf_xxxxxxxx.md
+    │   └── profile-bindings.json      # 每阶段最多绑定 1 个 Profile
     ├── skills/                        # 可选：按环节追加团队规程（见下文）
     │   ├── prd_planner/extra.md
     │   ├── test_planner/extra.md
@@ -86,6 +92,35 @@ Project（项目）
 ```
 
 创建 Project 时仅初始化目录与少量种子文件（`00_convention` 短 stub、`01_project_goal`）；SpecForge 框架规则（写区、UI 验收规则）通过 prompt 注入，不写入用户仓库。每次 Iteration 启动时创建 `docs/iterations/iteration_NNN/` 目录树，产物由 Agent 生成、程序校验落盘。
+
+### 项目级 Profile（推荐）
+
+Project Profile 是项目级、阶段绑定的上下文包，用来追加团队偏好、架构约束、Provider 使用注意事项或当前仓库的长期背景。它借鉴 Gold Band 的 context profile 思路，但不改变 SpecForge 固定流水线：Profile 只追加到对应阶段 prompt，**不会覆盖内置阶段约束**。
+
+Profile 文件存在项目根目录：
+
+```text
+.specforge/context/profiles/*.md
+.specforge/context/profile-bindings.json
+```
+
+每个 Profile 是带 frontmatter 的 Markdown：
+
+```markdown
+---
+id: pf_12345678
+name: Coder Context
+summary: 实现阶段需要遵守的仓库约束
+stage: coder
+created_at: 2026-06-05T09:00:00Z
+updated_at: 2026-06-05T09:00:00Z
+---
+
+- Prefer the existing service layer before adding new modules.
+- Keep UI changes consistent with the current design system.
+```
+
+每个阶段最多绑定 1 个 Profile。可在项目设置页的 **上下文 / Profile** 卡片里创建、编辑、删除和绑定，也可以直接维护上述文件。删除 Profile 会自动清理对应绑定。
 
 ### 项目级 Stage Skills（可选）
 
@@ -108,6 +143,14 @@ Project（项目）
 - Use `pnpm` for all Node commands.
 - Read `docs/spec/api/` before changing public HTTP handlers.
 ```
+
+阶段 prompt 的最终注入顺序为：
+
+```text
+内置阶段 prompt → 绑定的 Project Profile → .specforge/skills/<stage>/extra.md → runtime context
+```
+
+这意味着 Profile 适合放“长期、可复用的项目上下文”，`extra.md` 更适合放“团队临时规程或本地补充说明”。
 
 ### 写权限分区（Write Zones）
 
@@ -262,6 +305,18 @@ flowchart TB
 | 规格复核 | `planner_verify` | 验证报告格式 |
 | 交付确认 | `verify_approval` | 人工确认 |
 | 交付完成 | `done` | `delivered` |
+
+### 只读 Workflow Snapshot
+
+每次 Iteration 都可以生成一个只读的 `WorkflowSnapshot`。它不是 Gold Band 式可编辑 workflow DSL，也不会开放节点/边编辑；它只是把固定 SpecForge 流水线在本项目中的运行策略摊开给你看：
+
+- 节点与边：固定 spec-first 流水线的阶段和条件边
+- Provider binding：每个阶段当前使用 Claude 还是 Codex
+- Session policy：规划链路续接、Coder retry 尽量 continue、验证 self-retry 尽量 continue 等
+- Retry budget：项目配置里的自动回环预算
+- Profile binding：该阶段是否绑定项目级 Profile
+
+前端在 Workflow 区展示这张策略视图；阶段节点会同时呈现 provider、session 策略、retry budget 与 Profile，便于区分“设计态应该怎么跑”和“本次执行态实际跑到了哪里”。
 
 ---
 
@@ -456,11 +511,32 @@ flowchart TD
 
 - **流水线阶段条**：PRD 规划 / 测试规划 / 实现 / 测试完整性 / 代码验证 / UI 验证 / 规格复核 / 交付确认 / 交付完成（可点击回顾各阶段历史）
 - **Agent 活动**：语义化事件（`prd_planner.completed`、`test_planner.completed`、`code_tester.retry_to_coder` 等，无旧版 `planner`/`tester` 节点别名）
-- **本阶段 CLI 日志**：各阶段 CLI 的实时终端输出（stream-json 原始流）
+- **本阶段 CLI 日志**：各阶段 CLI 的实时终端输出（stream-json 原始流）；text/thinking delta 会合并展示，减少刷屏
 - **文档面板**：`prd.md`、`testing_plan.md`、`verify_report.md` 等
 - **补充说明**：运行中或停止后都可写入 `context/runtime_notes.jsonl`，下一轮 Agent prompt 会读取
-- **运行日志**：每个节点 CLI 的完整 stdout/stderr 归档
+- **运行日志**：每个节点 CLI 的完整输出落 JSONL 文件，前端按页读取；数据库只保留摘要、字节数和日志链接
+- **Attempt 详情抽屉**：查看本次 run 的 Raw Log、PromptBundle、WorkerRef 和 Context Package
 - **UI 验证面板**：`ui_results.json` / `ui_report.md`；工具不可用或自动化执行失败显示警告，UI Tester 汇总出 P0/P1 缺陷时阻断回环
+
+### Attempt、PromptBundle 与 Context Package
+
+SpecForge 把 `Iteration` 视作一次完整流水线 run，把每次 CLI 调用记录为一个 attempt（对应数据库里的 `runs`）。每个 attempt 都会记录：
+
+- `provider`、`stage`、session mode、continue/fallback 状态
+- `PromptBundle`：system prompt、user prompt、output schema、stage metadata、prompt hash
+- `WorkerRef`：可打开/续接的 session 或 thread 引用，以及 provider 能力
+- raw log JSONL 路径、stdout/stderr 摘要、退出码、timeout / cancel 状态
+- `ContextPackage`：本次 agent 实际消费的 Profile、hot docs、cold manifest、runtime notes、previous feedback
+
+ContextPackage 借鉴 Gold Band 的热/冷上下文分层：
+
+| 层级 | 内容 | 用途 |
+|------|------|------|
+| Profile | 阶段绑定的 Project Profile | 长期项目背景、团队偏好、阶段约束补充 |
+| hot docs | `prd.md`、`testing_plan.md`、当前反馈摘要 | 当前阶段必须直接读的上下文 |
+| cold manifest | 文档列表、摘要、freshness | 大上下文索引，帮助 Agent 判断是否需要读取更多文件 |
+| runtime notes | 运行中/恢复前人工补充说明 | 临时指令、外部观察、恢复备注 |
+| previous feedback | 上轮失败信息或澄清请求 | retry/continue 时保留问题链路 |
 
 ---
 
@@ -495,6 +571,8 @@ FastAPI (main.py — HTTP + WebSocket)
     │   │   ├── runtime.py    live_cli、事件发布
     │   │   └── artifacts.py  产物解析与落盘
     │   └── nodes/          planning / implementation / verification
+    ├── context_profiles.py Project Profile、WorkflowSnapshot、ContextPackage
+    ├── agents/providers.py Provider doctor、PromptBundle、WorkerRef
     ├── policy/write_zones  路径 → owner，决定 retry_target
     ├── policy/artifact_gate 写盘后 build/test 命令校验
     ├── runtime/job_queue   单 worker 线程，避免 CLI 阻塞 HTTP
@@ -509,6 +587,22 @@ FastAPI (main.py — HTTP + WebSocket)
 - session ID 存入 `PipelineState.planning_cli_session_id`，随 LangGraph checkpoint 持久化
 - 每 iteration 独立 UUID，避免并发串会话
 - 进入 coder 后 `_reset_live_cli(..., continuing=False)` 新开日志，规划阶段日志连续保留
+
+**上下文与可观测 API：**
+
+| API | 说明 |
+|-----|------|
+| `GET /api/projects/{project_id}/profiles` | 列出项目级 Profile |
+| `POST /api/projects/{project_id}/profiles` | 创建 Profile |
+| `PATCH /api/projects/{project_id}/profiles/{profile_id}` | 更新 Profile |
+| `DELETE /api/projects/{project_id}/profiles/{profile_id}` | 删除 Profile，并清理绑定 |
+| `GET /api/projects/{project_id}/profile-bindings` | 读取阶段 Profile 绑定 |
+| `PATCH /api/projects/{project_id}/profile-bindings` | 更新阶段 Profile 绑定 |
+| `GET /api/iterations/{iteration_id}/workflow-snapshot` | 读取固定流水线策略快照 |
+| `GET /api/iterations/{iteration_id}/runs/{run_id}/logs` | 分页读取 raw log JSONL |
+| `GET /api/iterations/{iteration_id}/runs/{run_id}/prompt-bundle` | 读取 PromptBundle |
+| `GET /api/iterations/{iteration_id}/runs/{run_id}/worker-ref` | 读取 WorkerRef |
+| `GET /api/iterations/{iteration_id}/runs/{run_id}/context-package` | 读取 ContextPackage |
 
 ---
 
@@ -539,6 +633,8 @@ cd frontend && npm install && npm run dev:all
 - `codex` — 默认用于 `code_tester`（可在项目 **CLI 绑定** 里按阶段改为 Claude）
 
 CLI 使用 `bypassPermissions` / `--dangerously-bypass-approvals-and-sandbox` 跳过交互式权限确认。测试不可变靠 `test_planner` 写基线 + `integrity_check` 保障。
+
+项目设置页会展示 Agent / Provider 管理卡：Claude Code 与 Codex CLI 的版本、doctor 状态、能力与安装提示。当前实现支持 direct CLI provider；Provider 抽象已预留 `describe/doctor/run/open_session/build_continue_command` 形状，后续可以接 ACP 或其它 worker，而不需要重写流水线。
 
 可选 UI 验收（**`ui_tester`** CLI Agent）：UI Tester 直接读取 `testing_plan.md` 的 Manual Tests，不需要、也不会生成 `tests/ui/*.json` spec。
 
@@ -593,6 +689,7 @@ python computer-use/backend/install_cua_driver.py
 - Coder↔验证 重试上限（`max_coder_tester_retries`，默认 5）
 - Code Tester 自修、Test Planner 测试修订、Agent 产物自修上限（共用 `max_tester_self_retries`，默认 3；计数键分别为 `code_tester_self`、`test_planner_self`、`{node}_artifact_self`）
 - 各阶段 CLI 提供商（`planner_discovery`、`prd_planner`、`test_planner`、`planner_clarification`、`coder`、`code_tester`、`ui_tester`；无 `planner`/`tester` 绑定别名）
+- 项目级 Profile 与阶段绑定（每阶段最多 1 个 Profile，追加到内置 prompt 后）
 - Coder 澄清上限（默认 3）
 - Planner 验证驳回上限（默认 2）
 
@@ -611,7 +708,8 @@ spec-forge/
 │       ├── core/               config、models、contracts
 │       ├── storage/            db.py
 │       ├── documents/          docs_io、docs_scaffold、project_paths
-│       ├── agents/             cli_commands、cli_runner、prompt_loader
+│       ├── agents/             providers、cli_commands、cli_runner、prompt_loader
+│       ├── context_profiles.py Profile、WorkflowSnapshot、ContextPackage
 │       ├── policy/             write_zones、artifact_gate、context_manifest
 │       ├── ui/                 ui_runtime、playwright_cli、cua_*、ui_driver*（legacy 测试）
 │       ├── runtime/            events、job_queue

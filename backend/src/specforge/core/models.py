@@ -226,6 +226,32 @@ class NodeRunRecord(BaseModel):
     stdout_bytes: int = 0
     stderr_bytes: int = 0
     logs_url: Optional[str] = None
+    raw_log_url: Optional[str] = None
+    provider: Optional[str] = None
+    session_id: Optional[str] = None
+    session_mode: Optional[str] = None
+    prompt_hash: Optional[str] = None
+    prompt_url: Optional[str] = None
+    worker_ref_url: Optional[str] = None
+    context_package_url: Optional[str] = None
+    supports_continue: bool = False
+    timed_out: bool = False
+
+
+class RunLogLine(BaseModel):
+    stream: str
+    line: int
+    text: str
+    node: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class RunLogPage(BaseModel):
+    items: list[RunLogLine]
+    offset: int = 0
+    limit: int = 200
+    total: int = 0
+    has_more: bool = False
 
 
 class EventRecord(BaseModel):
@@ -282,3 +308,53 @@ class RetryRequest(BaseModel):
 class ManualSkipRequest(BaseModel):
     node: Optional[str] = None
     note: Optional[str] = None
+
+
+class ProjectProfileRequest(BaseModel):
+    name: str = Field(min_length=1)
+    summary: str = ""
+    stage: str = Field(min_length=1)
+    content: str = Field(min_length=1)
+
+
+class ProjectProfile(BaseModel):
+    id: str
+    name: str
+    summary: str = ""
+    stage: str
+    content: str
+    created_at: str
+    updated_at: str
+    path: str
+
+
+class ProfileBindingsRequest(BaseModel):
+    bindings: dict[str, Optional[str]] = Field(default_factory=dict)
+
+
+class ProfileBindingsResponse(BaseModel):
+    bindings: dict[str, Optional[str]] = Field(default_factory=dict)
+
+
+class WorkflowSnapshot(BaseModel):
+    version: str
+    kind: str
+    iteration_id: Optional[str] = None
+    project_id: Optional[str] = None
+    nodes: list[dict[str, Any]] = Field(default_factory=list)
+    edges: list[dict[str, Any]] = Field(default_factory=list)
+    retry_budget: dict[str, int] = Field(default_factory=dict)
+    profile_bindings: dict[str, Optional[str]] = Field(default_factory=dict)
+
+
+class ContextPackage(BaseModel):
+    version: str
+    run_id: str
+    node: str
+    profile: Optional[dict[str, Any]] = None
+    hot_docs: list[dict[str, Any]] = Field(default_factory=list)
+    cold_manifest: list[dict[str, Any]] = Field(default_factory=list)
+    runtime_notes: list[dict[str, Any]] = Field(default_factory=list)
+    previous_feedback: list[dict[str, Any]] = Field(default_factory=list)
+    iteration_root: str
+    docs_root: str

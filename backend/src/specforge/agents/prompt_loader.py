@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
+from ..context_profiles import stage_profile_prompt
+
 StageName = Literal[
     "prd_planner",
     "test_planner",
@@ -74,6 +76,10 @@ def compose_stage_prompt(
     parts: list[str] = [f"## SpecForge stage: {stage}"]
     if skill_chunks:
         parts.append("\n\n---\n\n".join(skill_chunks))
+
+    profile = stage_profile_prompt(repo_root, stage)
+    if profile:
+        parts.append(profile)
 
     extra = load_project_skill_extra(repo_root, stage)
     if extra:

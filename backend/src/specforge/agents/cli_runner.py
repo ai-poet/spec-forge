@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import os
@@ -21,6 +21,8 @@ class CLIResult:
     stderr: str
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    timed_out: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def duration_ms(self) -> int | None:
@@ -49,10 +51,11 @@ class BaseRunner:
         on_output: Optional[Callable[[str, str], None]] = None,
         *,
         iteration_id: Optional[str] = None,
+        timeout_seconds: Optional[int] = None,
     ) -> CLIResult:
         started_at = _utcnow()
         try:
-            proc = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
+            proc = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout_seconds)
             finished_at = _utcnow()
             if on_output and proc.stdout:
                 on_output("stdout", proc.stdout)
@@ -61,6 +64,10 @@ class BaseRunner:
             return CLIResult(command=command, returncode=proc.returncode, stdout=proc.stdout, stderr=proc.stderr, started_at=started_at, finished_at=finished_at)
         except FileNotFoundError as exc:
             return CLIResult(command=command, returncode=127, stdout="", stderr=str(exc), started_at=started_at, finished_at=_utcnow())
+        except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout or b"").decode("utf-8", errors="replace")
+            stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", errors="replace")
+            return CLIResult(command=command, returncode=124, stdout=stdout, stderr=stderr or f"CLI timed out after {timeout_seconds}s", started_at=started_at, finished_at=_utcnow(), timed_out=True)
 
     def cancel(self, iteration_id: str) -> bool:
         return False
@@ -74,6 +81,7 @@ class DryRunRunner(BaseRunner):
         on_output: Optional[Callable[[str, str], None]] = None,
         *,
         iteration_id: Optional[str] = None,
+        timeout_seconds: Optional[int] = None,
     ) -> CLIResult:
         started_at = _utcnow()
         payload = {"command": command, "cwd": str(cwd) if cwd else None, "mode": "dry-run"}
@@ -96,6 +104,7 @@ class RealCLIRunner(BaseRunner):
         on_output: Optional[Callable[[str, str], None]] = None,
         *,
         iteration_id: Optional[str] = None,
+        timeout_seconds: Optional[int] = None,
     ) -> CLIResult:
         started_at = _utcnow()
         try:
@@ -133,7 +142,12 @@ class RealCLIRunner(BaseRunner):
         for thread in threads:
             thread.start()
         try:
+            deadline = time.monotonic() + timeout_seconds if timeout_seconds else None
+            timed_out = False
             while proc.poll() is None or any(thread.is_alive() for thread in threads) or not queue.empty():
+                if deadline is not None and proc.poll() is None and time.monotonic() > deadline:
+                    timed_out = True
+                    self._terminate_process(proc)
                 while not queue.empty():
                     name, chunk = queue.get()
                     if name == "stdout":
@@ -153,7 +167,10 @@ class RealCLIRunner(BaseRunner):
                     self._remove_registry_entry(iteration_id)
 
         returncode = proc.returncode if proc.returncode is not None else proc.wait()
-        return CLIResult(command=command, returncode=returncode, stdout="".join(stdout_parts), stderr="".join(stderr_parts), started_at=started_at, finished_at=_utcnow())
+        stderr = "".join(stderr_parts)
+        if timed_out and "timed out" not in stderr.lower():
+            stderr = f"{stderr}\nCLI timed out after {timeout_seconds}s".strip()
+        return CLIResult(command=command, returncode=124 if timed_out else returncode, stdout="".join(stdout_parts), stderr=stderr, started_at=started_at, finished_at=_utcnow(), timed_out=timed_out)
 
     def cancel(self, iteration_id: str) -> bool:
         with self._lock:

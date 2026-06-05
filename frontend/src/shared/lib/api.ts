@@ -1,5 +1,6 @@
 import type {
   CreateEpicInput,
+  ContextPackagePayload,
   CreateProjectInput,
   EpicDetail,
   EpicSummary,
@@ -8,11 +9,17 @@ import type {
   IterationSummary,
   Mode,
   ProjectSummary,
+  ProfileBindingsResponse,
+  ProjectProfile,
   UpdateEpicInput,
   UpdateProjectInput,
   ValidateProjectPathResult,
   BrowseDirectoryResult,
   PickFolderResult,
+  PromptBundlePayload,
+  RunLogPage,
+  WorkerRefPayload,
+  WorkflowSnapshot,
 } from './types'
 
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? 'http://127.0.0.1:8787'
@@ -111,6 +118,41 @@ export function updateProject(id: string, input: UpdateProjectInput): Promise<Pr
 export function deleteProject(id: string): Promise<{ ok: boolean }> {
   return request(`/api/projects/${id}`, {
     method: 'DELETE',
+  })
+}
+
+export function listProjectProfiles(projectId: string): Promise<ProjectProfile[]> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/profiles`)
+}
+
+export function createProjectProfile(projectId: string, input: Pick<ProjectProfile, 'name' | 'summary' | 'stage' | 'content'>): Promise<ProjectProfile> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/profiles`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function updateProjectProfile(projectId: string, profileId: string, input: Pick<ProjectProfile, 'name' | 'summary' | 'stage' | 'content'>): Promise<ProjectProfile> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/profiles/${encodeURIComponent(profileId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteProjectProfile(projectId: string, profileId: string): Promise<{ ok: boolean }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/profiles/${encodeURIComponent(profileId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function getProfileBindings(projectId: string): Promise<ProfileBindingsResponse> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/profile-bindings`)
+}
+
+export function updateProfileBindings(projectId: string, bindings: Record<string, string | null>): Promise<ProfileBindingsResponse> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/profile-bindings`, {
+    method: 'PATCH',
+    body: JSON.stringify({ bindings }),
   })
 }
 
@@ -233,4 +275,24 @@ export function manualSkipIteration(id: string, node?: string | null, note?: str
     method: 'POST',
     body: JSON.stringify({ node, note }),
   })
+}
+
+export function getRunLogs(iterationId: string, runId: string, offset = 0, limit = 200): Promise<RunLogPage> {
+  return request(`/api/iterations/${encodeURIComponent(iterationId)}/runs/${encodeURIComponent(runId)}/logs?offset=${offset}&limit=${limit}`)
+}
+
+export function getRunPromptBundle(iterationId: string, runId: string): Promise<PromptBundlePayload> {
+  return request(`/api/iterations/${encodeURIComponent(iterationId)}/runs/${encodeURIComponent(runId)}/prompt-bundle`)
+}
+
+export function getRunWorkerRef(iterationId: string, runId: string): Promise<WorkerRefPayload> {
+  return request(`/api/iterations/${encodeURIComponent(iterationId)}/runs/${encodeURIComponent(runId)}/worker-ref`)
+}
+
+export function getWorkflowSnapshot(iterationId: string): Promise<WorkflowSnapshot> {
+  return request(`/api/iterations/${encodeURIComponent(iterationId)}/workflow-snapshot`)
+}
+
+export function getRunContextPackage(iterationId: string, runId: string): Promise<ContextPackagePayload> {
+  return request(`/api/iterations/${encodeURIComponent(iterationId)}/runs/${encodeURIComponent(runId)}/context-package`)
 }

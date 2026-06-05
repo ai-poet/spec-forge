@@ -80,7 +80,7 @@ export function IterationSummaryPanel({ detail }: Props) {
             <div>
               <strong>变更路径</strong>
               <ul>
-                {changedPaths.map((path) => <li key={path}>{path}</li>)}
+                {changedPaths.map((path, index) => <li key={`${path}-${index}`}>{path}</li>)}
                 {!changedPaths.length ? <li className="muted">暂无代码路径事件</li> : null}
               </ul>
             </div>
@@ -103,13 +103,13 @@ export function IterationSummaryPanel({ detail }: Props) {
               <div>
                 <strong>用户体验观察</strong>
                 <ul>
-                  {uxNotes.map((note) => <li key={note}>{note}</li>)}
+                  {uxNotes.map((note, index) => <li key={`${note}-${index}`}>{note}</li>)}
                 </ul>
               </div>
               <div>
                 <strong>后续交付建议</strong>
                 <ul>
-                  {recommendations.map((item) => <li key={item}>{item}</li>)}
+                  {recommendations.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
                 </ul>
               </div>
             </div>
