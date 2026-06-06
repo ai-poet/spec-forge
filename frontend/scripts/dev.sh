@@ -3,6 +3,7 @@ set -euo pipefail
 
 FRONTEND_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="$(cd "$FRONTEND_DIR/.." && pwd)"
+CODEX_SDK_REQUIREMENT="openai-codex>=0.1.0b2"
 
 is_py312_plus() {
   local bin="$1"
@@ -128,8 +129,29 @@ ensure_backend_deps() {
   fi
 }
 
+ensure_codex_sdk_dep() {
+  if python -c 'import importlib.util; raise SystemExit(0 if importlib.util.find_spec("openai_codex") else 1)' >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "Installing missing Codex SDK dependency ($CODEX_SDK_REQUIREMENT)..."
+  if python -m pip --version >/dev/null 2>&1; then
+    python -m pip install -q "$CODEX_SDK_REQUIREMENT"
+  elif python -m ensurepip --upgrade >/dev/null 2>&1; then
+    python -m pip install -q "$CODEX_SDK_REQUIREMENT"
+  elif command -v uv >/dev/null 2>&1; then
+    (cd "$ROOT_DIR/backend" && uv pip install --python "$ROOT_DIR/backend/.venv/bin/python" "$CODEX_SDK_REQUIREMENT")
+  else
+    echo "Codex SDK is missing and neither pip nor uv is available to install it." >&2
+    return 1
+  fi
+
+  python -c 'import importlib.util; raise SystemExit(0 if importlib.util.find_spec("openai_codex") else 1)'
+}
+
 ensure_backend_deps
 source "$ROOT_DIR/backend/.venv/bin/activate"
+ensure_codex_sdk_dep
 
 if [[ "${SPECFORGE_SKIP_UI:-}" != "1" ]]; then
   python -m playwright install chromium || \
