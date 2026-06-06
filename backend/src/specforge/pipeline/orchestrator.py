@@ -9,6 +9,7 @@ from typing import Any, Literal, Optional
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
+from ..agents.codex_sdk_runner import CodexSdkRunner
 from ..agents.cli_runner import BaseRunner, DryRunRunner, RealCLIRunner
 from ..agents.cli_event_presenter import CliEventPresenter
 from ..core.config import settings
@@ -80,6 +81,7 @@ class LangGraphPipeline(
         self.broker = broker or EventBroker()
         self.dry_runner = runner if isinstance(runner, DryRunRunner) else DryRunRunner()
         self.real_runner = runner if isinstance(runner, RealCLIRunner) else RealCLIRunner(registry_path=settings.active_cli_registry_path)
+        self.codex_runner = CodexSdkRunner()
         self.cli_presenter = CliEventPresenter()
         settings.langgraph_db_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpointer_context = SqliteSaver.from_conn_string(str(settings.langgraph_db_path))
@@ -451,11 +453,12 @@ class LangGraphPipeline(
     def cancel_cli(self, iteration_id: str) -> None:
         self._aborted_iterations.add(iteration_id)
         self.real_runner.cancel(iteration_id)
+        self.codex_runner.cancel(iteration_id)
         self._clear_live_cli(iteration_id)
 
 
     def shutdown(self) -> list[str]:
-        cancelled = self.real_runner.cancel_all()
+        cancelled = [*self.real_runner.cancel_all(), *self.codex_runner.cancel_all()]
         for iteration_id in cancelled:
             self._clear_live_cli(iteration_id)
             self.stop_iteration(iteration_id, "service shutting down")
@@ -464,7 +467,7 @@ class LangGraphPipeline(
 
 
     def resync_runtime_state(self) -> list[str]:
-        cleaned = self.real_runner.cleanup_registry_processes()
+        cleaned = [*self.real_runner.cleanup_registry_processes(), *self.codex_runner.cleanup_registry_processes()]
         for iteration_id in cleaned:
             self._clear_live_cli(iteration_id)
             self._mark_runtime_stopped(iteration_id, "service restarted while CLI was running")

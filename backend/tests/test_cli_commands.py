@@ -32,7 +32,7 @@ def test_build_cli_command_codex_vs_claude():
     schema_file = __import__("pathlib").Path("/tmp/code_tester.schema.json")
     codex_cmd = build_cli_command(provider="codex", prompt=prompt, schema_inline=schema_inline, schema_file=schema_file)
     claude_cmd = build_cli_command(provider="claude", prompt=prompt, schema_inline=schema_inline, schema_file=schema_file)
-    assert codex_cmd[0] == "codex"
+    assert codex_cmd[:2] == ["codex-sdk", "thread.run"]
     assert claude_cmd[0] == "claude"
     assert "--include-hook-events" in claude_cmd
 
@@ -85,5 +85,5 @@ def test_build_cli_command_codex_resume():
         session_id="abc-123",
         resume=True,
     )
-    assert "resume" in cmd
-    assert cmd[cmd.index("resume") + 1] == "abc-123"
+    assert "--resume" in cmd
+    assert cmd[cmd.index("--resume") + 1] == "abc-123"

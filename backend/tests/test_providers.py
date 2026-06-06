@@ -127,3 +127,35 @@ def test_run_observability_files_and_log_pagination(tmp_path):
     assert run["raw_log_path"]
     assert run["prompt_path"]
     assert run["worker_ref_path"]
+
+
+def test_worker_ref_from_result_prefers_codex_sdk_thread_id(tmp_path):
+    from specforge.agents.cli_runner import CLIResult
+    from specforge.pipeline import LangGraphPipeline
+    from specforge.storage.db import Database
+
+    db = Database(tmp_path / "db.sqlite3")
+    db.init()
+    iteration_id = db.create_iteration(project_name="obs", goal="observe", mode="dry-run", test_command=None)
+    pipeline = LangGraphPipeline(db=db, runner=__import__("specforge.agents.cli_runner", fromlist=["DryRunRunner"]).DryRunRunner())
+    command = build_agent_command(
+        provider="codex",
+        stage="code_tester",
+        prompt="hello",
+        schema_inline="{}",
+        schema_file=tmp_path / "schema.json",
+        session_id="placeholder-session",
+        resume=False,
+    )
+    result = CLIResult(
+        command=command.command,
+        returncode=0,
+        stdout='{"type":"thread.started","thread_id":"thr-real"}\n',
+        stderr="",
+        metadata={"agent_command": command, "cwd": str(tmp_path)},
+    )
+
+    run_id = pipeline._record_run(iteration_id, "code_tester", result)
+    worker_ref = pipeline.run_worker_ref(iteration_id, run_id)
+
+    assert worker_ref["continueRef"]["threadId"] == "thr-real"

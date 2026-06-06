@@ -90,27 +90,15 @@ def _codex_command(
     session_id: Optional[str] = None,
     resume: bool = False,
 ) -> list[str]:
-    if session_id and resume:
-        return [
-            "codex",
-            "exec",
-            "resume",
-            session_id,
-            "--json",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--output-schema",
-            str(schema_file),
-            "--skip-git-repo-check",
-            prompt,
-        ]
-    return [
-        "codex",
-        "exec",
-        "--json",
-        "--dangerously-bypass-approvals-and-sandbox",
+    cmd = [
+        "codex-sdk",
+        "thread.run",
         "--output-schema",
         str(schema_file),
-        "--skip-git-repo-check",
+    ]
+    return [
+        *cmd,
+        *(["--resume", session_id] if session_id and resume else []),
         prompt,
     ]
 

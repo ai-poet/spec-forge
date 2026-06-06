@@ -210,6 +210,6 @@ Iteration API：
 `real-cli` 模式调用：
 
 - `claude -p` 作为 Planner / Coder
-- `codex exec` 作为 Tester
+- Codex Python SDK 作为绑定到 Codex 的 Tester
 
 v0.4 保证大需求工作台、结构化 artifact 消费、checksum gate、失败重试和事件驱动实时体验；不承诺容器级强隔离，也不自动拆分 Epic。

@@ -238,7 +238,7 @@ export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDele
       <div className="section-row">
         <div>
           <h2 className="section-title">Agent / Provider</h2>
-          <p className="muted">为各环节选择 CLI provider；Provider 卡片展示本机 doctor 状态和能力。</p>
+          <p className="muted">为各环节选择 agent provider；Provider 卡片展示本机 doctor 状态和能力。</p>
         </div>
         <button type="button" className="btn primary" onClick={handleSave} disabled={busy || !project}>
           保存配置
@@ -252,7 +252,7 @@ export function ProjectConfigPanel({ project, busy, onSave, onBindFolder, onDele
             <article key={provider} className="provider-card">
               <div className="section-row">
                 <div>
-                  <strong>{provider === 'claude' ? 'Claude Code' : 'Codex CLI'}</strong>
+                  <strong>{provider === 'claude' ? 'Claude Code' : 'Codex SDK'}</strong>
                   <div className="muted">{check?.version ?? check?.detail ?? '尚未检测'}</div>
                 </div>
                 <span className={`status-dot ${check?.status ?? 'warning'}`}>{check?.status === 'ok' ? '可用' : '需检查'}</span>

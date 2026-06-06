@@ -107,7 +107,7 @@ class SequenceRunner:
             on_output("stdout", result.stdout)
         if on_output and result.stderr:
             on_output("stderr", result.stderr)
-        return CLIResult(command=command, returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
+        return CLIResult(command=command, returncode=result.returncode, stdout=result.stdout, stderr=result.stderr, metadata=dict(result.metadata))
 
     def cancel(self, iteration_id: str) -> bool:
         return False
@@ -128,6 +128,31 @@ class RuntimeSyncRunner:
     def cancel(self, iteration_id: str) -> bool:
         self.cancelled.append(iteration_id)
         return iteration_id in self.cancelled_all
+
+
+class SequenceCodexSdkRunner:
+    def __init__(self, thread_ids: list[str]) -> None:
+        self.thread_ids = list(thread_ids)
+        self.session_modes: list[str] = []
+        self.session_ids: list[str | None] = []
+
+    def run_agent(self, command, cwd=None, on_output=None, *, iteration_id=None, timeout_seconds=None):
+        self.session_modes.append(command.session_mode)
+        self.session_ids.append(command.session_id)
+        thread_id = self.thread_ids.pop(0)
+        stdout = f'{{"type":"thread.started","thread_id":"{thread_id}"}}\n{{"type":"result","structured_output":{{}}}}\n'
+        if on_output:
+            on_output("stdout", stdout)
+        return CLIResult(command=command.command, returncode=0, stdout=stdout, stderr="", metadata={"codex_thread_id": thread_id})
+
+    def cancel(self, iteration_id: str) -> bool:
+        return False
+
+    def cancel_all(self) -> list[str]:
+        return []
+
+    def cleanup_registry_processes(self) -> list[str]:
+        return []
 
 
 def run_code_and_ui_tester(state: dict) -> dict:
@@ -2209,6 +2234,66 @@ def test_planning_nodes_persist_and_resume_session(tmp_path, monkeypatch):
     assert session_id in runner.commands[1]
     assert "--resume" in runner.commands[2]
     assert session_id in runner.commands[2]
+
+
+def test_codex_sdk_planning_nodes_persist_real_thread_id(tmp_path, monkeypatch):
+    from specforge.core.contracts import PlannerDiscoveryArtifact
+
+    project = post_project(tmp_path, "planning-session-codex")
+    project_id = project.json()["id"]
+    bindings_payload = {
+        "planner_discovery": "codex",
+        "prd_planner": "codex",
+        "test_planner": "codex",
+        "planner_clarification": "claude",
+        "coder": "claude",
+        "code_tester": "claude",
+        "ui_tester": "claude",
+    }
+    update = client.patch(f"/api/projects/{project_id}", json={"cli_bindings": bindings_payload})
+    assert update.status_code == 200
+    iteration_id = pipeline.db.create_iteration(
+        project_name=project.json()["name"],
+        goal="session production test",
+        mode="real-cli",
+        test_command=None,
+        project_id=project_id,
+    )
+    runner = SequenceCodexSdkRunner(["thr-planning", "thr-planning", "thr-planning"])
+    monkeypatch.setattr(pipeline, "codex_runner", runner)
+    monkeypatch.setattr(
+        pipeline,
+        "_planner_discovery_artifact",
+        lambda state, run_result: PlannerDiscoveryArtifact(status="ready", requirements_brief="Ready.", complexity="simple"),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_prd_planner_artifact",
+        lambda state, run_result: PrdPlannerArtifact(
+            prd="# PRD\n",
+            context_for_coder=[ContextManifestEntry(file="prd.md", reason="r")],
+            context_for_tester=[ContextManifestEntry(file="prd.md", reason="r")],
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_test_planner_artifact",
+        lambda state, run_result: TestPlannerArtifact(testing_plan="# Testing Plan\n"),
+    )
+
+    state = pipeline._build_state(iteration_id)
+    discovery_state = pipeline._planner_discovery_node(state)
+    state.update(discovery_state)
+    prd_state = pipeline._prd_planner_node(state)
+    state.update(prd_state)
+    pipeline._test_planner_node(state)
+
+    row = pipeline.db.get_iteration_row(iteration_id)
+    assert row is not None
+    assert row["planning_cli_session_id"] == "thr-planning"
+    assert row["planning_cli_session_started"] == 1
+    assert runner.session_modes == ["new", "continue", "continue"]
+    assert runner.session_ids[1:] == ["thr-planning", "thr-planning"]
 
 
 def test_discovery_routes_back_to_itself_after_answer(tmp_path):

@@ -273,7 +273,7 @@ class CodexEventPresenter:
         if event_type in {"agent_reasoning", "agent_message"}:
             return self._present_legacy_item(event_type, payload, node=node)
         if event_type == "error":
-            return CliDisplayEvent("codex", node, "error", "Codex 输出错误", _compact(payload.get("message") or payload.get("error")) or "Codex CLI 返回错误事件。", severity="error", status="failed", raw_event=payload)
+            return CliDisplayEvent("codex", node, "error", "Codex 输出错误", _compact(payload.get("message") or payload.get("error")) or "Codex provider 返回错误事件。", severity="error", status="failed", raw_event=payload)
         return None
 
     def _present_item(self, event_type: str, item: dict[str, Any], payload: dict[str, Any], *, node: str) -> Optional[CliDisplayEvent]:
@@ -311,7 +311,7 @@ class CodexEventPresenter:
             preview = _compact(item.get("text"))
             return CliDisplayEvent("codex", node, "text", "Codex 输出验证结论", preview or "Tester 正在输出最终报告内容。", item_id=item_id, status=status, preview=preview, raw_event=payload)
         if item_type == "error":
-            return CliDisplayEvent("codex", node, "error", "Codex item 错误", _compact(item.get("message") or item.get("error")) or "Codex CLI 返回错误 item。", severity="error", item_id=item_id, status="failed", raw_event=payload)
+            return CliDisplayEvent("codex", node, "error", "Codex item 错误", _compact(item.get("message") or item.get("error")) or "Codex provider 返回错误 item。", severity="error", item_id=item_id, status="failed", raw_event=payload)
         return CliDisplayEvent("codex", node, "thinking", f"Codex {item_type or '步骤'}", "原始 CLI 事件已保存，可在详情里查看。", item_id=item_id, status=status, raw_event=payload)
 
     def _present_legacy_item(self, event_type: str, payload: dict[str, Any], *, node: str) -> CliDisplayEvent:

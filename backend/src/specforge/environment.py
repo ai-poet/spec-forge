@@ -15,13 +15,13 @@ from .agents.providers import PROVIDERS
 EnvironmentStatus = Literal["ok", "warning", "error"]
 
 CLAUDE_INSTALL_HINT = "Install Claude Code CLI and ensure `claude` is available on PATH."
-CODEX_INSTALL_HINT = "Install Codex CLI and ensure `codex` is available on PATH."
+CODEX_INSTALL_HINT = "Install the OpenAI Codex Python SDK with `pip install openai-codex` and authenticate Codex."
 
 
 def environment_checks() -> dict[str, object]:
     checks = [
         _provider_cli_check("claude", "Claude Code Provider", "claude", CLAUDE_INSTALL_HINT),
-        _provider_cli_check("codex", "Codex Provider", "codex", CODEX_INSTALL_HINT),
+        _codex_sdk_check(),
         _playwright_cli_check(),
         _web_ui_smoke_check(),
         _cua_driver_check(),
@@ -42,6 +42,22 @@ def _provider_cli_check(provider_id: str, label: str, binary: str, hint: str) ->
     check["version"] = check.get("detail")
     check["capabilities"] = provider.describe().capabilities
     return check
+
+
+def _codex_sdk_check() -> dict[str, object]:
+    provider = PROVIDERS.provider("codex")
+    doctor = provider.doctor()
+    return {
+        "id": "codex_sdk",
+        "label": "Codex SDK Provider",
+        "status": doctor.status,
+        "message": doctor.message,
+        "detail": doctor.detail,
+        "hint": doctor.install_hint,
+        "provider": "codex",
+        "version": doctor.version,
+        "capabilities": doctor.capabilities,
+    }
 
 
 def _aggregate_status(statuses: list[str]) -> EnvironmentStatus:

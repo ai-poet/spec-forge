@@ -17,15 +17,15 @@ def test_cli_check_missing() -> None:
 
 
 def test_cli_check_version_ok() -> None:
-    completed = subprocess.CompletedProcess(["codex", "--version"], 0, stdout="codex 1.0\n", stderr="")
+    completed = subprocess.CompletedProcess(["claude", "--version"], 0, stdout="claude 1.0\n", stderr="")
     with (
-        patch("specforge.environment.shutil.which", return_value="/usr/local/bin/codex"),
+        patch("specforge.environment.shutil.which", return_value="/usr/local/bin/claude"),
         patch("specforge.environment.subprocess.run", return_value=completed),
     ):
-        result = environment._cli_check("codex_cli", "Codex CLI", "codex", hint="install codex")
+        result = environment._cli_check("claude_cli", "Claude Code CLI", "claude", hint="install claude")
 
     assert result["status"] == "ok"
-    assert result["detail"] == "codex 1.0"
+    assert result["detail"] == "claude 1.0"
     assert result["hint"] is None
 
 
@@ -50,10 +50,8 @@ class FakeHolder:
 
 def test_environment_checks_aggregate_ok_warning_and_errors() -> None:
     with (
-        patch("specforge.environment._cli_check", side_effect=[
-            {"id": "claude_cli", "label": "Claude", "status": "ok", "message": "ok", "detail": None, "hint": None},
-            {"id": "codex_cli", "label": "Codex", "status": "error", "message": "missing", "detail": None, "hint": "install"},
-        ]),
+        patch("specforge.environment._cli_check", return_value={"id": "claude_cli", "label": "Claude", "status": "ok", "message": "ok", "detail": None, "hint": None}),
+        patch("specforge.environment._codex_sdk_check", return_value={"id": "codex_sdk", "label": "Codex SDK", "status": "error", "message": "missing", "detail": None, "hint": "install"}),
         patch("specforge.environment.ensure_playwright_cli", return_value=None),
         patch("specforge.environment.PlaywrightUIDriverRunner") as playwright_runner,
         patch("specforge.environment.cua_driver_installed", return_value=True),
@@ -66,7 +64,7 @@ def test_environment_checks_aggregate_ok_warning_and_errors() -> None:
 
     assert result["status"] == "error"
     checks = {item["id"]: item for item in result["checks"]}  # type: ignore[index]
-    assert checks["codex_cli"]["status"] == "error"
+    assert checks["codex_sdk"]["status"] == "error"
     assert checks["web_ui_smoke"]["status"] == "error"
     assert checks["cua_session"]["status"] == "warning"
     assert checks["cua_daemon_permissions"]["status"] == "ok"
@@ -74,10 +72,8 @@ def test_environment_checks_aggregate_ok_warning_and_errors() -> None:
 
 def test_environment_checks_aggregate_warning_without_errors() -> None:
     with (
-        patch("specforge.environment._cli_check", side_effect=[
-            {"id": "claude_cli", "label": "Claude", "status": "ok", "message": "ok", "detail": None, "hint": None},
-            {"id": "codex_cli", "label": "Codex", "status": "ok", "message": "ok", "detail": None, "hint": None},
-        ]),
+        patch("specforge.environment._cli_check", return_value={"id": "claude_cli", "label": "Claude", "status": "ok", "message": "ok", "detail": None, "hint": None}),
+        patch("specforge.environment._codex_sdk_check", return_value={"id": "codex_sdk", "label": "Codex SDK", "status": "ok", "message": "ok", "detail": None, "hint": None}),
         patch("specforge.environment.ensure_playwright_cli", return_value=None),
         patch("specforge.environment.PlaywrightUIDriverRunner") as playwright_runner,
         patch("specforge.environment.cua_driver_installed", return_value=True),

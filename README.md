@@ -282,8 +282,8 @@ flowchart TB
 | 实现 | `coder` | Claude CLI | 只改 `src/**`，根据规划写代码 |
 | 澄清 | `planner_clarification` | Claude CLI | Coder 看不懂时，Planner 正式回答并写入 `clarifications/` |
 | 完整性 | `integrity_check` | 后端程序 | 检查已建立的测试基线有没有被 Coder 偷偷改掉 |
-| 代码验证 | `code_tester` | Codex/Claude CLI | 按 testing_plan.md 编写自动化测试；独立代码审查；写 `verify_report.md` 与 `defects[]`（不调用 UI 自动化） |
-| UI 验证 | `ui_tester` | Claude/Codex CLI | Agent 读取 testing_plan.md 的 Manual Tests 并执行适用 UI 场景（web → playwright-cli，native → cua-driver），合并验证产物并写盘 |
+| 代码验证 | `code_tester` | Codex SDK / Claude CLI | 按 testing_plan.md 编写自动化测试；独立代码审查；写 `verify_report.md` 与 `defects[]`（不调用 UI 自动化） |
+| UI 验证 | `ui_tester` | Claude CLI / Codex SDK | Agent 读取 testing_plan.md 的 Manual Tests 并执行适用 UI 场景（web → playwright-cli，native → cua-driver），合并验证产物并写盘 |
 | 复核 | `planner_verify` | 后端程序 | 检查验证报告格式是否合格 |
 | 交付确认 | `verify_approval` | **你** | 在前端点「确认交付」，流水线才归档 |
 | 完成 | `done` | 后端 | 状态变为 `delivered`，写入 iteration_log |
@@ -549,8 +549,8 @@ ContextPackage 借鉴 Gold Band 的热/冷上下文分层：
 | **test_planner** | Claude CLI | 产出 `testing_plan.md`（含自动化测试策略 + 人工测试场景） | `testing_plan.md` |
 | **coder** | Claude CLI | 按 PRD/测试实现 | `src/**`（及 convention 中的源码根） |
 | **planner_clarification** | Claude CLI | 回答 Coder 澄清 | `clarifications/*` |
-| **code_tester** | Codex/Claude CLI（可配置） | 按 testing_plan.md 编写自动化测试；独立代码审查、`defects[]`、对抗测试；无 UI 自动化 | `verify_report.md`、`delivery_advice.md`、`tests/unit|integration`、`tests/adversarial/` |
-| **ui_tester** | Claude/Codex CLI（可配置） | Agent 执行 testing_plan.md 中的 Manual Tests（playwright-cli / cua-driver）、合并验证产物 | `ui_results.json`、`ui_report.md`（在 code_tester 产物基础上） |
+| **code_tester** | Codex SDK / Claude CLI（可配置） | 按 testing_plan.md 编写自动化测试；独立代码审查、`defects[]`、对抗测试；无 UI 自动化 | `verify_report.md`、`delivery_advice.md`、`tests/unit|integration`、`tests/adversarial/` |
+| **ui_tester** | Claude CLI / Codex SDK（可配置） | Agent 执行 testing_plan.md 中的 Manual Tests（playwright-cli / cua-driver）、合并验证产物 | `ui_results.json`、`ui_report.md`（在 code_tester 产物基础上） |
 
 反串谋：规划与验证可分模型；测试计划（`testing_plan.md`）在 Coder **之前**由 Test Planner 产出，Code Tester 在实现后按测试计划编写自动化测试并建立 checksum 基线；Coder 不得改已建立的测试。验证回环按 owner 分流：Coder（②a）、Code Tester 自修（②b）、Test Planner 修订测试计划（②c）。Agent JSON/schema/落盘问题走同 Agent 产物自修（A）。UI 环境不可用和自动化执行失败由 UI Tester 记录 warning；只有 UI Tester 汇总出 P0/P1 缺陷才触发实现回环。
 
@@ -630,11 +630,11 @@ cd frontend && npm install && npm run dev:all
 默认 **real-cli** 模式，需要本地已安装：
 
 - `claude` — 默认用于 `prd_planner`、`test_planner`、`coder`、discovery/clarification
-- `codex` — 默认用于 `code_tester`（可在项目 **CLI 绑定** 里按阶段改为 Claude）
+- `openai-codex` Python SDK — 用于绑定到 Codex 的阶段（SDK 会安装匹配的 Codex runtime）
 
-CLI 使用 `bypassPermissions` / `--dangerously-bypass-approvals-and-sandbox` 跳过交互式权限确认。测试不可变靠 `test_planner` 写基线 + `integrity_check` 保障。
+Claude CLI 使用 `bypassPermissions`；Codex SDK 使用 `Sandbox.full_access` + `ApprovalMode.auto_review`。测试不可变靠 `test_planner` 写基线 + `integrity_check` 保障。
 
-项目设置页会展示 Agent / Provider 管理卡：Claude Code 与 Codex CLI 的版本、doctor 状态、能力与安装提示。当前实现支持 direct CLI provider；Provider 抽象已预留 `describe/doctor/run/open_session/build_continue_command` 形状，后续可以接 ACP 或其它 worker，而不需要重写流水线。
+项目设置页会展示 Agent / Provider 管理卡：Claude Code 与 Codex SDK 的版本、doctor 状态、能力与安装提示。Provider 抽象已预留 `describe/doctor/run/open_session/build_continue_command` 形状，后续可以接 ACP 或其它 worker，而不需要重写流水线。
 
 可选 UI 验收（**`ui_tester`** CLI Agent）：UI Tester 直接读取 `testing_plan.md` 的 Manual Tests，不需要、也不会生成 `tests/ui/*.json` spec。
 
@@ -674,7 +674,7 @@ python computer-use/backend/install_cua_driver.py
 
 | 模式 | 用途 | 行为 |
 |------|------|------|
-| `real-cli`（默认） | 日常开发 | 调用 Claude / Codex CLI，真实产出 |
+| `real-cli`（默认） | 日常开发 | 调用 Claude CLI / Codex SDK，真实产出 |
 | `dry-run` | CI / 测试 | 不调用外部 CLI，生成确定性假数据 |
 
 测试套件通过环境变量 `SPECFORGE_MODE=dry-run` 启用。前端不暴露 dry-run 选项。

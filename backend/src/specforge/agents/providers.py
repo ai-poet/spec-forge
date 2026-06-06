@@ -193,28 +193,95 @@ class DirectCliProvider:
         if not isinstance(session_id, str) or not session_id.strip():
             return None
         if self.provider_id == "codex":
-            return f"codex exec resume {session_id}"
+            return f"codex-sdk thread.run --resume {session_id}"
         return f"claude --resume {session_id}"
+
+
+class CodexSdkProvider:
+    provider_id: CliProvider = "codex"
+    display_name = "Codex SDK"
+    executable = "openai-codex"
+    install_hint = "Install the OpenAI Codex Python SDK with `pip install openai-codex` and authenticate Codex."
+
+    def describe(self) -> ProviderInfo:
+        return ProviderInfo(
+            provider_id=self.provider_id,
+            display_name=self.display_name,
+            executable=self.executable,
+            capabilities={
+                "supports_open_session": True,
+                "supports_continue_session": True,
+                "supports_raw_stream": True,
+                "supports_prompt_bundle": True,
+                "uses_python_sdk": True,
+            },
+            install_hint=self.install_hint,
+        )
+
+    def doctor(self) -> ProviderDoctor:
+        try:
+            import openai_codex
+            from openai_codex import Codex
+        except Exception as exc:
+            return ProviderDoctor(
+                provider_id=self.provider_id,
+                available=False,
+                status="error",
+                message="openai-codex SDK unavailable",
+                detail=str(exc),
+                capabilities=self.describe().capabilities,
+                install_hint=self.install_hint,
+            )
+        version = str(getattr(openai_codex, "__version__", "") or "openai-codex installed")
+        try:
+            with Codex() as codex:
+                account = codex.account()
+            detail = _compact_output(str(getattr(account, "account", None) or account)) or version
+        except Exception as exc:
+            return ProviderDoctor(
+                provider_id=self.provider_id,
+                available=False,
+                status="error",
+                message="openai-codex SDK installed, but Codex account/runtime check failed",
+                detail=str(exc),
+                version=version,
+                capabilities=self.describe().capabilities,
+                install_hint="Authenticate Codex via existing Codex login, ChatGPT device code, or API key.",
+            )
+        return ProviderDoctor(
+            provider_id=self.provider_id,
+            available=True,
+            status="ok",
+            message="Available",
+            detail=detail,
+            version=version,
+            capabilities=self.describe().capabilities,
+        )
+
+    def open_session(self, worker_ref: WorkerRef) -> bool:
+        return bool(self.build_continue_command(worker_ref))
+
+    def build_continue_command(self, worker_ref: WorkerRef) -> str | None:
+        ref = worker_ref.continue_ref or {}
+        thread_id = ref.get("threadId")
+        if not isinstance(thread_id, str) or not thread_id.strip():
+            return None
+        return f"codex-sdk thread.run --resume {thread_id}"
 
 
 class ProviderRegistry:
     def __init__(self) -> None:
-        self._providers: dict[CliProvider, DirectCliProvider] = {
+        self._providers: dict[CliProvider, DirectCliProvider | CodexSdkProvider] = {
             "claude": DirectCliProvider(
                 "claude",
                 display_name="Claude Code",
                 executable="claude",
                 install_hint="Install Claude Code CLI and ensure `claude` is available on PATH.",
             ),
-            "codex": DirectCliProvider(
-                "codex",
-                display_name="Codex CLI",
-                executable="codex",
-                install_hint="Install Codex CLI and ensure `codex` is available on PATH.",
-            ),
+            "codex": CodexSdkProvider(),
         }
 
-    def provider(self, provider_id: CliProvider) -> DirectCliProvider:
+    def provider(self, provider_id: CliProvider) -> DirectCliProvider | CodexSdkProvider:
         return self._providers[provider_id]
 
     def describe_all(self) -> list[ProviderInfo]:
@@ -281,7 +348,10 @@ def worker_ref_from_result(
     cwd: Path | None,
 ) -> WorkerRef:
     extracted = extract_session_ref(command.provider, stdout=stdout, stderr=stderr)
-    session_id = command.session_id or extracted.get("sessionId") or extracted.get("threadId")
+    if command.provider == "codex":
+        session_id = extracted.get("threadId") or command.session_id
+    else:
+        session_id = command.session_id or extracted.get("sessionId")
     continue_ref: dict[str, Any] | None = None
     if session_id:
         continue_ref = {

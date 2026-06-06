@@ -315,6 +315,20 @@ class PipelinePromptsMixin:
             )
 
 
+    def _sync_planning_session_from_run(self, state: PipelineState, run_result: Any) -> None:
+        metadata = getattr(run_result, "metadata", {}) or {}
+        thread_id = metadata.get("codex_thread_id") or metadata.get("session_id")
+        if not isinstance(thread_id, str) or not thread_id.strip():
+            return
+        command = metadata.get("agent_command")
+        if not isinstance(command, AgentCommand) or command.provider != "codex":
+            return
+        state["planning_cli_session_id"] = thread_id
+        iteration_id = state.get("iteration_id")
+        if iteration_id:
+            self.db.update_iteration(iteration_id, planning_cli_session_id=thread_id)
+
+
     def _planner_discovery_command(self, state: PipelineState) -> list[str] | AgentCommand:
         iteration_id = state["iteration_id"]
         if self._is_real_cli(state.get("mode")):

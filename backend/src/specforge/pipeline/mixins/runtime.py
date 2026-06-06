@@ -499,7 +499,6 @@ class PipelineRuntimeMixin:
         *,
         node: str | None = None,
     ) -> CLIResult:
-        runner = self.real_runner if self._is_real_cli(state.get("mode")) else self.dry_runner
         iteration_id = state["iteration_id"]
         if node is None:
             row = self._require_iteration(iteration_id)
@@ -508,6 +507,8 @@ class PipelineRuntimeMixin:
             current_node = node
         agent_command = command if isinstance(command, AgentCommand) else None
         command_list = agent_command.command if agent_command else command
+        use_codex_sdk = bool(self._is_real_cli(state.get("mode")) and agent_command and agent_command.provider == "codex")
+        runner = self.codex_runner if use_codex_sdk else self.real_runner if self._is_real_cli(state.get("mode")) else self.dry_runner
         self._publish_snapshot(iteration_id)
         seen_output = {"stdout": False, "stderr": False}
         seen_cli_events: set[str] = set()
@@ -550,19 +551,30 @@ class PipelineRuntimeMixin:
         try:
             cwd = self._execution_cwd(state)
             kwargs: dict[str, Any] = {"iteration_id": iteration_id}
-            try:
-                accepts_timeout = "timeout_seconds" in inspect.signature(runner.run).parameters
-            except (TypeError, ValueError):
-                accepts_timeout = True
-            if accepts_timeout:
-                kwargs["timeout_seconds"] = settings.cli_timeout_seconds or None
-            result = runner.run(
-                command_list,
-                cwd=cwd,
-                on_output=on_output,
-                **kwargs,
-            )
+            if use_codex_sdk:
+                result = runner.run_agent(
+                    agent_command,
+                    cwd=cwd,
+                    on_output=on_output,
+                    timeout_seconds=settings.cli_timeout_seconds or None,
+                    **kwargs,
+                )
+            else:
+                try:
+                    accepts_timeout = "timeout_seconds" in inspect.signature(runner.run).parameters
+                except (TypeError, ValueError):
+                    accepts_timeout = True
+                if accepts_timeout:
+                    kwargs["timeout_seconds"] = settings.cli_timeout_seconds or None
+                result = runner.run(
+                    command_list,
+                    cwd=cwd,
+                    on_output=on_output,
+                    **kwargs,
+                )
             result.metadata.update({"agent_command": agent_command, "cwd": str(cwd)})
+            if use_codex_sdk and result.metadata.get("codex_thread_id"):
+                result.metadata["session_id"] = result.metadata["codex_thread_id"]
             return result
         finally:
             self._flush_cli_output(iteration_id)
