@@ -260,6 +260,7 @@ class CodexEventPresenter:
         msg = payload.get("msg") if isinstance(payload.get("msg"), dict) else {}
         event_type = str(payload.get("type") or payload.get("event") or msg.get("type") or "")
         item = payload.get("item") if isinstance(payload.get("item"), dict) else msg.get("item") if isinstance(msg.get("item"), dict) else {}
+        sdk_method = str(payload.get("sdk_method") or payload.get("method") or "")
         if event_type == "thread.started":
             return CliDisplayEvent("codex", node, "session", "Codex 验证会话已启动", "Tester 已创建独立执行线程。", raw_event=payload)
         if event_type == "turn.started":
@@ -267,26 +268,29 @@ class CodexEventPresenter:
         if event_type == "turn.completed":
             return CliDisplayEvent("codex", node, "result", "Codex 回合已完成", "Tester 已完成本轮验证输出。", severity="success", status="completed", raw_event=payload)
         if event_type == "turn.failed":
-            return CliDisplayEvent("codex", node, "error", "Codex 回合失败", _compact(payload.get("error")) or "Tester 执行过程中出现失败。", severity="error", status="failed", raw_event=payload)
+            return CliDisplayEvent("codex", node, "error", "Codex 回合失败", _error_message(payload) or "Tester 执行过程中出现失败。", severity="error", status="failed", raw_event=payload)
         if event_type in {"item.started", "item.updated", "item.completed"}:
-            return self._present_item(event_type, item, payload, node=node)
+            return self._present_item(event_type, item, payload, node=node, sdk_method=sdk_method)
         if event_type in {"agent_reasoning", "agent_message"}:
             return self._present_legacy_item(event_type, payload, node=node)
         if event_type == "error":
             return CliDisplayEvent("codex", node, "error", "Codex 输出错误", _compact(payload.get("message") or payload.get("error")) or "Codex provider 返回错误事件。", severity="error", status="failed", raw_event=payload)
         return None
 
-    def _present_item(self, event_type: str, item: dict[str, Any], payload: dict[str, Any], *, node: str) -> Optional[CliDisplayEvent]:
-        item_type = str(item.get("type") or "")
-        item_id = str(item.get("id") or item.get("item_id") or "")
+    def _present_item(self, event_type: str, item: dict[str, Any], payload: dict[str, Any], *, node: str, sdk_method: str = "") -> Optional[CliDisplayEvent]:
+        item_type = _canonical_codex_item_type(str(item.get("type") or ""))
+        item_id = str(item.get("id") or item.get("item_id") or item.get("itemId") or "")
         status = "started" if event_type == "item.started" else "completed" if event_type == "item.completed" else "updated"
         if item_type == "command_execution":
             command = _command_text(item)
-            exit_code = item.get("exit_code")
-            item_status = str(item.get("status") or status)
-            failed = item_status in {"failed", "error", "cancelled"} or (isinstance(exit_code, int) and exit_code != 0)
+            output = _compact(item.get("aggregatedOutput") or item.get("aggregated_output"))
+            exit_code = item.get("exit_code") if "exit_code" in item else item.get("exitCode")
+            item_status = _canonical_status(str(item.get("status") or status))
+            failed = item_status in {"failed", "error", "cancelled", "declined"} or (isinstance(exit_code, int) and exit_code != 0)
             if status == "started":
                 return CliDisplayEvent("codex", node, "command", "执行命令", command or "Codex 正在执行命令。", item_id=item_id, status=status, command=command, raw_event=payload)
+            if status == "updated":
+                return CliDisplayEvent("codex", node, "command", "命令输出更新", output or command or "Codex 正在执行命令。", item_id=item_id, status=item_status, command=command, preview=output, raw_event=payload)
             title = "命令失败" if failed else "命令完成"
             message = command or "命令执行结束。"
             if exit_code is not None:
@@ -295,21 +299,28 @@ class CodexEventPresenter:
         if item_type == "file_change":
             paths = _file_change_paths(item)
             action = str(item.get("action") or item.get("operation") or "应用")
+            preview = _compact(item.get("preview"))
+            if status == "updated":
+                return CliDisplayEvent("codex", node, "file_change", "文件变更更新", preview or f"{action}: {', '.join(paths) if paths else '文件变更正在应用。'}", item_id=item_id, status=status, paths=paths, preview=preview, raw_event=payload)
             return CliDisplayEvent("codex", node, "file_change", "应用文件变更", f"{action}: {', '.join(paths) if paths else '文件变更已应用。'}", severity="success" if status == "completed" else "info", item_id=item_id, status=status, paths=paths, raw_event=payload)
         if item_type == "mcp_tool_call":
             tool = _mcp_tool_name(item)
-            failed = str(item.get("status") or "") in {"failed", "error"}
-            title = "MCP 调用失败" if failed else "调用 MCP 工具" if status == "started" else "MCP 调用完成"
-            return CliDisplayEvent("codex", node, "mcp", title, tool or "Codex 正在调用 MCP 工具。", severity="error" if failed else "success" if status == "completed" else "info", item_id=item_id, status=status, tool=tool, raw_event=payload)
+            item_status = _canonical_status(str(item.get("status") or status))
+            failed = item_status in {"failed", "error"}
+            progress = _compact(item.get("message"))
+            title = "MCP 调用失败" if failed else "调用 MCP 工具" if status == "started" else "MCP 调用进度" if status == "updated" else "MCP 调用完成"
+            return CliDisplayEvent("codex", node, "mcp", title, progress or tool or "Codex 正在调用 MCP 工具。", severity="error" if failed else "success" if status == "completed" else "info", item_id=item_id, status=item_status, tool=tool, preview=progress, raw_event=payload)
         if item_type == "todo_list":
             preview = _todo_preview(item)
             return CliDisplayEvent("codex", node, "todo", "更新任务清单", preview or "Codex 已更新执行清单。", item_id=item_id, status=status, preview=preview, raw_event=payload)
-        if item_type in {"reasoning", "agent_reasoning"}:
+        if item_type in {"reasoning", "agent_reasoning", "plan"}:
             preview = _compact(item.get("text") or item.get("summary"))
-            return CliDisplayEvent("codex", node, "thinking", "Codex 正在推理", preview or "Tester 正在形成验证判断。", item_id=item_id, status=status, preview=preview, raw_event=payload)
+            title = "Codex 正在更新计划" if item_type == "plan" else "Codex 正在推理"
+            return CliDisplayEvent("codex", node, "thinking", title, preview or "Tester 正在形成验证判断。", item_id=item_id, status=status, preview=preview, raw_event=payload)
         if item_type == "agent_message":
             preview = _compact(item.get("text"))
-            return CliDisplayEvent("codex", node, "text", "Codex 输出验证结论", preview or "Tester 正在输出最终报告内容。", item_id=item_id, status=status, preview=preview, raw_event=payload)
+            title = "Codex 正在输出" if sdk_method == "item/agentMessage/delta" or status == "updated" else "Codex 输出验证结论"
+            return CliDisplayEvent("codex", node, "text", title, preview or "Tester 正在输出最终报告内容。", item_id=item_id, status=status, preview=preview, raw_event=payload)
         if item_type == "error":
             return CliDisplayEvent("codex", node, "error", "Codex item 错误", _compact(item.get("message") or item.get("error")) or "Codex provider 返回错误 item。", severity="error", item_id=item_id, status="failed", raw_event=payload)
         return CliDisplayEvent("codex", node, "thinking", f"Codex {item_type or '步骤'}", "原始 CLI 事件已保存，可在详情里查看。", item_id=item_id, status=status, raw_event=payload)
@@ -361,6 +372,44 @@ def _compact(value: Any, *, limit: int = 360) -> str:
     if len(text) > limit:
         return f"{text[:limit - 1]}…"
     return text
+
+
+def _canonical_codex_item_type(value: str) -> str:
+    explicit = {
+        "agentMessage": "agent_message",
+        "commandExecution": "command_execution",
+        "fileChange": "file_change",
+        "mcpToolCall": "mcp_tool_call",
+        "todoList": "todo_list",
+        "agentReasoning": "agent_reasoning",
+        "dynamicToolCall": "dynamic_tool_call",
+        "userMessage": "user_message",
+        "webSearch": "web_search",
+    }
+    if value in explicit:
+        return explicit[value]
+    chars: list[str] = []
+    for char in value:
+        if char.isupper() and chars:
+            chars.append("_")
+        chars.append(char.lower())
+    return "".join(chars)
+
+
+def _canonical_status(value: str) -> str:
+    explicit = {
+        "inProgress": "in_progress",
+        "cancelled": "cancelled",
+        "canceled": "cancelled",
+    }
+    return explicit.get(value, _canonical_codex_item_type(value))
+
+
+def _error_message(payload: dict[str, Any]) -> str:
+    error = payload.get("error")
+    if isinstance(error, dict):
+        return _compact(error.get("message") or error.get("error") or error)
+    return _compact(error or payload.get("message"))
 
 
 def _command_text(item: dict[str, Any]) -> Optional[str]:

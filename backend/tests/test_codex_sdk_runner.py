@@ -19,8 +19,9 @@ class FakeSandbox:
 
 
 class FakeNotification:
-    def __init__(self, payload):
+    def __init__(self, payload, method=None):
         self.payload = payload
+        self.method = method
 
 
 class FakeTurn:
@@ -137,3 +138,27 @@ def test_codex_sdk_runner_resumes_thread(tmp_path, monkeypatch):
     assert result.returncode == 0
     assert result.metadata["codex_thread_id"] == "thr-existing"
     assert FakeCodex.instances[0].resumed[0]["thread_id"] == "thr-existing"
+
+
+def test_codex_sdk_runner_normalizes_official_sdk_stream_methods():
+    from specforge.agents.codex_sdk_runner import _notification_payload, _synthetic_event
+
+    notification = FakeNotification(
+        {"delta": "hello", "itemId": "msg_1", "threadId": "thr_1", "turnId": "turn_1"},
+        method="item/agentMessage/delta",
+    )
+
+    event = _synthetic_event(_notification_payload(notification))
+
+    assert event == {
+        "_class": "dict",
+        "delta": "hello",
+        "itemId": "msg_1",
+        "item": {"type": "agentMessage", "id": "msg_1", "text": "hello"},
+        "method": "item/agentMessage/delta",
+        "sdk_method": "item/agentMessage/delta",
+        "source": "codex-sdk",
+        "threadId": "thr_1",
+        "turnId": "turn_1",
+        "type": "item.updated",
+    }

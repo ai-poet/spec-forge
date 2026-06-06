@@ -241,6 +241,9 @@ def _notification_payload(notification: Any) -> Any:
     plain = _plain(payload)
     if isinstance(plain, dict):
         plain.setdefault("_class", type(payload).__name__)
+        method = getattr(notification, "method", None)
+        if method:
+            plain.setdefault("method", str(method))
     return plain
 
 
@@ -269,8 +272,12 @@ def _synthetic_event(payload: Any) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
     root = payload.get("root") if isinstance(payload.get("root"), dict) else None
+    method = str(payload.get("method") or "").strip()
+    method_event = _event_from_sdk_method(method, payload)
+    if method_event is not None:
+        return method_event
     event_type = _normalize_event_type(
-        str(payload.get("type") or payload.get("method") or (root or {}).get("type") or ""),
+        str(payload.get("type") or (root or {}).get("type") or ""),
         str(payload.get("_class") or ""),
     )
     if event_type:
@@ -291,6 +298,121 @@ def _synthetic_event(payload: Any) -> dict[str, Any] | None:
     if root and "item" in root:
         return {"type": "item.completed", "item": _unwrap_root(root["item"]), "source": "codex-sdk", "raw": payload}
     return {"type": "item.updated", "item": _unwrap_root(payload), "source": "codex-sdk"}
+
+
+def _event_from_sdk_method(method: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+    if not method:
+        return None
+    event = dict(payload)
+    event["sdk_method"] = method
+    event.setdefault("source", "codex-sdk")
+    if method == "thread/started":
+        event["type"] = "thread.started"
+        return event
+    if method == "turn/started":
+        event["type"] = "turn.started"
+        return event
+    if method == "turn/completed":
+        event["type"] = "turn.completed"
+        return event
+    if method == "error":
+        event["type"] = "turn.failed"
+        return event
+    if method == "item/started":
+        event["type"] = "item.started"
+        if "item" in event:
+            event["item"] = _unwrap_root(event["item"])
+        return event
+    if method == "item/completed":
+        event["type"] = "item.completed"
+        if "item" in event:
+            event["item"] = _unwrap_root(event["item"])
+        return event
+    if method in _SDK_ITEM_DELTA_TYPES:
+        event["type"] = "item.updated"
+        event["item"] = _item_from_sdk_delta(method, event)
+        return event
+    if method == "item/fileChange/patchUpdated":
+        event["type"] = "item.updated"
+        event["item"] = {
+            "type": "fileChange",
+            "id": event.get("itemId") or event.get("item_id"),
+            "changes": event.get("changes"),
+            "status": "inProgress",
+        }
+        return event
+    if method in {"turn/plan/updated", "turn/diff/updated"}:
+        event["type"] = "item.updated"
+        event["item"] = {
+            "type": "plan" if method == "turn/plan/updated" else "fileChange",
+            "text": event.get("plan") or event.get("diff") or event.get("delta") or "",
+        }
+        return event
+    if method.startswith("item/") and method.endswith("/started"):
+        event["type"] = "item.started"
+        return event
+    if method.startswith("item/") and method.endswith("/completed"):
+        event["type"] = "item.completed"
+        return event
+    if method.startswith("item/"):
+        event["type"] = "item.updated"
+        event.setdefault("item", _unwrap_root(payload))
+        return event
+    return None
+
+
+_SDK_ITEM_DELTA_TYPES = {
+    "item/agentMessage/delta",
+    "item/plan/delta",
+    "item/commandExecution/outputDelta",
+    "item/commandExecution/terminalInteraction",
+    "item/fileChange/outputDelta",
+    "item/mcpToolCall/progress",
+    "item/reasoning/summaryTextDelta",
+    "item/reasoning/summaryPartAdded",
+    "item/reasoning/textDelta",
+}
+
+
+def _item_from_sdk_delta(method: str, payload: dict[str, Any]) -> dict[str, Any]:
+    item_id = payload.get("itemId") or payload.get("item_id")
+    if method == "item/agentMessage/delta":
+        return {"type": "agentMessage", "id": item_id, "text": payload.get("delta") or ""}
+    if method == "item/plan/delta":
+        return {"type": "plan", "id": item_id, "text": payload.get("delta") or ""}
+    if method in {"item/commandExecution/outputDelta", "item/commandExecution/terminalInteraction"}:
+        return {
+            "type": "commandExecution",
+            "id": item_id,
+            "aggregatedOutput": payload.get("delta") or "",
+            "status": "inProgress",
+        }
+    if method == "item/fileChange/outputDelta":
+        return {
+            "type": "fileChange",
+            "id": item_id,
+            "preview": payload.get("delta") or "",
+            "status": "inProgress",
+        }
+    if method == "item/mcpToolCall/progress":
+        return {
+            "type": "mcpToolCall",
+            "id": item_id,
+            "message": payload.get("message") or "",
+            "status": "inProgress",
+        }
+    if method in {
+        "item/reasoning/summaryTextDelta",
+        "item/reasoning/summaryPartAdded",
+        "item/reasoning/textDelta",
+    }:
+        return {
+            "type": "reasoning",
+            "id": item_id,
+            "text": payload.get("delta") or payload.get("text") or "",
+            "status": "inProgress",
+        }
+    return {"id": item_id, "type": method.split("/", 2)[1] if "/" in method else "unknown"}
 
 
 def _unwrap_root(value: Any) -> Any:

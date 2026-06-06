@@ -77,3 +77,50 @@ def test_codex_lifecycle_command_file_mcp_todo_agent_and_failure_events():
     failed = present({"type": "turn.failed", "error": "boom"})
     assert failed.phase == "error"
     assert failed.severity == "error"
+
+
+def test_codex_sdk_camel_case_items_and_delta_events_are_displayed():
+    text_delta = present(
+        {
+            "type": "item.updated",
+            "sdk_method": "item/agentMessage/delta",
+            "item": {"type": "agentMessage", "id": "msg_1", "text": "hello"},
+        }
+    )
+    assert text_delta.phase == "text"
+    assert text_delta.preview == "hello"
+    assert text_delta.status == "updated"
+
+    command_done = present(
+        {
+            "type": "item.completed",
+            "item": {
+                "type": "commandExecution",
+                "id": "cmd_1",
+                "command": "pytest -q",
+                "exitCode": 0,
+                "status": "completed",
+            },
+        }
+    )
+    assert command_done.phase == "command"
+    assert command_done.severity == "success"
+    assert "exit code: 0" in command_done.message
+
+    mcp_progress = present(
+        {
+            "type": "item.updated",
+            "sdk_method": "item/mcpToolCall/progress",
+            "item": {
+                "type": "mcpToolCall",
+                "id": "mcp_1",
+                "server": "docs",
+                "tool": "search",
+                "message": "searching",
+                "status": "inProgress",
+            },
+        }
+    )
+    assert mcp_progress.phase == "mcp"
+    assert mcp_progress.status == "in_progress"
+    assert mcp_progress.preview == "searching"
