@@ -9,7 +9,7 @@ import asyncio
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from specforge.agents.cli_commands import parse_cli_bindings, serialize_cli_bindings
 from specforge.agents.cli_runner import DryRunRunner, RealCLIRunner
@@ -624,6 +624,22 @@ def get_workflow_snapshot(iteration_id: str) -> WorkflowSnapshot:
         return WorkflowSnapshot(**pipeline.workflow_snapshot(iteration_id))
     except KeyError:
         raise HTTPException(status_code=404, detail="iteration not found") from None
+
+
+@app.get("/api/iterations/{iteration_id}/export-logs")
+def export_iteration_logs(iteration_id: str) -> StreamingResponse:
+    import json
+    try:
+        payload = pipeline.export_iteration_logs(iteration_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="iteration not found") from None
+    data = json.dumps(payload, ensure_ascii=False, indent=2)
+    filename = f"iteration-{iteration_id}-logs.json"
+    return StreamingResponse(
+        iter([data]),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @app.get("/api/iterations/{iteration_id}/runs/{run_id}/logs")

@@ -296,3 +296,24 @@ export function getWorkflowSnapshot(iterationId: string): Promise<WorkflowSnapsh
 export function getRunContextPackage(iterationId: string, runId: string): Promise<ContextPackagePayload> {
   return request(`/api/iterations/${encodeURIComponent(iterationId)}/runs/${encodeURIComponent(runId)}/context-package`)
 }
+
+export async function exportIterationLogs(iterationId: string): Promise<void> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}/api/iterations/${encodeURIComponent(iterationId)}/export-logs`)
+  } catch {
+    throw new Error('无法连接后端，请确认服务已启动。')
+  }
+  if (!response?.ok) {
+    throw new Error(await readableHttpError(response))
+  }
+  const blob = await response.blob()
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `iteration-${iterationId}-logs.json`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.URL.revokeObjectURL(url)
+}

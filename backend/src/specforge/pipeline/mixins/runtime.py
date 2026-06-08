@@ -387,6 +387,39 @@ class PipelineRuntimeMixin:
         total = len(lines)
         return {"items": lines[offset : offset + limit], "offset": offset, "limit": limit, "total": total, "has_more": offset + limit < total}
 
+    def export_iteration_logs(self, iteration_id: str) -> dict[str, Any]:
+        self._require_iteration(iteration_id)
+        runs = self.db.list_runs(iteration_id)
+        run_logs: list[dict[str, Any]] = []
+        for run in runs:
+            run_id = run["id"]
+            all_items: list[dict[str, Any]] = []
+            offset = 0
+            while True:
+                page = self.run_logs_page(iteration_id, run_id, offset=offset, limit=self._RUN_LOG_PAGE_SIZE_MAX)
+                all_items.extend(page["items"])
+                if not page["has_more"]:
+                    break
+                offset += len(page["items"])
+            run_logs.append({
+                "run_id": run_id,
+                "node": run["node"],
+                "status": run["status"],
+                "provider": run["provider"] if "provider" in run.keys() else None,
+                "started_at": run["started_at"],
+                "finished_at": run["finished_at"] if "finished_at" in run.keys() else None,
+                "duration_ms": run["duration_ms"] if "duration_ms" in run.keys() else None,
+                "exit_code": run["exit_code"] if "exit_code" in run.keys() else None,
+                "stdout_bytes": run["stdout_bytes"] if "stdout_bytes" in run.keys() else 0,
+                "stderr_bytes": run["stderr_bytes"] if "stderr_bytes" in run.keys() else 0,
+                "logs": {"items": all_items, "total": len(all_items)},
+            })
+        return {
+            "iteration_id": iteration_id,
+            "exported_at": iso(utcnow()),
+            "runs": run_logs,
+        }
+
 
     def _read_raw_log_page(self, path: Path, *, offset: int, limit: int) -> dict[str, Any]:
         items: list[dict[str, Any]] = []
