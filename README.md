@@ -386,7 +386,7 @@ flowchart LR
 | **②b Code Tester 自修** | `code_tester_self` | 3 | `defects` 仅 `owner=code_tester`（如 `tests/adversarial/**`、验证文档） | `code_tester → code_tester`（带 `failure_notes`） | `blocked` |
 | **②c 测试计划修订** | `test_planner_self` | 3 | `defects` 含 `owner=test_planner` / 测试计划需要调整 | `ui_tester → test_planner → coder → …` | `blocked` |
 | **③ 规格复核** | `planner_verify_reject` | 2 | `verify_report.md` 缺少标题或 Pass 摘要 | `planner_verify → code_tester → ui_tester → planner_verify` | `blocked` |
-| **A Agent 产物自修** | `{node}_artifact_self` | 3 | Agent 输出 JSON/schema 不合法，或 artifact 落盘路径/内容不合法 | 回到同一 Agent，prompt 注入 rejected artifact error | `blocked` |
+| **A Agent 产物自修** | `{node}_artifact_self` | 3 | Agent 输出的 `<specforge_artifact>` JSON 不合法，或 artifact 落盘路径/内容不合法 | 回到同一 Agent，prompt 注入 rejected artifact error | `blocked` |
 
 **owner=prd_planner**（PRD 范围硬冲突等）不进入自动回环，直接 `blocked`，需人工处理。
 
@@ -552,7 +552,7 @@ ContextPackage 借鉴 Gold Band 的热/冷上下文分层：
 | **code_tester** | Codex SDK / Claude CLI（可配置） | 按 testing_plan.md 编写自动化测试；独立代码审查、`defects[]`、对抗测试；无 UI 自动化 | `verify_report.md`、`delivery_advice.md`、`tests/unit|integration`、`tests/adversarial/` |
 | **ui_tester** | Claude CLI / Codex SDK（可配置） | Agent 执行 testing_plan.md 中的 Manual Tests（playwright-cli / cua-driver）、合并验证产物 | `ui_results.json`、`ui_report.md`（在 code_tester 产物基础上） |
 
-反串谋：规划与验证可分模型；测试计划（`testing_plan.md`）在 Coder **之前**由 Test Planner 产出，Code Tester 在实现后按测试计划编写自动化测试并建立 checksum 基线；Coder 不得改已建立的测试。验证回环按 owner 分流：Coder（②a）、Code Tester 自修（②b）、Test Planner 修订测试计划（②c）。Agent JSON/schema/落盘问题走同 Agent 产物自修（A）。UI 环境不可用和自动化执行失败由 UI Tester 记录 warning；只有 UI Tester 汇总出 P0/P1 缺陷才触发实现回环。
+反串谋：规划与验证可分模型；测试计划（`testing_plan.md`）在 Coder **之前**由 Test Planner 产出，Code Tester 在实现后按测试计划编写自动化测试并建立 checksum 基线；Coder 不得改已建立的测试。验证回环按 owner 分流：Coder（②a）、Code Tester 自修（②b）、Test Planner 修订测试计划（②c）。Agent artifact block / schema 校验 / 落盘问题走同 Agent 产物自修（A）。UI 环境不可用和自动化执行失败由 UI Tester 记录 warning；只有 UI Tester 汇总出 P0/P1 缺陷才触发实现回环。
 
 ---
 
@@ -632,7 +632,7 @@ cd frontend && npm install && npm run dev:all
 - `claude` — 默认用于 `prd_planner`、`test_planner`、`coder`、discovery/clarification
 - `openai-codex` Python SDK — 用于绑定到 Codex 的阶段（SDK 会安装匹配的 Codex runtime）
 
-Claude CLI 使用 `bypassPermissions`；Codex SDK 使用 `Sandbox.full_access` + `ApprovalMode.auto_review`。测试不可变靠 `test_planner` 写基线 + `integrity_check` 保障。
+Agent 权限按 provider 自动配置：Claude CLI 使用 `bypassPermissions`；Codex SDK 使用 `Sandbox.full_access` + `ApprovalMode.auto_review`。测试不可变靠 `test_planner` 写基线 + `integrity_check` 保障。
 
 项目设置页会展示 Agent / Provider 管理卡：Claude Code 与 Codex SDK 的版本、doctor 状态、能力与安装提示。Provider 抽象已预留 `describe/doctor/run/open_session/build_continue_command` 形状，后续可以接 ACP 或其它 worker，而不需要重写流水线。
 
