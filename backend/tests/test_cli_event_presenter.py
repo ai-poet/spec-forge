@@ -43,6 +43,16 @@ def test_claude_stream_delta_tool_use_tool_result_and_structured_output():
     structured = present({"type": "result", "structured_output": {"ok": True}})
     assert structured.phase == "result"
     assert structured.severity == "success"
+    assert structured.provider == "claude_code"
+
+
+def test_codex_sdk_result_uses_codex_provider_copy():
+    result = present({"type": "result", "structured_output": {"ok": True}, "source": "codex-sdk"})
+
+    assert result.provider == "codex"
+    assert result.phase == "result"
+    assert "Codex SDK" in result.message
+    assert "Claude" not in result.message
 
 
 def test_codex_lifecycle_command_file_mcp_todo_agent_and_failure_events():

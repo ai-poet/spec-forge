@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getWorkflowSnapshot } from '../../../shared/lib/api'
+import { exportIterationLogs, getWorkflowSnapshot } from '../../../shared/lib/api'
 import type { IterationDetail, WorkflowSnapshot } from '../../../shared/lib/types'
 import { isStepLive, latestNodeProgress } from '../lib/pipelineLive'
 import { inferFocusStep, PIPELINE_STEPS, type PipelineStepKey } from '../lib/pipelineSteps'
@@ -46,6 +46,8 @@ export function AgentExecutionFlow({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<WorkflowSnapshot | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const runsKey = micro.runs.map((run) => run.id).join('|')
   useEffect(() => {
@@ -107,6 +109,19 @@ export function AgentExecutionFlow({
     setSelectedMilestoneId(defaultMilestone?.id ?? null)
   }
 
+  async function handleExportLogs() {
+    if (!detail) return
+    setExporting(true)
+    setExportError(null)
+    try {
+      await exportIterationLogs(detail.id)
+    } catch (exc) {
+      setExportError(exc instanceof Error ? exc.message : '导出失败')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <section className="panel stack">
       <div className="section-row">
@@ -114,8 +129,12 @@ export function AgentExecutionFlow({
         <div className={styles.headerMeta}>
           {stepLive ? <RunningIndicator size="sm" mode="dot" label="执行中" /> : null}
           {selectedStepKey ? <span className="pill">{countLabel}</span> : null}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={handleExportLogs} disabled={!detail || exporting}>
+            {exporting ? '导出中...' : '导出 JSON 日志'}
+          </button>
         </div>
       </div>
+      {exportError ? <div className="error-text">{exportError}</div> : null}
 
       {stepLive ? (
         <div className={styles.liveBanner}>

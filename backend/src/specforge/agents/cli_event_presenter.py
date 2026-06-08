@@ -97,7 +97,7 @@ class CliEventPresenter:
 
     def _looks_like_codex(self, payload: dict[str, Any]) -> bool:
         event_type = str(payload.get("type") or payload.get("event") or "")
-        return event_type.startswith(("thread.", "turn.", "item.")) or "item" in payload
+        return payload.get("source") == "codex-sdk" or event_type.startswith(("thread.", "turn.", "item.")) or "item" in payload
 
     def _looks_like_claude(self, payload: dict[str, Any]) -> bool:
         event_type = str(payload.get("type") or "")
@@ -269,6 +269,10 @@ class CodexEventPresenter:
             return CliDisplayEvent("codex", node, "result", "Codex 回合已完成", "Codex 已完成本轮输出。", severity="success", status="completed", raw_event=payload)
         if event_type == "turn.failed":
             return CliDisplayEvent("codex", node, "error", "Codex 回合失败", _error_message(payload) or "Codex 执行过程中出现失败。", severity="error", status="failed", raw_event=payload)
+        if event_type == "result":
+            if "structured_output" in payload:
+                return CliDisplayEvent("codex", node, "result", "Agent 产物已生成", "Codex SDK 已返回可校验 artifact，后端正在落盘。", severity="success", status="completed", raw_event=payload)
+            return CliDisplayEvent("codex", node, "result", "Codex SDK 输出已完成", "Codex SDK 已返回最终结果，后端正在解析。", severity="success", status="completed", raw_event=payload)
         if event_type in {"item.started", "item.updated", "item.completed"}:
             return self._present_item(event_type, item, payload, node=node, sdk_method=sdk_method)
         if event_type in {"agent_reasoning", "agent_message"}:
