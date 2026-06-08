@@ -361,6 +361,10 @@ def test_iteration_workspace_under_project_root(tmp_path):
     docs_root = pipeline.docs_root(iteration_id)
     assert str(workspace).startswith(str((Path(root_path) / ".specforge" / "iterations").resolve()))
     assert (docs_root / "prd.md").exists()
+    prd_text = (docs_root / "prd.md").read_text(encoding="utf-8")
+    assert "## Technical Stack" in prd_text
+    assert "## Development Conventions" in prd_text
+    assert "## Architecture and Boundaries" in prd_text
     assert (Path(root_path) / "docs" / "00_convention.md").exists()
     assert (docs_root / "context" / "for_coder.jsonl").exists()
     assert (docs_root / "context" / "for_tester.jsonl").exists()

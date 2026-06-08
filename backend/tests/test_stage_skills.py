@@ -59,6 +59,9 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "context/for_tester.jsonl" in text
     assert "Build feature X" in text
     assert "Planner project context cache" in text
+    assert "## Technical Stack" in text
+    assert "## Development Conventions" in text
+    assert "docs/00_convention.md" in text
     assert "modification_plan" not in text
 
 

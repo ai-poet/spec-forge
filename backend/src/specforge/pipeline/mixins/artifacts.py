@@ -78,7 +78,7 @@ class PipelineArtifactsMixin:
             raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
             return parse_json_artifact(raw, PrdPlannerArtifact)  # type: ignore[return-value]
         goal = state["goal"]
-        prd = f"""---\ndoc: prd\niteration: 1\nstatus: draft\nowner: prd_planner\n---\n\n# Iteration 1 - PRD\n\nGoal: {goal}\n\n## Scope\nDry-run PRD from prd_planner.\n\n## Acceptance criteria\n- Generate a minimal source module that satisfies test_planner protected tests.\n"""
+        prd = f"""---\ndoc: prd\niteration: 1\nstatus: draft\nowner: prd_planner\n---\n\n# Iteration 1 - PRD\n\nGoal: {goal}\n\n## Scope\nDry-run PRD from prd_planner.\n\n## Technical Stack\n- Python runtime for the dry-run source module.\n- Pytest-compatible verification path for downstream testing.\n\n## Development Conventions\n- Keep implementation code under `src/**` unless `docs/00_convention.md` declares a more specific source root.\n- Keep generated tests under the project test roots declared by convention or under `tests/**` for dry-run projects.\n- Preserve SpecForge planning documents as planner-owned artifacts.\n\n## Architecture and Boundaries\n- Provide a minimal source module with a stable public function for tester verification.\n- Avoid file-level implementation checklists; Coder owns concrete code edits.\n\n## Acceptance criteria\n- Generate a minimal source module that satisfies test_planner protected tests.\n"""
         return PrdPlannerArtifact(
             prd=prd,
             context_for_coder=[
