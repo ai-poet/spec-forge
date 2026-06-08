@@ -262,13 +262,13 @@ class CodexEventPresenter:
         item = payload.get("item") if isinstance(payload.get("item"), dict) else msg.get("item") if isinstance(msg.get("item"), dict) else {}
         sdk_method = str(payload.get("sdk_method") or payload.get("method") or "")
         if event_type == "thread.started":
-            return CliDisplayEvent("codex", node, "session", "Codex 验证会话已启动", "Tester 已创建独立执行线程。", raw_event=payload)
+            return CliDisplayEvent("codex", node, "session", "Codex 会话已启动", "Codex 已创建独立执行线程。", raw_event=payload)
         if event_type == "turn.started":
-            return CliDisplayEvent("codex", node, "thinking", "Codex 回合已开始", "Tester 正在分析任务并准备执行。", raw_event=payload)
+            return CliDisplayEvent("codex", node, "thinking", "Codex 回合已开始", "Codex 正在分析任务并准备执行。", raw_event=payload)
         if event_type == "turn.completed":
-            return CliDisplayEvent("codex", node, "result", "Codex 回合已完成", "Tester 已完成本轮验证输出。", severity="success", status="completed", raw_event=payload)
+            return CliDisplayEvent("codex", node, "result", "Codex 回合已完成", "Codex 已完成本轮输出。", severity="success", status="completed", raw_event=payload)
         if event_type == "turn.failed":
-            return CliDisplayEvent("codex", node, "error", "Codex 回合失败", _error_message(payload) or "Tester 执行过程中出现失败。", severity="error", status="failed", raw_event=payload)
+            return CliDisplayEvent("codex", node, "error", "Codex 回合失败", _error_message(payload) or "Codex 执行过程中出现失败。", severity="error", status="failed", raw_event=payload)
         if event_type in {"item.started", "item.updated", "item.completed"}:
             return self._present_item(event_type, item, payload, node=node, sdk_method=sdk_method)
         if event_type in {"agent_reasoning", "agent_message"}:
@@ -316,11 +316,11 @@ class CodexEventPresenter:
         if item_type in {"reasoning", "agent_reasoning", "plan"}:
             preview = _compact(item.get("text") or item.get("summary"))
             title = "Codex 正在更新计划" if item_type == "plan" else "Codex 正在推理"
-            return CliDisplayEvent("codex", node, "thinking", title, preview or "Tester 正在形成验证判断。", item_id=item_id, status=status, preview=preview, raw_event=payload)
+            return CliDisplayEvent("codex", node, "thinking", title, preview or "Codex 正在形成判断。", item_id=item_id, status=status, preview=preview, raw_event=payload)
         if item_type == "agent_message":
             preview = _compact(item.get("text"))
-            title = "Codex 正在输出" if sdk_method == "item/agentMessage/delta" or status == "updated" else "Codex 输出验证结论"
-            return CliDisplayEvent("codex", node, "text", title, preview or "Tester 正在输出最终报告内容。", item_id=item_id, status=status, preview=preview, raw_event=payload)
+            title = "Codex 正在输出" if sdk_method == "item/agentMessage/delta" or status == "updated" else "Codex 输出结论"
+            return CliDisplayEvent("codex", node, "text", title, preview or "Codex 正在输出内容。", item_id=item_id, status=status, preview=preview, raw_event=payload)
         if item_type == "error":
             return CliDisplayEvent("codex", node, "error", "Codex item 错误", _compact(item.get("message") or item.get("error")) or "Codex provider 返回错误 item。", severity="error", item_id=item_id, status="failed", raw_event=payload)
         return CliDisplayEvent("codex", node, "thinking", f"Codex {item_type or '步骤'}", "原始 CLI 事件已保存，可在详情里查看。", item_id=item_id, status=status, raw_event=payload)
@@ -328,9 +328,9 @@ class CodexEventPresenter:
     def _present_legacy_item(self, event_type: str, payload: dict[str, Any], *, node: str) -> CliDisplayEvent:
         if event_type == "agent_reasoning":
             text = _compact(payload.get("text"))
-            return CliDisplayEvent("codex", node, "thinking", "Codex 正在推理", text or "Tester 正在形成验证判断。", preview=text, raw_event=payload)
+            return CliDisplayEvent("codex", node, "thinking", "Codex 正在推理", text or "Codex 正在形成判断。", preview=text, raw_event=payload)
         text = _compact(payload.get("text") or payload.get("message"))
-        return CliDisplayEvent("codex", node, "text", "Codex 输出验证结论", text or "Tester 正在输出最终报告内容。", preview=text, raw_event=payload)
+        return CliDisplayEvent("codex", node, "text", "Codex 输出结论", text or "Codex 正在输出内容。", preview=text, raw_event=payload)
 
 
 def _tool_input_paths(value: Any) -> list[str]:
