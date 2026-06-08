@@ -1,8 +1,6 @@
-import { useState, useCallback } from 'react'
 import { eventLabel, graphNodeLabel, iterationStatusLabel, nodeLabel, retryLabel } from '../../../shared/lib/labels'
 import type { IterationDetail } from '../../../shared/lib/types'
 import { documentSummary, presentEvent } from '../../../shared/lib/presentation'
-import { exportIterationLogs } from '../../../shared/lib/api'
 import styles from './IterationSummaryPanel.module.less'
 
 interface Props {
@@ -20,22 +18,6 @@ function eventMatches(detail: IterationDetail | null, token: string) {
 }
 
 export function IterationSummaryPanel({ detail }: Props) {
-  const [exporting, setExporting] = useState(false)
-  const [exportError, setExportError] = useState<string | null>(null)
-
-  const handleExport = useCallback(async () => {
-    if (!detail) return
-    setExporting(true)
-    setExportError(null)
-    try {
-      await exportIterationLogs(detail.id)
-    } catch (exc) {
-      setExportError(exc instanceof Error ? exc.message : '导出失败')
-    } finally {
-      setExporting(false)
-    }
-  }, [detail])
-
   const changedPaths = detail?.events.flatMap((event) => {
     const value = event.payload.changed_paths
     return Array.isArray(value) ? value.map(String) : []
@@ -58,18 +40,7 @@ export function IterationSummaryPanel({ detail }: Props) {
     <section className="panel stack">
       <div className="section-row">
         <h2 className="section-title">迭代摘要</h2>
-        {detail ? (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={handleExport}
-            disabled={exporting}
-          >
-            {exporting ? '导出中...' : '导出日志'}
-          </button>
-        ) : null}
       </div>
-      {exportError ? <div className="error-text">{exportError}</div> : null}
       {!detail ? <div className="empty">请选择迭代</div> : null}
       {detail ? (
         <>

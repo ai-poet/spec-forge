@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { getRunContextPackage, getRunLogs, getRunPromptBundle, getRunWorkerRef } from '../../../shared/lib/api'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { exportIterationLogs, getRunContextPackage, getRunLogs, getRunPromptBundle, getRunWorkerRef } from '../../../shared/lib/api'
 import type { ContextPackagePayload, IterationDetail, NodeRunRecord, PromptBundlePayload, RunLogPage, SemanticEvent, WorkerRefPayload } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
@@ -308,6 +308,21 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
   const [animatedEventIds, setAnimatedEventIds] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedRun, setSelectedRun] = useState<NodeRunRecord | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+
+  const handleExport = useCallback(async () => {
+    if (!detail) return
+    setExporting(true)
+    setExportError(null)
+    try {
+      await exportIterationLogs(detail.id)
+    } catch (exc) {
+      setExportError(exc instanceof Error ? exc.message : '导出失败')
+    } finally {
+      setExporting(false)
+    }
+  }, [detail])
   const nodes = stepKey ? new Set(nodesForStep(stepKey)) : null
   const cliActive = isCliActive(detail, stepKey, reviewMode)
   const progress = latestNodeProgress(detail, stepKey)
@@ -433,8 +448,21 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
     <section className={`panel ${styles.root}`}>
       <div className="section-row">
         <h2 className="section-title">{stepKey ? '本阶段 CLI 日志' : '运行日志'}</h2>
-        {cliActive ? <RunningIndicator size="sm" mode="dot" label="实时输出" /> : null}
+        <div className={styles.headerActions}>
+          {cliActive ? <RunningIndicator size="sm" mode="dot" label="实时输出" /> : null}
+          {detail ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={handleExport}
+              disabled={exporting}
+            >
+              {exporting ? '导出中...' : '导出日志'}
+            </button>
+          ) : null}
+        </div>
       </div>
+      {exportError ? <div className="error-text">{exportError}</div> : null}
       {cliActive ? (
         <div className={styles.liveBanner}>
           <RunningIndicator mode="both" label={progress?.title ?? `${presentNodeName(pendingNode)} 正在运行…`} />
