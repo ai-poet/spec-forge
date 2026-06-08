@@ -314,11 +314,11 @@ class CodexEventPresenter:
             preview = _todo_preview(item)
             return CliDisplayEvent("codex", node, "todo", "更新任务清单", preview or "Codex 已更新执行清单。", item_id=item_id, status=status, preview=preview, raw_event=payload)
         if item_type in {"reasoning", "agent_reasoning", "plan"}:
-            preview = _compact(item.get("text") or item.get("summary"))
+            preview = _compact(_codex_item_text(item) or item.get("summary"))
             title = "Codex 正在更新计划" if item_type == "plan" else "Codex 正在推理"
             return CliDisplayEvent("codex", node, "thinking", title, preview or "Codex 正在形成判断。", item_id=item_id, status=status, preview=preview, raw_event=payload)
         if item_type == "agent_message":
-            preview = _compact(item.get("text"))
+            preview = _compact(_codex_item_text(item))
             title = "Codex 正在输出" if sdk_method == "item/agentMessage/delta" or status == "updated" else "Codex 输出结论"
             return CliDisplayEvent("codex", node, "text", title, preview or "Codex 正在输出内容。", item_id=item_id, status=status, preview=preview, raw_event=payload)
         if item_type == "error":
@@ -372,6 +372,30 @@ def _compact(value: Any, *, limit: int = 360) -> str:
     if len(text) > limit:
         return f"{text[:limit - 1]}…"
     return text
+
+
+def _codex_item_text(item: Any) -> str:
+    if isinstance(item, str):
+        return item
+    if isinstance(item, list):
+        return "".join(_codex_item_text(child) for child in item)
+    if not isinstance(item, dict):
+        return ""
+    for key in ("text", "delta", "message"):
+        value = item.get(key)
+        if isinstance(value, str) and value:
+            return value
+    content = item.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text = "".join(_codex_item_text(block) for block in content)
+        if text:
+            return text
+    root = item.get("root")
+    if isinstance(root, dict):
+        return _codex_item_text(root)
+    return ""
 
 
 def _canonical_codex_item_type(value: str) -> str:

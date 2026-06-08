@@ -124,3 +124,20 @@ def test_codex_sdk_camel_case_items_and_delta_events_are_displayed():
     assert mcp_progress.phase == "mcp"
     assert mcp_progress.status == "in_progress"
     assert mcp_progress.preview == "searching"
+
+
+def test_codex_agent_message_text_is_extracted_from_nested_content():
+    nested_message = present(
+        {
+            "type": "item.completed",
+            "item": {
+                "type": "agentMessage",
+                "id": "msg_1",
+                "content": [{"type": "output_text", "text": "visible final text"}],
+            },
+        }
+    )
+
+    assert nested_message.phase == "text"
+    assert nested_message.status == "completed"
+    assert nested_message.preview == "visible final text"

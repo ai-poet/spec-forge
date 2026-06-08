@@ -616,7 +616,7 @@ class PipelineRuntimeMixin:
 
 
     def _cli_display_event(self, iteration_id: str, event: CliDisplayEvent) -> None:
-        if event.phase in self._PERSISTED_CLI_PHASES:
+        if event.phase in self._PERSISTED_CLI_PHASES or self._should_persist_preview_event(event):
             self._add_event(iteration_id, event_type="cli.display", payload=event.payload(include_raw=False))
             return
         if event.phase in self._PREVIEW_CLI_PHASES:
@@ -643,6 +643,13 @@ class PipelineRuntimeMixin:
                 )
             except Exception:
                 pass
+
+
+    @staticmethod
+    def _should_persist_preview_event(event: CliDisplayEvent) -> bool:
+        if event.provider != "codex":
+            return False
+        return event.phase == "text" and event.status == "completed"
 
 
     @staticmethod

@@ -170,3 +170,29 @@ def test_codex_sdk_runner_normalizes_official_sdk_stream_methods():
         "turnId": "turn_1",
         "type": "item.updated",
     }
+
+
+def test_codex_sdk_runner_normalizes_params_wrapped_stream_methods():
+    from specforge.agents.codex_sdk_runner import _synthetic_event
+
+    delta_event = _synthetic_event(
+        {
+            "method": "item/agentMessage/delta",
+            "params": {"delta": "hello", "itemId": "msg_1", "threadId": "thr_1", "turnId": "turn_1"},
+        }
+    )
+    completed_event = _synthetic_event(
+        {
+            "method": "item/completed",
+            "params": {
+                "item": {"root": {"type": "agentMessage", "id": "msg_1", "text": "final text"}},
+                "threadId": "thr_1",
+                "turnId": "turn_1",
+            },
+        }
+    )
+
+    assert delta_event["type"] == "item.updated"
+    assert delta_event["item"] == {"type": "agentMessage", "id": "msg_1", "text": "hello"}
+    assert completed_event["type"] == "item.completed"
+    assert completed_event["item"] == {"type": "agentMessage", "id": "msg_1", "text": "final text"}

@@ -837,6 +837,28 @@ def test_execute_throttles_text_cli_display_persistence():
     assert all("raw_event" not in event["payload"] for event in cli_events)
 
 
+def test_execute_persists_codex_completed_agent_text_display():
+    iteration_id = create_manual_iteration("cli-codex-text")
+    pipeline.db.update_iteration(iteration_id, current_node="code_tester", status="testing", last_error=None)
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "code_tester"}
+    payload = {
+        "type": "item.completed",
+        "item": {"type": "agentMessage", "id": "msg_1", "text": "final text visible in console"},
+    }
+    code = f"import json; print(json.dumps({payload!r}))"
+
+    pipeline._execute(state, [sys.executable, "-c", code], node="code_tester")
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    cli_events = [event for event in detail["events"] if event["type"] == "cli.display"]
+
+    assert any(
+        event["payload"]["phase"] == "text"
+        and event["payload"]["provider"] == "codex"
+        and event["payload"]["preview"] == "final text visible in console"
+        for event in cli_events
+    )
+
+
 def test_execute_stderr_plain_logs_use_diagnostic_title():
     iteration_id = create_manual_iteration("cli-stderr-plain")
     pipeline.db.update_iteration(iteration_id, current_node="code_tester", status="testing", last_error=None)
