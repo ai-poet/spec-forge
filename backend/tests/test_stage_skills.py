@@ -80,6 +80,8 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "performance" in text
     assert "main/preload/renderer" in text
     assert "Capacitor 7" in text
+    assert "frontend/backend separation" in text
+    assert "explicit API contracts" in text
     assert "modification_plan" not in text
 
 

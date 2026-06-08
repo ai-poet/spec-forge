@@ -14,6 +14,8 @@ The PRD must include these Markdown sections:
 - `## Development Conventions`
 - `## Architecture and Boundaries`
 
+When both frontend and backend work are in scope, the PRD must require frontend/backend separation in `## Architecture and Boundaries`: keep UI and backend source boundaries independent, communicate through explicit API contracts, avoid UI code depending on backend internals, avoid backend code depending on frontend implementation details, and document ownership for request/response models, validation, error handling, authentication, and integration tests.
+
 When stack choices are not explicitly decided and the repository does not contradict them, use these defaults in `## Technical Stack`:
 
 - Frontend/web UI: React + Vite, componentized UI, Less Modules, and modern large-scale frontend layering such as app shell, pages/routes, features, shared components, state/data services, styles, and assets; explicitly cover UI/UX usability, visual polish, and fault-tolerant loading/empty/error/permission states.

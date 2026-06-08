@@ -374,6 +374,8 @@ def test_iteration_workspace_under_project_root(tmp_path):
     assert "performance" in prd_text
     assert "main/preload/renderer" in prd_text
     assert "Capacitor 7" in prd_text
+    assert "frontend and backend separated" in prd_text
+    assert "explicit API contracts" in prd_text
     assert (Path(root_path) / "docs" / "00_convention.md").exists()
     assert (docs_root / "context" / "for_coder.jsonl").exists()
     assert (docs_root / "context" / "for_tester.jsonl").exists()
