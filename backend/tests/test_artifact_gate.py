@@ -9,6 +9,17 @@ def test_read_framework_conventions_returns_rules() -> None:
     text = read_framework_conventions()
     assert "Write zones" in text
     assert "Do not create `tests/ui/*.json` specs" in text
+    assert "React + Vite" in text
+    assert "Less Modules" in text
+    assert "UI/UX usability" in text
+    assert "visual polish" in text
+    assert "fault-tolerant" in text
+    assert "routes/controllers" in text
+    assert "extensibility" in text
+    assert "maintainability" in text
+    assert "performance" in text
+    assert "Electron" in text
+    assert "Capacitor 7" in text
 
 
 def test_read_spec_index_missing_returns_empty(tmp_path: Path) -> None:

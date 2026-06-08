@@ -365,6 +365,15 @@ def test_iteration_workspace_under_project_root(tmp_path):
     assert "## Technical Stack" in prd_text
     assert "## Development Conventions" in prd_text
     assert "## Architecture and Boundaries" in prd_text
+    assert "React + Vite" in prd_text
+    assert "Less Modules" in prd_text
+    assert "UI/UX usability" in prd_text
+    assert "fault-tolerant" in prd_text
+    assert "route/service/domain/data-access" in prd_text
+    assert "maintainability" in prd_text
+    assert "performance" in prd_text
+    assert "main/preload/renderer" in prd_text
+    assert "Capacitor 7" in prd_text
     assert (Path(root_path) / "docs" / "00_convention.md").exists()
     assert (docs_root / "context" / "for_coder.jsonl").exists()
     assert (docs_root / "context" / "for_tester.jsonl").exists()

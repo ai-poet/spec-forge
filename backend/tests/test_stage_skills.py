@@ -37,6 +37,15 @@ def test_compose_planner_discovery_includes_brief_context() -> None:
     assert "Planner project context cache" in text
     assert "One question per turn" in text
     assert "Round 1 Q: scope?" in text
+    assert "React + Vite" in text
+    assert "Less Modules" in text
+    assert "UI/UX usability" in text
+    assert "fault-tolerant" in text
+    assert "route/service/domain/data-access" in text
+    assert "maintainability" in text
+    assert "performance" in text
+    assert "Electron" in text
+    assert "Capacitor 7" in text
 
 
 def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
@@ -62,6 +71,15 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "## Technical Stack" in text
     assert "## Development Conventions" in text
     assert "docs/00_convention.md" in text
+    assert "React + Vite" in text
+    assert "Less Modules" in text
+    assert "UI/UX usability" in text
+    assert "fault-tolerant" in text
+    assert "route/controller" in text
+    assert "maintainability" in text
+    assert "performance" in text
+    assert "main/preload/renderer" in text
+    assert "Capacitor 7" in text
     assert "modification_plan" not in text
 
 
