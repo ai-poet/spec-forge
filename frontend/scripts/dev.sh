@@ -130,15 +130,25 @@ ensure_backend_deps() {
 }
 
 ensure_codex_sdk_dep() {
-  if python -c 'import importlib.util; raise SystemExit(0 if importlib.util.find_spec("openai_codex") else 1)' >/dev/null 2>&1; then
+  # Determine the correct Python interpreter to use.
+  # After ensure_backend_deps, when using uv the venv may not be activated,
+  # so we need to check the venv python directly.
+  local py_cmd="python"
+  if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
+    py_cmd="${VIRTUAL_ENV}/bin/python"
+  elif [[ -x "$ROOT_DIR/backend/.venv/bin/python" ]]; then
+    py_cmd="$ROOT_DIR/backend/.venv/bin/python"
+  fi
+
+  if "$py_cmd" -c 'import importlib.util; raise SystemExit(0 if importlib.util.find_spec("openai_codex") else 1)' >/dev/null 2>&1; then
     return 0
   fi
 
   echo "Installing missing Codex SDK dependency ($CODEX_SDK_REQUIREMENT)..."
-  if python -m pip --version >/dev/null 2>&1; then
-    python -m pip install -q "$CODEX_SDK_REQUIREMENT"
-  elif python -m ensurepip --upgrade >/dev/null 2>&1; then
-    python -m pip install -q "$CODEX_SDK_REQUIREMENT"
+  if "$py_cmd" -m pip --version >/dev/null 2>&1; then
+    "$py_cmd" -m pip install -q "$CODEX_SDK_REQUIREMENT"
+  elif "$py_cmd" -m ensurepip --upgrade >/dev/null 2>&1; then
+    "$py_cmd" -m pip install -q "$CODEX_SDK_REQUIREMENT"
   elif command -v uv >/dev/null 2>&1; then
     (cd "$ROOT_DIR/backend" && uv pip install --python "$ROOT_DIR/backend/.venv/bin/python" "$CODEX_SDK_REQUIREMENT")
   else
@@ -146,7 +156,7 @@ ensure_codex_sdk_dep() {
     return 1
   fi
 
-  python -c 'import importlib.util; raise SystemExit(0 if importlib.util.find_spec("openai_codex") else 1)'
+  "$py_cmd" -c 'import importlib.util; raise SystemExit(0 if importlib.util.find_spec("openai_codex") else 1)'
 }
 
 ensure_backend_deps
