@@ -719,9 +719,9 @@ class PipelineRuntimeMixin:
 
     def _error_action_hint(self, event_type: str) -> str:
         hints = {
-            "artifact.invalid": "查看对应 agent 的原始日志，确认输出是否为合法结构化产物（JSON / output_schema）。",
+            "artifact.invalid": "查看对应 agent 的原始日志，确认最终回复包含合法 <specforge_artifact> JSON，并满足当前阶段 schema。",
             "artifact.self_max_retries": "查看最后一次产物错误和原始日志，必要时人工修正 prompt 或产物 schema。",
-            "ui_spec.invalid": "查看对应 agent 的原始日志，确认输出是否为合法结构化产物（JSON / output_schema）。",
+            "ui_spec.invalid": "查看对应 agent 的原始日志，确认 UI 产物文件是合法 JSON，并满足 UI spec contract。",
             "test_integrity.failed": "检查受保护测试是否被修改；必要时重新生成规划和测试基线。",
             "planning_integrity.failed": "检查 PRD、testing_plan 与 context manifests 是否被非规划节点修改；必要时回到 Test Planner 重新生成 baseline。",
             "prd_planner.failed": "检查 CLI Provider（Claude Code 或 Codex SDK）、模型配置和 API 凭据。",

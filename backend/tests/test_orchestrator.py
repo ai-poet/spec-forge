@@ -546,7 +546,7 @@ def test_iteration_detail_compacts_large_history_for_live_refresh():
         iteration_id,
         node="ui_tester",
         status="failed",
-        command="claude -p --json-schema {} ## SpecForge stage: ui_tester\n" + ("prompt " * 4000),
+        command="claude -p ## SpecForge stage: ui_tester\n" + ("prompt " * 4000),
         stdout="full stdout",
         stderr="",
         exit_code=1,

@@ -432,7 +432,7 @@ def _system_prompt(*, stage: CliStage, provider: CliProvider) -> str:
     return (
         "You are running inside SpecForge, a local spec-first agent pipeline. "
         f"Current stage: {stage}. Provider: {provider}. "
-        "Respect the stage instructions, write-zone constraints, and requested JSON artifact schema."
+        "Respect the stage instructions, write-zone constraints, and final <specforge_artifact> JSON contract."
     )
 
 

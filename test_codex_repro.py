@@ -27,6 +27,12 @@ Iteration goal: 做一个本地 Web 控制台,可视化这条流水线的运行�
 Return only JSON matching this shape:
 {status:ask|ready, complexity:trivial|simple|moderate|complex, question?:string, options:[string], assumptions:[string], requirements_brief:string, rationale:string}
 
+At the end of your final response, output exactly one SpecForge artifact block:
+
+<specforge_artifact>
+{ ...valid JSON matching the stage contract... }
+</specforge_artifact>
+
 (first discovery turn — produce a question or mark ready based on the brief above)"""
 
 
@@ -37,7 +43,7 @@ def print_section(title):
 
 
 def test_codex_sdk_with_real_prompt(args):
-    """使用真实 prompt 和 output_schema 测试 Codex SDK"""
+    """使用真实 prompt artifact contract 测试 Codex SDK"""
 
     print_section("环境检查")
     print(f"  OPENAI_API_KEY env: {'已设置' if os.environ.get('OPENAI_API_KEY') else '未设置'}")
@@ -65,7 +71,7 @@ def test_codex_sdk_with_real_prompt(args):
         print(f"  ✗ 导入失败: {e}")
         return 1
 
-    # 构建真实的 output_schema（和流水线中一致）
+    # 仅用于本地校验展示；Codex SDK 调用不再传 provider-native schema。
     schema = {
         "type": "object",
         "properties": {
@@ -85,7 +91,7 @@ def test_codex_sdk_with_real_prompt(args):
     print_section("开始 Codex 调用")
     print(f"  stage: {args.stage}")
     print(f"  prompt length: {len(prompt)} chars")
-    print(f"  output_schema: {json.dumps(schema, ensure_ascii=False)[:100]}...")
+    print(f"  artifact contract schema: {json.dumps(schema, ensure_ascii=False)[:100]}...")
 
     try:
         with Codex() as codex:
@@ -108,14 +114,13 @@ def test_codex_sdk_with_real_prompt(args):
             )
             print(f"  ✓ thread 创建成功: {thread.id}")
 
-            print("  → 启动 turn（带 output_schema）...")
+            print("  → 启动 turn（prompt artifact contract）...")
             print("  → 等待响应（可能需要 10-60 秒）...")
 
             turn = thread.turn(
                 prompt,
                 approval_mode=ApprovalMode.auto_review,
                 sandbox=Sandbox.full_access,
-                output_schema=schema,
             )
 
             print("  → 消费流式输出...")
@@ -188,8 +193,8 @@ def test_codex_sdk_with_real_prompt(args):
 
 
 def test_simple_no_schema():
-    """不带 output_schema 的简单测试（排除 schema 问题）"""
-    print_section("简单测试（无 output_schema）")
+    """不带 provider-native schema 的简单测试"""
+    print_section("简单测试（无 provider-native schema）")
 
     auth_paths = [Path.home() / ".codex" / "auth.json", Path.home() / ".config" / "codex" / "auth.json"]
     for p in auth_paths:

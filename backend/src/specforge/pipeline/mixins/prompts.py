@@ -54,7 +54,9 @@ class PipelinePromptsMixin:
             return ""
         return (
             "Artifact self-retry: your previous output or artifact files were rejected by SpecForge.\n"
-            "Fix only the artifact contract issue described below, then return one valid final JSON artifact matching the schema.\n"
+            "Fix only the artifact contract issue described below, then return one valid final "
+            "<specforge_artifact> block containing JSON that matches the schema.\n"
+            "Do not write anything after </specforge_artifact>.\n"
             "Do not treat this as a product/implementation defect unless the rejected artifact error explicitly says so.\n"
             f"Rejected artifact error: {notes}"
         )
