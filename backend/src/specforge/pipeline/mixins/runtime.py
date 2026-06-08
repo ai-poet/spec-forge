@@ -645,6 +645,22 @@ class PipelineRuntimeMixin:
                 pass
 
 
+    @staticmethod
+    def _provider_from_run_result(run_result: CLIResult) -> str:
+        agent_command = run_result.metadata.get("agent_command")
+        return agent_command.provider if isinstance(agent_command, AgentCommand) else "claude"
+
+    @staticmethod
+    def _cli_failure_action_hint(run_result: CLIResult, *, context: str = "") -> str:
+        provider = PipelineRuntimeMixin._provider_from_run_result(run_result)
+        if provider == "codex":
+            base = "查看运行日志，确认 Codex SDK 已安装并认证（`pip install openai-codex`，且已登录）。"
+        else:
+            base = "查看运行日志，确认 Claude Code CLI 可用并能返回 JSON artifact。"
+        if context:
+            return f"{base} {context}"
+        return base
+
     def _is_real_cli(self, mode: Optional[str]) -> bool:
         return mode == Mode.real_cli.value or settings.mode == Mode.real_cli.value
 
@@ -703,13 +719,13 @@ class PipelineRuntimeMixin:
 
     def _error_action_hint(self, event_type: str) -> str:
         hints = {
-            "artifact.invalid": "查看对应 agent 的原始日志，确认输出是否为合法 JSON artifact。",
-            "artifact.self_max_retries": "查看最后一次产物错误和原始日志，必要时人工修正 prompt 或 artifact schema。",
-            "ui_spec.invalid": "查看对应 agent 的原始日志，确认输出是否为合法 JSON artifact。",
+            "artifact.invalid": "查看对应 agent 的原始日志，确认输出是否为合法结构化产物（JSON / output_schema）。",
+            "artifact.self_max_retries": "查看最后一次产物错误和原始日志，必要时人工修正 prompt 或产物 schema。",
+            "ui_spec.invalid": "查看对应 agent 的原始日志，确认输出是否为合法结构化产物（JSON / output_schema）。",
             "test_integrity.failed": "检查受保护测试是否被修改；必要时重新生成规划和测试基线。",
             "planning_integrity.failed": "检查 PRD、testing_plan 与 context manifests 是否被非规划节点修改；必要时回到 Test Planner 重新生成 baseline。",
-            "prd_planner.failed": "检查 Claude CLI、模型配置和 API 凭据。",
-            "coder.failed": "检查 Claude CLI、工作区权限和失败日志。",
+            "prd_planner.failed": "检查 CLI Provider（Claude Code 或 Codex SDK）、模型配置和 API 凭据。",
+            "coder.failed": "检查 CLI Provider（Claude Code 或 Codex SDK）、工作区权限和失败日志。",
             "code_tester.max_retries": "查看最后一次验证失败说明，必要时人工调整需求或实现。",
             "clarification.max_retries": "补充需求细节或约束后重新启动迭代。",
             "planner_verify.max_retries": "检查验证报告结构，确保包含测试摘要和通过信息。",

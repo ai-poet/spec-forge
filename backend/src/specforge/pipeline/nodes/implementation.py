@@ -46,7 +46,7 @@ class ImplementationNodesMixin:
         if planning_failure is not None:
             return planning_failure
         if run_result.returncode:
-            self._node_event(iteration_id, "node.failed", NodeName.coder.value, "实现失败", "Coder CLI 执行失败。", severity="error", run_id=run_id, action_hint="查看运行日志，确认 claude CLI 和工作区权限。")
+            self._node_event(iteration_id, "node.failed", NodeName.coder.value, "实现失败", "Coder CLI 执行失败。", severity="error", run_id=run_id, action_hint=self._cli_failure_action_hint(run_result, context="同时检查工作区权限。"))
             return self._block(iteration_id, "coder.failed", run_id, run_result.stderr)
 
         try:
@@ -141,7 +141,7 @@ class ImplementationNodesMixin:
                 "Planner CLI 未能回答 Coder 的澄清请求。",
                 severity="error",
                 run_id=run_id,
-                action_hint="查看 Planner 原始日志，确认 claude CLI 可用。",
+                action_hint=self._cli_failure_action_hint(run_result),
             )
             return self._block(iteration_id, "planner_clarification.failed", run_id, self._format_cli_failure(run_result))
 

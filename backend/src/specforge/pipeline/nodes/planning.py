@@ -72,7 +72,7 @@ class PlanningNodesMixin:
                 "Planner discovery CLI 执行失败。",
                 severity="error",
                 run_id=run_id,
-                action_hint="查看运行日志，确认 claude CLI 可用并能返回 JSON artifact。",
+                action_hint=self._cli_failure_action_hint(run_result),
             )
             return self._block(iteration_id, "planner_discovery.failed", run_id, run_result.stderr)
         self._sync_planning_session_from_run(state, run_result)
@@ -238,7 +238,7 @@ class PlanningNodesMixin:
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.prd_planner.value, run_result)
         if run_result.returncode:
-            self._node_event(iteration_id, "node.failed", NodeName.prd_planner.value, "PRD 规划失败", "PRD Planner CLI 执行失败。", severity="error", run_id=run_id, action_hint="查看运行日志，确认 CLI 可用并能返回 JSON artifact。")
+            self._node_event(iteration_id, "node.failed", NodeName.prd_planner.value, "PRD 规划失败", "PRD Planner CLI 执行失败。", severity="error", run_id=run_id, action_hint=self._cli_failure_action_hint(run_result))
             return self._block(iteration_id, "prd_planner.failed", run_id, run_result.stderr)
         self._sync_planning_session_from_run(state, run_result)
         self._mark_planning_session_started(state)

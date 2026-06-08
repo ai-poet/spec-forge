@@ -219,44 +219,69 @@ class CodexSdkProvider:
         )
 
     def doctor(self) -> ProviderDoctor:
+        # 1. Check SDK installation
         try:
             import openai_codex
             from openai_codex import Codex
+        except ImportError as exc:
+            return ProviderDoctor(
+                provider_id=self.provider_id,
+                available=False,
+                status="error",
+                message="openai-codex SDK not installed",
+                detail=str(exc),
+                capabilities=self.describe().capabilities,
+                install_hint="Install the OpenAI Codex Python SDK: `pip install openai-codex` (requires Python 3.10+).",
+            )
         except Exception as exc:
             return ProviderDoctor(
                 provider_id=self.provider_id,
                 available=False,
                 status="error",
-                message="openai-codex SDK unavailable",
+                message="openai-codex SDK import failed",
                 detail=str(exc),
                 capabilities=self.describe().capabilities,
-                install_hint=self.install_hint,
+                install_hint="Re-install the SDK: `pip install --force-reinstall openai-codex`.",
             )
-        version = str(getattr(openai_codex, "__version__", "") or "openai-codex installed")
+
+        version = str(getattr(openai_codex, "__version__", "") or "unknown")
+
+        # 2. Check runtime connectivity (auth + API reachability)
         try:
             with Codex() as codex:
                 account = codex.account()
-            detail = _compact_output(str(getattr(account, "account", None) or account)) or version
+            detail = _compact_output(str(getattr(account, "account", None) or account)) or f"SDK {version}"
+            return ProviderDoctor(
+                provider_id=self.provider_id,
+                available=True,
+                status="ok",
+                message="Connected",
+                detail=detail,
+                version=version,
+                capabilities=self.describe().capabilities,
+            )
         except Exception as exc:
+            exc_str = str(exc)
+            # Classify common failure modes for better UX
+            if "auth" in exc_str.lower() or "token" in exc_str.lower() or "key" in exc_str.lower() or "credential" in exc_str.lower():
+                message = "Codex SDK installed, but authentication failed"
+                install_hint = "Authenticate Codex: run `codex` in your terminal and follow the login flow, or set OPENAI_API_KEY."
+            elif "connect" in exc_str.lower() or "network" in exc_str.lower() or "timeout" in exc_str.lower() or " unreachable" in exc_str.lower():
+                message = "Codex SDK installed, but network/API unreachable"
+                install_hint = "Check your network connection and OpenAI API status."
+            else:
+                message = "Codex SDK installed, but runtime check failed"
+                install_hint = "Authenticate Codex via existing Codex login, ChatGPT device code, or API key."
             return ProviderDoctor(
                 provider_id=self.provider_id,
                 available=False,
                 status="error",
-                message="openai-codex SDK installed, but Codex account/runtime check failed",
-                detail=str(exc),
+                message=message,
+                detail=exc_str,
                 version=version,
                 capabilities=self.describe().capabilities,
-                install_hint="Authenticate Codex via existing Codex login, ChatGPT device code, or API key.",
+                install_hint=install_hint,
             )
-        return ProviderDoctor(
-            provider_id=self.provider_id,
-            available=True,
-            status="ok",
-            message="Available",
-            detail=detail,
-            version=version,
-            capabilities=self.describe().capabilities,
-        )
 
     def open_session(self, worker_ref: WorkerRef) -> bool:
         return bool(self.build_continue_command(worker_ref))
