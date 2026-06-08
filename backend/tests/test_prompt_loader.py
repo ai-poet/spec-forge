@@ -18,6 +18,7 @@ def test_render_coder_prompt_includes_placeholders() -> None:
     )
     assert "/tmp/iter" in text
     assert "prd.md" in text
+    assert "<specforge_artifact>" in text
 
 
 def test_planning_prompts_include_planner_context() -> None:

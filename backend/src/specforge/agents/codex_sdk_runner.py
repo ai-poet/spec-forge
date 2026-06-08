@@ -55,18 +55,6 @@ class CodexSdkRunner:
             )
 
         try:
-            schema = json.loads(command.prompt_bundle.output_schema or "{}")
-        except json.JSONDecodeError as exc:
-            return CLIResult(
-                command=command.command,
-                returncode=2,
-                stdout="".join(stdout_parts),
-                stderr=f"invalid output schema JSON: {exc}",
-                started_at=started_at,
-                finished_at=_utcnow(),
-            )
-
-        try:
             with Codex() as codex:
                 thread = self._thread(codex, command, cwd=cwd, ApprovalMode=ApprovalMode, Sandbox=Sandbox)
                 emit({"type": "thread.started", "thread_id": thread.id, "source": "codex-sdk"})
@@ -74,7 +62,6 @@ class CodexSdkRunner:
                     command.prompt_bundle.user_prompt,
                     approval_mode=ApprovalMode.auto_review,
                     cwd=str(cwd) if cwd else None,
-                    output_schema=schema,
                     sandbox=Sandbox.full_access,
                 )
                 if iteration_id:

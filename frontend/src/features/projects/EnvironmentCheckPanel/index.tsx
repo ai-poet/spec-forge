@@ -46,7 +46,7 @@ export function EnvironmentCheckPanel({ onChecksChange }: Props) {
       <div className="section-row">
         <div>
           <h2 className="section-title">环境检测</h2>
-          <p className="muted">运行前预检 CLI、Web 自动化与 CuaDriver 状态；异常只提示，不阻断流水线。</p>
+          <p className="muted">运行前预检 Agent Provider、Web 自动化与 CuaDriver 状态；异常只提示，不阻断流水线。</p>
         </div>
         <div className="actions">
           <span className={`status-dot ${error ? 'error' : result?.status ?? 'info'}`}>{summary}</span>

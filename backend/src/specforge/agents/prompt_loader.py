@@ -18,6 +18,18 @@ StageName = Literal[
 _PROMPTS_DIR = Path(__file__).resolve().parents[3] / "prompts"
 _STAGES_DIR = _PROMPTS_DIR / "stages"
 _PROJECT_SKILLS_DIR = ".specforge/skills"
+_ARTIFACT_CONTRACT = """## Final Artifact Contract
+At the end of your final response, output exactly one SpecForge artifact block:
+
+<specforge_artifact>
+{ ...valid JSON matching the stage contract... }
+</specforge_artifact>
+
+Rules:
+- Put the complete JSON artifact inside the tags.
+- Do not wrap the artifact JSON in Markdown fences inside the tags.
+- Do not write anything after </specforge_artifact>.
+- If you need to explain work, do it before the artifact block."""
 
 
 def list_stage_modules(stage: StageName) -> list[str]:
@@ -90,6 +102,7 @@ def compose_stage_prompt(
         parts.append(_format_template(runtime_template, stage, **vars_map))
     elif vars_map:
         parts.append(_join_variable_sections(vars_map))
+    parts.append(_ARTIFACT_CONTRACT)
     return "\n\n".join(parts)
 
 

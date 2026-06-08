@@ -156,7 +156,7 @@ class ClaudeCodeEventPresenter:
             return self._present_user_message(payload, node=node)
         if event_type == "result":
             if "structured_output" in payload:
-                return CliDisplayEvent("claude_code", node, "result", "结构化产物已生成", "Claude Code 已返回可校验 artifact，后端正在落盘。", severity="success", status="completed", raw_event=payload)
+                return CliDisplayEvent("claude_code", node, "result", "Agent 产物已生成", "Claude Code 已返回可校验 artifact，后端正在落盘。", severity="success", status="completed", raw_event=payload)
             return CliDisplayEvent("claude_code", node, "result", "Claude Code 输出已完成", "CLI 已返回最终结果，后端正在解析。", severity="success", status="completed", raw_event=payload)
         return None
 

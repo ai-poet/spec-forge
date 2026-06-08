@@ -60,7 +60,6 @@ def _claude_command(
     session_id: Optional[str] = None,
     resume: bool = False,
 ) -> list[str]:
-    schema_arg = str(schema)
     cmd: list[str] = [
         "claude",
         "-p",
@@ -79,7 +78,7 @@ def _claude_command(
             cmd.extend(["--resume", session_id])
         else:
             cmd.extend(["--session-id", session_id])
-    cmd.extend(["--json-schema", schema_arg, prompt])
+    cmd.append(prompt)
     return cmd
 
 
@@ -90,12 +89,7 @@ def _codex_command(
     session_id: Optional[str] = None,
     resume: bool = False,
 ) -> list[str]:
-    cmd = [
-        "codex-sdk",
-        "thread.run",
-        "--output-schema",
-        str(schema_file),
-    ]
+    cmd = ["codex-sdk", "thread.run"]
     return [
         *cmd,
         *(["--resume", session_id] if session_id and resume else []),

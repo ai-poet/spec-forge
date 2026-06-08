@@ -660,6 +660,31 @@ def test_parse_claude_wrapped_artifact():
     assert artifact.prd == "a"
 
 
+def test_parse_artifact_from_specforge_envelope():
+    raw = (
+        "Agent summary before final artifact.\n"
+        "<specforge_artifact>\n"
+        '{"prd":"a","context_for_coder":[{"file":"prd.md","reason":"r"}],"context_for_tester":[{"file":"prd.md","reason":"r"}]}\n'
+        "</specforge_artifact>"
+    )
+
+    artifact = parse_json_artifact(raw, PrdPlannerArtifact)
+
+    assert artifact.prd == "a"
+
+
+def test_parse_artifact_uses_last_specforge_envelope():
+    raw = (
+        "<specforge_artifact>{\"testing_plan\":\"old\"}</specforge_artifact>\n"
+        "revision follows\n"
+        "<specforge_artifact>{\"testing_plan\":\"new\"}</specforge_artifact>"
+    )
+
+    artifact = parse_json_artifact(raw, TestPlannerArtifact)
+
+    assert artifact.testing_plan == "new"
+
+
 def test_parse_artifact_from_stream_json_lines():
     raw = (
         '{"type":"system","subtype":"init"}\n'
@@ -678,6 +703,38 @@ def test_parse_artifact_from_codex_jsonl_item_message():
     artifact = parse_json_artifact(raw, contract_models.CodeTesterArtifact)
     assert artifact.passed is True
     assert "Pass" in artifact.verify_report
+
+
+def test_parse_artifact_from_codex_camel_case_agent_message():
+    raw = (
+        '{"type":"thread.started"}\n'
+        '{"type":"item.completed","item":{"type":"agentMessage","text":"<specforge_artifact>{\\"verify_report\\":\\"# Verify Report\\\\nPass\\",\\"passed\\":true,\\"ux_notes\\":[],\\"delivery_recommendations\\":[],\\"adversarial_tests\\":[]}</specforge_artifact>"}}\n'
+    )
+
+    artifact = parse_json_artifact(raw, contract_models.CodeTesterArtifact)
+
+    assert artifact.passed is True
+
+
+def test_parse_artifact_from_last_json_code_block_fallback():
+    raw = (
+        "not the artifact\n"
+        "```json\n{\"testing_plan\":\"old\"}\n```\n"
+        "final candidate\n"
+        "```json\n{\"testing_plan\":\"new\"}\n```"
+    )
+
+    artifact = parse_json_artifact(raw, TestPlannerArtifact)
+
+    assert artifact.testing_plan == "new"
+
+
+def test_parse_artifact_from_last_balanced_json_object_fallback():
+    raw = 'notes {"testing_plan":"old"} final text {"testing_plan":"new"}'
+
+    artifact = parse_json_artifact(raw, TestPlannerArtifact)
+
+    assert artifact.testing_plan == "new"
 
 
 def test_code_tester_contract_rehomes_misplaced_adversarial_test_file():

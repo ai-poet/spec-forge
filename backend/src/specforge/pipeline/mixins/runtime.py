@@ -654,9 +654,9 @@ class PipelineRuntimeMixin:
     def _cli_failure_action_hint(run_result: CLIResult, *, context: str = "") -> str:
         provider = PipelineRuntimeMixin._provider_from_run_result(run_result)
         if provider == "codex":
-            base = "查看运行日志，确认 Codex SDK 已安装并认证（`pip install openai-codex`，且已登录）。"
+            base = "查看运行日志，确认 Codex SDK 已安装、认证并能连接运行时；最终输出需包含 <specforge_artifact> JSON artifact。"
         else:
-            base = "查看运行日志，确认 Claude Code CLI 可用并能返回 JSON artifact。"
+            base = "查看运行日志，确认 Claude Code CLI 可用；最终输出需包含 <specforge_artifact> JSON artifact。"
         if context:
             return f"{base} {context}"
         return base

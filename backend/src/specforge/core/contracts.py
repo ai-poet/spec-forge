@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -123,6 +124,10 @@ UI_TEST_ACTIONS = (
     "wait",
     "resize_window",
 )
+
+
+ARTIFACT_OPEN_TAG = "<specforge_artifact>"
+ARTIFACT_CLOSE_TAG = "</specforge_artifact>"
 
 
 def validate_ui_spec_content(path: str, content: str) -> UITestSpec:
@@ -254,6 +259,9 @@ def parse_json_artifact(raw: str, model: type[BaseModel]) -> BaseModel:
 
 
 def _artifact_candidate(text: str):
+    tagged = _last_tagged_artifact(text)
+    if tagged is not None:
+        return tagged
     for line in reversed([line.strip() for line in text.splitlines() if line.strip()]):
         try:
             payload = json.loads(line)
@@ -262,7 +270,74 @@ def _artifact_candidate(text: str):
         candidate = _artifact_from_event(payload)
         if candidate is not None:
             return candidate
-    return text
+    fenced = _last_json_code_block(text)
+    if fenced is not None:
+        return fenced
+    balanced = _last_balanced_json_object(text)
+    return balanced or text
+
+
+def _last_tagged_artifact(text: str) -> str | None:
+    start = text.rfind(ARTIFACT_OPEN_TAG)
+    if start < 0:
+        return None
+    start += len(ARTIFACT_OPEN_TAG)
+    end = text.find(ARTIFACT_CLOSE_TAG, start)
+    if end < 0:
+        return None
+    candidate = text[start:end].strip()
+    if not candidate:
+        return None
+    return _unescape_json_string_fragment(candidate)
+
+
+def _unescape_json_string_fragment(text: str) -> str:
+    if "\\\"" not in text and "\\n" not in text and "\\t" not in text:
+        return text
+    try:
+        decoded = json.loads(f'"{text}"')
+    except json.JSONDecodeError:
+        return text
+    return decoded.strip()
+
+
+def _last_json_code_block(text: str) -> str | None:
+    matches = list(re.finditer(r"```(?:json)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL))
+    for match in reversed(matches):
+        candidate = match.group(1).strip()
+        if candidate:
+            return candidate
+    return None
+
+
+def _last_balanced_json_object(text: str) -> str | None:
+    end = text.rfind("}")
+    if end < 0:
+        return None
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(end, -1, -1):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == "}":
+            depth += 1
+            continue
+        if char == "{":
+            depth -= 1
+            if depth == 0:
+                return text[index : end + 1].strip()
+    return None
 
 
 def _artifact_from_event(payload):
@@ -277,7 +352,7 @@ def _artifact_from_event(payload):
         candidate = _artifact_from_event(item)
         if candidate is not None:
             return candidate
-        if item.get("type") in {"agent_message", "message"} and isinstance(item.get("text"), str):
+        if item.get("type") in {"agent_message", "agentMessage", "message"} and isinstance(item.get("text"), str):
             return item["text"].strip()
     params = payload.get("params")
     if isinstance(params, dict):

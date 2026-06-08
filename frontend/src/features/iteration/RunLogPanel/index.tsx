@@ -52,7 +52,7 @@ function formatCliText(value: string | undefined): string {
   try {
     return formatStructuredValue(JSON.parse(text))
   } catch {
-    return '结构化输出已收到，正在整理展示。'
+    return 'Agent 产物已收到，正在整理展示。'
   }
 }
 
@@ -441,7 +441,7 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
           {progress?.message ? <span>{progress.message}</span> : null}
         </div>
       ) : null}
-      <p className={styles.permissionHint}>流水线模式：CLI 权限已自动放行（bypassPermissions），无需逐项确认。</p>
+      <p className={styles.permissionHint}>流水线模式：Agent 权限按 provider 自动配置，无需逐项确认。</p>
       <RunTraceList detail={detail} runs={visibleRuns} onSelect={setSelectedRun} />
       <RawCliFold detail={detail} cliActive={cliActive} />
       {grouped.roundCount > 1 ? (

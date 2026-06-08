@@ -47,7 +47,15 @@ class FakeThread:
         self.codex.turn_calls.append({"prompt": prompt, **kwargs})
         return FakeTurn(
             [
-                FakeNotification({"type": "item.completed", "item": {"type": "agent_message", "text": json.dumps(self.codex.artifact)}}),
+                FakeNotification(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "agent_message",
+                            "text": f"<specforge_artifact>\n{json.dumps(self.codex.artifact)}\n</specforge_artifact>",
+                        },
+                    }
+                ),
                 FakeNotification({"type": "turn.completed", "turn": {"id": "turn-1", "status": "completed", "duration_ms": 10}}),
             ]
         )
@@ -90,7 +98,7 @@ def install_fake_openai_codex(monkeypatch):
     monkeypatch.setitem(sys.modules, "openai_codex", module)
 
 
-def test_codex_sdk_runner_passes_schema_and_wraps_structured_output(tmp_path, monkeypatch):
+def test_codex_sdk_runner_uses_prompt_artifact_without_output_schema(tmp_path, monkeypatch):
     install_fake_openai_codex(monkeypatch)
     command = build_agent_command(
         provider="codex",
@@ -115,7 +123,7 @@ def test_codex_sdk_runner_passes_schema_and_wraps_structured_output(tmp_path, mo
     assert turn_call["cwd"] == str(tmp_path)
     assert turn_call["approval_mode"] == FakeMode.auto_review
     assert turn_call["sandbox"] == FakeSandbox.full_access
-    assert turn_call["output_schema"]["title"] == "CodeTesterArtifact"
+    assert "output_schema" not in turn_call
     artifact = parse_json_artifact(result.stdout, CodeTesterArtifact)
     assert artifact.passed is True
     assert any('"structured_output"' in chunk for chunk in chunks)
