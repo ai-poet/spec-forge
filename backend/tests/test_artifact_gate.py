@@ -19,6 +19,7 @@ def test_read_framework_conventions_returns_rules() -> None:
     assert "APIRouter" in text
     assert "app.route()" in text
     assert "AppType" in text
+    assert "local SQLite" in text
     assert "supabase/migrations" in text
     assert "supabase/functions" in text
     assert "supabase/tests" in text

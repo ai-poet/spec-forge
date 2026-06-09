@@ -44,6 +44,7 @@ def test_compose_planner_discovery_includes_brief_context() -> None:
     assert "FastAPI" in text
     assert "HonoJS" in text
     assert "Supabase" in text
+    assert "local SQLite" in text
     assert "其他（请说明）" in text
     assert "maintainability" in text
     assert "performance" in text
@@ -83,6 +84,7 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "APIRouter" in text
     assert "app.route()" in text
     assert "AppType" in text
+    assert "local SQLite" in text
     assert "supabase/migrations" in text
     assert "supabase/functions" in text
     assert "supabase/tests" in text

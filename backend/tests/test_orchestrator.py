@@ -408,6 +408,7 @@ def test_iteration_workspace_under_project_root(tmp_path):
     assert "APIRouter" in prd_text
     assert "app.route()" in prd_text
     assert "AppType" in prd_text
+    assert "local SQLite" in prd_text
     assert "supabase/migrations" in prd_text
     assert "supabase/functions" in prd_text
     assert "supabase/tests" in prd_text
