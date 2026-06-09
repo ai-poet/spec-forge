@@ -590,6 +590,41 @@ def test_iteration_detail_uses_lean_run_metadata_and_logs_endpoint():
     assert "dry-run" in logs["stdout"]
 
 
+def test_export_logs_supports_summary_mode_and_keeps_full_default():
+    iteration_id = create_manual_iteration("export-logs", mode="dry-run")
+    pipeline.db.add_run(
+        iteration_id,
+        run_id="run_export",
+        node="coder",
+        status="failed",
+        command="claude -p",
+        stdout="line one\nline two failed",
+        stderr="warning detail",
+        exit_code=1,
+    )
+
+    default_resp = client.get(f"/api/iterations/{iteration_id}/export-logs")
+    summary_resp = client.get(f"/api/iterations/{iteration_id}/export-logs?mode=summary")
+    full_resp = client.get(f"/api/iterations/{iteration_id}/export-logs?mode=full")
+
+    assert default_resp.status_code == 200
+    assert default_resp.headers["content-disposition"].endswith(f"iteration-{iteration_id}-logs.json")
+    assert "summary" not in default_resp.json()
+    assert default_resp.json()["runs"][0]["logs"]["items"]
+
+    assert full_resp.status_code == 200
+    assert full_resp.headers["content-disposition"].endswith(f"iteration-{iteration_id}-logs.json")
+    assert full_resp.json()["runs"][0]["logs"]["items"]
+
+    assert summary_resp.status_code == 200
+    assert summary_resp.headers["content-disposition"].endswith(f"iteration-{iteration_id}-logs-summary.json")
+    payload = summary_resp.json()
+    assert payload["mode"] == "summary"
+    assert payload["summary"]["failed_run_count"] == 1
+    assert "items" not in payload["runs"][0]["logs"]
+    assert payload["runs"][0]["logs"]["summary"]["diagnostics"]
+
+
 def test_iteration_detail_compacts_large_history_for_live_refresh():
     iteration_id = create_manual_iteration("lean-history")
     pipeline.db.update_iteration(

@@ -647,14 +647,17 @@ def get_workflow_snapshot(iteration_id: str) -> WorkflowSnapshot:
 
 
 @app.get("/api/iterations/{iteration_id}/export-logs")
-def export_iteration_logs(iteration_id: str) -> StreamingResponse:
+def export_iteration_logs(
+    iteration_id: str,
+    mode: str = Query(default="full", pattern="^(summary|full)$"),
+) -> StreamingResponse:
     import json
     try:
-        payload = pipeline.export_iteration_logs(iteration_id)
+        payload = pipeline.export_iteration_logs(iteration_id, mode=mode)
     except KeyError:
         raise HTTPException(status_code=404, detail="iteration not found") from None
     data = json.dumps(payload, ensure_ascii=False, indent=2)
-    filename = f"iteration-{iteration_id}-logs.json"
+    filename = f"iteration-{iteration_id}-logs-summary.json" if mode == "summary" else f"iteration-{iteration_id}-logs.json"
     return StreamingResponse(
         iter([data]),
         media_type="application/json",

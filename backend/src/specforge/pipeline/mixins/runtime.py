@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import inspect
+from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
@@ -30,6 +31,11 @@ class PipelineRuntimeMixin:
     _PUBLIC_RUN_LIMIT = 100
     _RUN_LOG_PAGE_SIZE_MAX = 500
     _RUN_OUTPUT_PREVIEW_MAX_CHARS = 8 * 1024
+    _EXPORT_LOG_HEAD_LIMIT = 20
+    _EXPORT_LOG_TAIL_LIMIT = 80
+    _EXPORT_LOG_DIAGNOSTIC_LIMIT = 80
+    _EXPORT_LOG_LINE_MAX_CHARS = 1200
+    _EXPORT_LOG_DIAGNOSTIC_TERMS = ("error", "failed", "exception", "traceback", "timeout", "cancelled")
     _PERSISTED_CLI_PHASES = {"session", "tool", "command", "file_change", "mcp", "todo", "hook", "retry", "result", "error"}
     _PREVIEW_CLI_PHASES = {"text", "thinking"}
 
@@ -391,8 +397,10 @@ class PipelineRuntimeMixin:
         total = len(lines)
         return {"items": lines[offset : offset + limit], "offset": offset, "limit": limit, "total": total, "has_more": offset + limit < total}
 
-    def export_iteration_logs(self, iteration_id: str) -> dict[str, Any]:
+    def export_iteration_logs(self, iteration_id: str, *, mode: str = "full") -> dict[str, Any]:
         self._require_iteration(iteration_id)
+        if mode == "summary":
+            return self._export_iteration_logs_summary(iteration_id)
         runs = self.db.list_runs(iteration_id)
         run_logs: list[dict[str, Any]] = []
         for run in runs:
@@ -423,6 +431,151 @@ class PipelineRuntimeMixin:
             "exported_at": iso(utcnow()),
             "runs": run_logs,
         }
+
+
+    def _export_iteration_logs_summary(self, iteration_id: str) -> dict[str, Any]:
+        runs = self.db.list_runs(iteration_id)
+        run_logs: list[dict[str, Any]] = []
+        total_stdout_bytes = 0
+        total_stderr_bytes = 0
+        failed_run_count = 0
+        has_truncated = False
+        for run in runs:
+            stdout_bytes = run["stdout_bytes"] if "stdout_bytes" in run.keys() else len((run["stdout"] or "").encode("utf-8"))
+            stderr_bytes = run["stderr_bytes"] if "stderr_bytes" in run.keys() else len((run["stderr"] or "").encode("utf-8"))
+            total_stdout_bytes += stdout_bytes
+            total_stderr_bytes += stderr_bytes
+            if run["status"] != "success":
+                failed_run_count += 1
+            log_summary = self._summarize_run_logs(run)
+            has_truncated = has_truncated or bool(log_summary.get("truncated"))
+            run_logs.append({
+                "run_id": run["id"],
+                "node": run["node"],
+                "status": run["status"],
+                "provider": run["provider"] if "provider" in run.keys() else None,
+                "started_at": run["started_at"],
+                "finished_at": run["finished_at"] if "finished_at" in run.keys() else None,
+                "duration_ms": run["duration_ms"] if "duration_ms" in run.keys() else None,
+                "exit_code": run["exit_code"] if "exit_code" in run.keys() else None,
+                "timed_out": bool(run["timed_out"]) if "timed_out" in run.keys() else False,
+                "stdout_bytes": stdout_bytes,
+                "stderr_bytes": stderr_bytes,
+                "logs_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/logs",
+                "raw_log_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/logs",
+                "prompt_hash": run["prompt_hash"] if "prompt_hash" in run.keys() else None,
+                "logs": {"summary": log_summary},
+            })
+        return {
+            "iteration_id": iteration_id,
+            "exported_at": iso(utcnow()),
+            "mode": "summary",
+            "summary": {
+                "run_count": len(runs),
+                "failed_run_count": failed_run_count,
+                "stdout_bytes": total_stdout_bytes,
+                "stderr_bytes": total_stderr_bytes,
+                "has_truncated": has_truncated,
+            },
+            "runs": run_logs,
+        }
+
+
+    def _summarize_run_logs(self, run: Any) -> dict[str, Any]:
+        head: list[dict[str, Any]] = []
+        tail: deque[dict[str, Any]] = deque(maxlen=self._EXPORT_LOG_TAIL_LIMIT)
+        diagnostics: list[dict[str, Any]] = []
+        seen_diagnostics: set[tuple[str, str]] = set()
+        total = 0
+        text_truncated = False
+        diagnostics_truncated = False
+
+        for item in self._iter_run_log_items(run):
+            total += 1
+            compact_item, item_truncated = self._compact_export_log_item(item)
+            text_truncated = text_truncated or item_truncated
+            if len(head) < self._EXPORT_LOG_HEAD_LIMIT:
+                head.append(compact_item)
+            tail.append(compact_item)
+            if self._is_diagnostic_log_line(compact_item):
+                key = self._export_log_item_key(compact_item, fallback_line=total)
+                if key in seen_diagnostics:
+                    continue
+                if len(diagnostics) >= self._EXPORT_LOG_DIAGNOSTIC_LIMIT:
+                    diagnostics_truncated = True
+                    continue
+                seen_diagnostics.add(key)
+                diagnostics.append(compact_item)
+
+        head_keys = {self._export_log_item_key(item, fallback_line=index) for index, item in enumerate(head, start=1)}
+        tail_items = [
+            item
+            for index, item in enumerate(tail, start=max(total - len(tail) + 1, 1))
+            if self._export_log_item_key(item, fallback_line=index) not in head_keys
+        ]
+        omitted_middle_count = max(0, total - len(head) - len(tail_items))
+        truncated = (
+            omitted_middle_count > 0
+            or text_truncated
+            or diagnostics_truncated
+        )
+        return {
+            "items_total": total,
+            "head": head,
+            "tail": tail_items,
+            "diagnostics": diagnostics,
+            "omitted_middle_count": omitted_middle_count,
+            "limits": {
+                "head": self._EXPORT_LOG_HEAD_LIMIT,
+                "tail": self._EXPORT_LOG_TAIL_LIMIT,
+                "diagnostics": self._EXPORT_LOG_DIAGNOSTIC_LIMIT,
+                "text_chars": self._EXPORT_LOG_LINE_MAX_CHARS,
+            },
+            "truncated": truncated,
+            "text_truncated": text_truncated,
+            "diagnostics_truncated": diagnostics_truncated,
+        }
+
+
+    def _iter_run_log_items(self, run: Any):
+        raw_path = run["raw_log_path"] if "raw_log_path" in run.keys() else None
+        if raw_path and Path(raw_path).is_file():
+            with Path(raw_path).open("r", encoding="utf-8") as handle:
+                for total, raw in enumerate(handle, start=1):
+                    try:
+                        payload = json.loads(raw)
+                    except json.JSONDecodeError:
+                        payload = {"stream": "stdout", "line": total, "text": raw.rstrip("\n")}
+                    yield payload
+            return
+        for stream in ("stdout", "stderr"):
+            text = run[stream] or ""
+            for line_no, text_line in enumerate(text.splitlines(), start=1):
+                yield {"stream": stream, "line": line_no, "text": text_line}
+
+
+    def _compact_export_log_item(self, item: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        compact = dict(item)
+        text = str(compact.get("text", ""))
+        if len(text) <= self._EXPORT_LOG_LINE_MAX_CHARS:
+            compact["text"] = text
+            return compact, False
+        omitted = len(text) - self._EXPORT_LOG_LINE_MAX_CHARS
+        compact["text"] = f"{text[:self._EXPORT_LOG_LINE_MAX_CHARS]}\n...[truncated {omitted} chars]"
+        compact["text_truncated"] = True
+        return compact, True
+
+
+    def _export_log_item_key(self, item: dict[str, Any], *, fallback_line: int) -> tuple[str, str]:
+        return (str(item.get("stream", "")), str(item.get("line", fallback_line)))
+
+
+    def _is_diagnostic_log_line(self, item: dict[str, Any]) -> bool:
+        stream = str(item.get("stream", ""))
+        if stream == "stderr":
+            return True
+        text = str(item.get("text", "")).lower()
+        return any(term in text for term in self._EXPORT_LOG_DIAGNOSTIC_TERMS)
 
 
     def _read_raw_log_page(self, path: Path, *, offset: int, limit: int) -> dict[str, Any]:
