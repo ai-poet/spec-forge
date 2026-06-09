@@ -43,6 +43,25 @@ def test_real_cli_runner_streams_stdout_and_stderr():
     assert any(stream == "stderr" and "visible stderr" in chunk for stream, chunk in chunks)
 
 
+def test_real_cli_runner_keeps_bounded_stdout_tail():
+    runner = RealCLIRunner()
+
+    result = runner.run(
+        [
+            sys.executable,
+            "-c",
+            "print('x' * 1000)",
+        ],
+        capture_max_chars=128,
+    )
+
+    assert result.returncode == 0
+    assert len(result.stdout) <= 128
+    assert result.stdout.endswith("\n")
+    assert result.stdout_bytes > len(result.stdout.encode("utf-8"))
+    assert result.metadata["stdout_truncated"] is True
+
+
 def test_real_cli_runner_cancel_terminates_active_process():
     runner = RealCLIRunner()
     iteration_id = "cancel-me"

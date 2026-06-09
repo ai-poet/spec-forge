@@ -18,7 +18,12 @@ class Settings:
     backend_cors_origin: str = os.getenv("SPECFORGE_CORS_ORIGIN", "http://127.0.0.1:5178")
     ui_driver_force: str = os.getenv("SPECFORGE_UI_DRIVER_FORCE", "auto")
     playwright_browser: str = os.getenv("SPECFORGE_PLAYWRIGHT_BROWSER", "chromium")
-    cli_timeout_seconds: int = int(os.getenv("SPECFORGE_CLI_TIMEOUT_SECONDS", "0") or "0")
+    cli_timeout_seconds: int = int(os.getenv("SPECFORGE_CLI_TIMEOUT_SECONDS", "7200") or "7200")
+    cli_idle_timeout_seconds: int = int(os.getenv("SPECFORGE_CLI_IDLE_TIMEOUT_SECONDS", "900") or "900")
+    cli_result_max_chars: int = int(os.getenv("SPECFORGE_CLI_RESULT_MAX_CHARS", str(512 * 1024)) or str(512 * 1024))
+    job_queue_max_size: int = int(os.getenv("SPECFORGE_JOB_QUEUE_MAX_SIZE", "256") or "256")
+    event_queue_max_size: int = int(os.getenv("SPECFORGE_EVENT_QUEUE_MAX_SIZE", "256") or "256")
+    sqlite_timeout_seconds: float = float(os.getenv("SPECFORGE_SQLITE_TIMEOUT_SECONDS", "30") or "30")
 
     @property
     def db_path(self) -> Path:

@@ -23,6 +23,8 @@ class CLIResult:
     finished_at: datetime | None = None
     timed_out: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    stdout_byte_count: int | None = None
+    stderr_byte_count: int | None = None
 
     @property
     def duration_ms(self) -> int | None:
@@ -32,15 +34,61 @@ class CLIResult:
 
     @property
     def stdout_bytes(self) -> int:
+        if self.stdout_byte_count is not None:
+            return self.stdout_byte_count
         return len((self.stdout or "").encode("utf-8"))
 
     @property
     def stderr_bytes(self) -> int:
+        if self.stderr_byte_count is not None:
+            return self.stderr_byte_count
         return len((self.stderr or "").encode("utf-8"))
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class BoundedTextBuffer:
+    def __init__(self, max_chars: int | None) -> None:
+        self.max_chars = max_chars if max_chars and max_chars > 0 else None
+        self._parts: list[str] = []
+        self._chars = 0
+        self.byte_count = 0
+        self.truncated = False
+
+    def append(self, chunk: str) -> None:
+        if not chunk:
+            return
+        self.byte_count += len(chunk.encode("utf-8"))
+        self._parts.append(chunk)
+        self._chars += len(chunk)
+        self._trim()
+
+    @property
+    def text(self) -> str:
+        return "".join(self._parts)
+
+    def _trim(self) -> None:
+        if self.max_chars is None:
+            return
+        overflow = self._chars - self.max_chars
+        if overflow <= 0:
+            return
+        self.truncated = True
+        while self._parts and overflow > 0:
+            first = self._parts[0]
+            if len(first) <= overflow:
+                self._parts.pop(0)
+                self._chars -= len(first)
+                overflow -= len(first)
+                continue
+            self._parts[0] = first[overflow:]
+            self._chars -= overflow
+            overflow = 0
+
+
+_DEFAULT_CAPTURE_MAX_CHARS = int(os.getenv("SPECFORGE_CLI_RESULT_MAX_CHARS", str(512 * 1024)) or str(512 * 1024))
 
 
 class BaseRunner:
@@ -52,6 +100,8 @@ class BaseRunner:
         *,
         iteration_id: Optional[str] = None,
         timeout_seconds: Optional[int] = None,
+        idle_timeout_seconds: Optional[int] = None,
+        capture_max_chars: Optional[int] = _DEFAULT_CAPTURE_MAX_CHARS,
     ) -> CLIResult:
         started_at = _utcnow()
         try:
@@ -61,7 +111,21 @@ class BaseRunner:
                 on_output("stdout", proc.stdout)
             if on_output and proc.stderr:
                 on_output("stderr", proc.stderr)
-            return CLIResult(command=command, returncode=proc.returncode, stdout=proc.stdout, stderr=proc.stderr, started_at=started_at, finished_at=finished_at)
+            stdout = proc.stdout or ""
+            stderr = proc.stderr or ""
+            stdout_tail = stdout[-capture_max_chars:] if capture_max_chars and len(stdout) > capture_max_chars else stdout
+            stderr_tail = stderr[-capture_max_chars:] if capture_max_chars and len(stderr) > capture_max_chars else stderr
+            return CLIResult(
+                command=command,
+                returncode=proc.returncode,
+                stdout=stdout_tail,
+                stderr=stderr_tail,
+                started_at=started_at,
+                finished_at=finished_at,
+                metadata={"stdout_truncated": stdout_tail != stdout, "stderr_truncated": stderr_tail != stderr},
+                stdout_byte_count=len(stdout.encode("utf-8")),
+                stderr_byte_count=len(stderr.encode("utf-8")),
+            )
         except FileNotFoundError as exc:
             return CLIResult(command=command, returncode=127, stdout="", stderr=str(exc), started_at=started_at, finished_at=_utcnow())
         except subprocess.TimeoutExpired as exc:
@@ -82,6 +146,8 @@ class DryRunRunner(BaseRunner):
         *,
         iteration_id: Optional[str] = None,
         timeout_seconds: Optional[int] = None,
+        idle_timeout_seconds: Optional[int] = None,
+        capture_max_chars: Optional[int] = _DEFAULT_CAPTURE_MAX_CHARS,
     ) -> CLIResult:
         started_at = _utcnow()
         payload = {"command": command, "cwd": str(cwd) if cwd else None, "mode": "dry-run"}
@@ -105,6 +171,8 @@ class RealCLIRunner(BaseRunner):
         *,
         iteration_id: Optional[str] = None,
         timeout_seconds: Optional[int] = None,
+        idle_timeout_seconds: Optional[int] = None,
+        capture_max_chars: Optional[int] = _DEFAULT_CAPTURE_MAX_CHARS,
     ) -> CLIResult:
         started_at = _utcnow()
         try:
@@ -124,8 +192,8 @@ class RealCLIRunner(BaseRunner):
                 self._active[iteration_id] = proc
                 self._write_registry_entry(iteration_id, proc, command, cwd)
 
-        stdout_parts: list[str] = []
-        stderr_parts: list[str] = []
+        stdout_buffer = BoundedTextBuffer(capture_max_chars)
+        stderr_buffer = BoundedTextBuffer(capture_max_chars)
         queue: Queue[tuple[str, str]] = Queue()
 
         def read_stream(name: str, stream) -> None:
@@ -143,17 +211,24 @@ class RealCLIRunner(BaseRunner):
             thread.start()
         try:
             deadline = time.monotonic() + timeout_seconds if timeout_seconds else None
+            idle_deadline = time.monotonic() + idle_timeout_seconds if idle_timeout_seconds else None
             timed_out = False
+            idle_timed_out = False
             while proc.poll() is None or any(thread.is_alive() for thread in threads) or not queue.empty():
                 if deadline is not None and proc.poll() is None and time.monotonic() > deadline:
                     timed_out = True
                     self._terminate_process(proc)
+                if idle_deadline is not None and proc.poll() is None and time.monotonic() > idle_deadline:
+                    idle_timed_out = True
+                    self._terminate_process(proc)
                 while not queue.empty():
                     name, chunk = queue.get()
+                    if idle_timeout_seconds:
+                        idle_deadline = time.monotonic() + idle_timeout_seconds
                     if name == "stdout":
-                        stdout_parts.append(chunk)
+                        stdout_buffer.append(chunk)
                     else:
-                        stderr_parts.append(chunk)
+                        stderr_buffer.append(chunk)
                     if on_output:
                         on_output(name, chunk)
                 for thread in threads:
@@ -167,10 +242,25 @@ class RealCLIRunner(BaseRunner):
                     self._remove_registry_entry(iteration_id)
 
         returncode = proc.returncode if proc.returncode is not None else proc.wait()
-        stderr = "".join(stderr_parts)
+        stdout = stdout_buffer.text
+        stderr = stderr_buffer.text
         if timed_out and "timed out" not in stderr.lower():
             stderr = f"{stderr}\nCLI timed out after {timeout_seconds}s".strip()
-        return CLIResult(command=command, returncode=124 if timed_out else returncode, stdout="".join(stdout_parts), stderr=stderr, started_at=started_at, finished_at=_utcnow(), timed_out=timed_out)
+        if idle_timed_out and "idle timed out" not in stderr.lower():
+            stderr = f"{stderr}\nCLI idle timed out after {idle_timeout_seconds}s".strip()
+        metadata = {"stdout_truncated": stdout_buffer.truncated, "stderr_truncated": stderr_buffer.truncated}
+        return CLIResult(
+            command=command,
+            returncode=124 if timed_out or idle_timed_out else returncode,
+            stdout=stdout,
+            stderr=stderr,
+            started_at=started_at,
+            finished_at=_utcnow(),
+            timed_out=timed_out or idle_timed_out,
+            metadata=metadata,
+            stdout_byte_count=stdout_buffer.byte_count,
+            stderr_byte_count=stderr_buffer.byte_count,
+        )
 
     def cancel(self, iteration_id: str) -> bool:
         with self._lock:

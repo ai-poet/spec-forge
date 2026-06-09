@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 from uuid import uuid4
 
+from ..core.config import settings
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -30,9 +32,11 @@ class Database:
 
     def connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self.path)
+        conn = sqlite3.connect(self.path, timeout=settings.sqlite_timeout_seconds)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute(f"PRAGMA busy_timeout={int(settings.sqlite_timeout_seconds * 1000)}")
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
@@ -211,6 +215,7 @@ class Database:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_iteration_created ON documents(iteration_id, created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_iteration_created ON events(iteration_id, created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_iteration_started ON runs(iteration_id, started_at)")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_iterations_project_docs_slug ON iterations(project_id, docs_slug) WHERE project_id IS NOT NULL AND docs_slug IS NOT NULL")
 
     def get_project_by_root_path(self, root_path: str) -> Optional[sqlite3.Row]:
         with self.connect() as conn:
@@ -440,6 +445,7 @@ class Database:
         if resolved_build_command is None and project_row is not None and "default_build_command" in project_row.keys():
             resolved_build_command = project_row["default_build_command"]
         with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             sequence = conn.execute(
                 "SELECT COUNT(*) FROM iterations WHERE project_id = ?",
                 (resolved_project_id,),

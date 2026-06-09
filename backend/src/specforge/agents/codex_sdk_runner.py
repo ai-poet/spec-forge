@@ -4,13 +4,14 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 import json
 import re
+from queue import Empty, Queue
 from types import SimpleNamespace
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .cli_runner import CLIResult
+from .cli_runner import BoundedTextBuffer, CLIResult
 from .providers import AgentCommand
 
 
@@ -31,14 +32,16 @@ class CodexSdkRunner:
         *,
         iteration_id: Optional[str] = None,
         timeout_seconds: Optional[int] = None,
+        idle_timeout_seconds: Optional[int] = None,
+        capture_max_chars: Optional[int] = None,
     ) -> CLIResult:
         started_at = _utcnow()
-        stdout_parts: list[str] = []
-        stderr_parts: list[str] = []
+        stdout_buffer = BoundedTextBuffer(capture_max_chars)
+        stderr_buffer = BoundedTextBuffer(capture_max_chars)
 
         def emit(payload: dict[str, Any]) -> None:
             line = json.dumps(payload, ensure_ascii=False, default=str) + "\n"
-            stdout_parts.append(line)
+            stdout_buffer.append(line)
             if on_output:
                 on_output("stdout", line)
 
@@ -48,10 +51,12 @@ class CodexSdkRunner:
             return CLIResult(
                 command=command.command,
                 returncode=127,
-                stdout="".join(stdout_parts),
+                stdout=stdout_buffer.text,
                 stderr=f"openai-codex SDK unavailable: {exc}",
                 started_at=started_at,
                 finished_at=_utcnow(),
+                stdout_byte_count=stdout_buffer.byte_count,
+                stderr_byte_count=0,
             )
 
         try:
@@ -72,6 +77,7 @@ class CodexSdkRunner:
                     turn,
                     emit=emit,
                     deadline=time.monotonic() + timeout_seconds if timeout_seconds else None,
+                    idle_timeout_seconds=idle_timeout_seconds,
                 )
                 status = str(_value(getattr(result, "status", None)) or "")
                 failed = status.lower() in {"failed", "error", "cancelled", "canceled"}
@@ -101,33 +107,46 @@ class CodexSdkRunner:
                 return CLIResult(
                     command=command.command,
                     returncode=1 if failed else 0,
-                    stdout="".join(stdout_parts),
-                    stderr=stderr or "".join(stderr_parts),
+                    stdout=stdout_buffer.text,
+                    stderr=stderr or stderr_buffer.text,
                     started_at=started_at,
                     finished_at=_utcnow(),
-                    metadata={"codex_thread_id": thread.id, "codex_turn_id": getattr(result, "id", None)},
+                    metadata={
+                        "codex_thread_id": thread.id,
+                        "codex_turn_id": getattr(result, "id", None),
+                        "stdout_truncated": stdout_buffer.truncated,
+                        "stderr_truncated": stderr_buffer.truncated,
+                    },
+                    stdout_byte_count=stdout_buffer.byte_count,
+                    stderr_byte_count=stderr_buffer.byte_count,
                 )
         except TimeoutError as exc:
-            stderr_parts.append(str(exc))
+            stderr_buffer.append(str(exc))
             return CLIResult(
                 command=command.command,
                 returncode=124,
-                stdout="".join(stdout_parts),
-                stderr="".join(stderr_parts),
+                stdout=stdout_buffer.text,
+                stderr=stderr_buffer.text,
                 started_at=started_at,
                 finished_at=_utcnow(),
                 timed_out=True,
+                metadata={"stdout_truncated": stdout_buffer.truncated, "stderr_truncated": stderr_buffer.truncated},
+                stdout_byte_count=stdout_buffer.byte_count,
+                stderr_byte_count=stderr_buffer.byte_count,
             )
         except Exception as exc:
-            stderr_parts.append(str(exc))
+            stderr_buffer.append(str(exc))
             emit({"type": "turn.failed", "error": str(exc), "source": "codex-sdk"})
             return CLIResult(
                 command=command.command,
                 returncode=1,
-                stdout="".join(stdout_parts),
-                stderr="".join(stderr_parts),
+                stdout=stdout_buffer.text,
+                stderr=stderr_buffer.text,
                 started_at=started_at,
                 finished_at=_utcnow(),
+                metadata={"stdout_truncated": stdout_buffer.truncated, "stderr_truncated": stderr_buffer.truncated},
+                stdout_byte_count=stdout_buffer.byte_count,
+                stderr_byte_count=stderr_buffer.byte_count,
             )
         finally:
             if iteration_id:
@@ -180,15 +199,48 @@ class CodexSdkRunner:
         *,
         emit: Callable[[dict[str, Any]], None],
         deadline: float | None,
+        idle_timeout_seconds: int | None,
     ) -> Any:
         items: list[Any] = []
         usage: Any = None
         completed_turn: Any = None
-        for notification in turn.stream():
+        stream_queue: Queue[Any] = Queue()
+        sentinel = object()
+
+        def consume() -> None:
+            try:
+                for notification in turn.stream():
+                    stream_queue.put(notification)
+            except BaseException as exc:  # pragma: no cover - defensive around SDK stream internals
+                stream_queue.put(exc)
+            finally:
+                stream_queue.put(sentinel)
+
+        threading.Thread(target=consume, name="specforge-codex-sdk-stream", daemon=True).start()
+        idle_deadline = time.monotonic() + idle_timeout_seconds if idle_timeout_seconds else None
+        while True:
+            try:
+                notification = stream_queue.get(timeout=0.25)
+            except Empty:
+                if deadline is not None and time.monotonic() > deadline:
+                    with _ignore_errors():
+                        turn.interrupt()
+                    raise TimeoutError("Codex SDK turn timed out")
+                if idle_deadline is not None and time.monotonic() > idle_deadline:
+                    with _ignore_errors():
+                        turn.interrupt()
+                    raise TimeoutError(f"Codex SDK turn idle timed out after {idle_timeout_seconds}s")
+                continue
+            if notification is sentinel:
+                break
+            if isinstance(notification, BaseException):
+                raise notification
             if deadline is not None and time.monotonic() > deadline:
                 with _ignore_errors():
                     turn.interrupt()
                 raise TimeoutError("Codex SDK turn timed out")
+            if idle_timeout_seconds:
+                idle_deadline = time.monotonic() + idle_timeout_seconds
             payload = _notification_payload(notification)
             item = _payload_item(payload)
             if item is not None:

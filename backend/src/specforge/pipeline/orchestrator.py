@@ -62,6 +62,70 @@ MANUAL_SKIP_ACTIVE_STATUSES = {
     IterationStatus.testing.value,
 }
 
+TERMINAL_JOB_STATUSES = {
+    IterationStatus.delivered.value,
+    IterationStatus.blocked.value,
+    IterationStatus.blocked_user.value,
+    IterationStatus.failed.value,
+    IterationStatus.stopped.value,
+}
+
+DB_STATE_REFRESH_KEYS = {
+    "iteration_id",
+    "project_id",
+    "project_name",
+    "goal",
+    "epic_title",
+    "epic_description",
+    "epic_acceptance_criteria",
+    "mode",
+    "max_coder_tester_retries",
+    "max_tester_self_retries",
+    "max_clarifications",
+    "max_verify_rejects",
+    "max_discovery_rounds",
+    "planning_cli_session_id",
+    "planning_cli_session_started",
+}
+
+TERMINAL_RECOVERY_STATUSES = {
+    IterationStatus.delivered.value,
+    IterationStatus.blocked.value,
+    IterationStatus.blocked_user.value,
+    IterationStatus.failed.value,
+}
+
+ACTIVE_RUNTIME_STATUSES = {
+    IterationStatus.planning.value,
+    IterationStatus.coding.value,
+    IterationStatus.retrying.value,
+    IterationStatus.testing.value,
+}
+
+START_RECOVERY_STATUSES = {
+    IterationStatus.created.value,
+    IterationStatus.queued.value,
+}
+
+AUTO_RESUME_STATUSES = ACTIVE_RUNTIME_STATUSES | {IterationStatus.stopped.value}
+
+MANUAL_WAIT_NODES = {
+    "requirements_input",
+    "verify_approval",
+}
+
+AUTO_RESUMABLE_NODES = {
+    NodeName.planner_discovery.value,
+    NodeName.prd_planner.value,
+    NodeName.test_planner.value,
+    NodeName.planner_clarification.value,
+    NodeName.coder.value,
+    NodeName.code_tester.value,
+    NodeName.integrity_check.value,
+    NodeName.ui_tester.value,
+    NodeName.planner_verify.value,
+}
+
 
 class LangGraphPipeline(
     PlanningNodesMixin,
@@ -94,6 +158,7 @@ class LangGraphPipeline(
         self._live_cli_pending_chunks: dict[tuple[str, str], dict[str, str]] = {}
         self._aborted_iterations: set[str] = set()
         self._invoking: set[str] = set()
+        self._checkpointer_closed = False
 
 
     def project_repo_root(self, iteration_id: str) -> Path:
@@ -130,6 +195,7 @@ class LangGraphPipeline(
 
 
     def start(self, iteration_id: str) -> None:
+        self._ensure_graph_open()
         self._begin_invoke(iteration_id)
         try:
             state = self._build_state(iteration_id)
@@ -137,6 +203,11 @@ class LangGraphPipeline(
         finally:
             self._end_invoke(iteration_id)
         self._publish_snapshot(iteration_id)
+
+
+    def can_start_job(self, iteration_id: str) -> bool:
+        row = self.db.get_iteration_row(iteration_id)
+        return row is not None and row["status"] in {IterationStatus.created.value, IterationStatus.queued.value}
 
 
     def _build_state(self, iteration_id: str) -> PipelineState:
@@ -166,6 +237,19 @@ class LangGraphPipeline(
             "planning_cli_session_id": row["planning_cli_session_id"] if "planning_cli_session_id" in row.keys() else None,
             "planning_cli_session_started": bool(row["planning_cli_session_started"]) if "planning_cli_session_started" in row.keys() else False,
         }
+
+
+    def _checkpoint_state_with_db_refresh(self, iteration_id: str) -> PipelineState:
+        self._ensure_graph_open()
+        db_state = self._build_state(iteration_id)
+        graph_state = self.graph.get_state(self._config(iteration_id))
+        if not graph_state.values:
+            return db_state
+        state = dict(graph_state.values)
+        for key in DB_STATE_REFRESH_KEYS:
+            if key in db_state:
+                state[key] = db_state[key]
+        return state
 
 
     def answer_requirements(self, iteration_id: str, answer: str) -> None:
@@ -206,6 +290,7 @@ class LangGraphPipeline(
 
 
     def manual_skip(self, iteration_id: str, node: str, note: Optional[str] = None) -> None:
+        self._ensure_graph_open()
         skip_node = self._normalize_manual_skip_node(node)
         next_node = self._manual_skip_next(skip_node)
         self._aborted_iterations.discard(iteration_id)
@@ -235,12 +320,7 @@ class LangGraphPipeline(
             action_hint="这是调试操作，产物可能由系统生成的最小占位内容补齐。",
         )
 
-        state = self._build_state(iteration_id)
-        graph_state = self.graph.get_state(self._config(iteration_id))
-        if graph_state.values:
-            merged = dict(graph_state.values)
-            merged.update(state)
-            state = merged
+        state = self._checkpoint_state_with_db_refresh(iteration_id)
         state.update(
             {
                 "status": status.value,
@@ -434,6 +514,7 @@ class LangGraphPipeline(
 
 
     def resume(self, iteration_id: str, expected_checkpoint: str, note: str) -> None:
+        self._ensure_graph_open()
         state = self.graph.get_state(self._config(iteration_id))
         if expected_checkpoint not in set(state.next):
             raise ValueError(f"iteration is not awaiting {expected_checkpoint}")
@@ -446,6 +527,7 @@ class LangGraphPipeline(
 
 
     def can_resume(self, iteration_id: str, expected_checkpoint: str) -> bool:
+        self._ensure_graph_open()
         state = self.graph.get_state(self._config(iteration_id))
         return expected_checkpoint in set(state.next)
 
@@ -463,7 +545,33 @@ class LangGraphPipeline(
             self._clear_live_cli(iteration_id)
             self.stop_iteration(iteration_id, "service shutting down")
         self._stop_active_runtime_iterations("service shutting down")
+        self.close_checkpointer()
         return cancelled
+
+
+    def close_checkpointer(self) -> None:
+        if self._checkpointer_closed:
+            return
+        self._checkpointer_closed = True
+        self._checkpointer_context.__exit__(None, None, None)
+
+
+    def _ensure_graph_open(self) -> None:
+        if not self._checkpointer_closed:
+            return
+        settings.langgraph_db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._checkpointer_context = SqliteSaver.from_conn_string(str(settings.langgraph_db_path))
+        self._checkpointer = self._checkpointer_context.__enter__()
+        self.graph = self._build_graph().compile(checkpointer=self._checkpointer)
+        self._checkpointer_closed = False
+
+
+    def forget_iteration_state(self, iteration_id: str) -> None:
+        self._ensure_graph_open()
+        try:
+            self._checkpointer.delete_thread(iteration_id)
+        except Exception:
+            pass
 
 
     def resync_runtime_state(self) -> list[str]:
@@ -477,15 +585,86 @@ class LangGraphPipeline(
 
     def _stop_active_runtime_iterations(self, reason: str) -> None:
         for row in self.db.list_iterations():
-            if row["status"] in {
-                IterationStatus.created.value,
-                IterationStatus.queued.value,
-                IterationStatus.planning.value,
-                IterationStatus.coding.value,
-                IterationStatus.retrying.value,
-                IterationStatus.testing.value,
-            }:
+            if row["status"] in ACTIVE_RUNTIME_STATUSES:
                 self._mark_runtime_stopped(row["id"], reason)
+
+
+    def recover_interrupted_iterations(self, job_queue: Any) -> list[dict[str, Any]]:
+        self.resync_runtime_state()
+        decisions: list[dict[str, Any]] = []
+        for row in self.db.list_iterations():
+            decision = self._recovery_decision(row)
+            if decision["category"] == "terminal":
+                continue
+            iteration_id = row["id"]
+            queued = False
+            if decision["action"] == "start":
+                queued = bool(job_queue.enqueue_start(iteration_id))
+            elif decision["action"] == "resume_stopped":
+                queued = bool(job_queue.enqueue_resume_stopped(iteration_id, "automatic recovery after service restart"))
+
+            if decision["action"]:
+                payload = {
+                    "category": decision["category"],
+                    "action": decision["action"],
+                    "node": decision["node"],
+                    "reason": decision["reason"] if queued else "already_pending",
+                }
+                self._add_event(
+                    iteration_id,
+                    event_type="runtime.auto_resume_queued" if queued else "runtime.auto_resume_skipped",
+                    payload=payload,
+                )
+                decisions.append({**payload, "iteration_id": iteration_id, "queued": queued})
+            elif decision["category"] in {"manual_waiting", "skipped"}:
+                payload = {
+                    "category": decision["category"],
+                    "node": decision["node"],
+                    "reason": decision["reason"],
+                }
+                self._add_event(iteration_id, event_type="runtime.auto_resume_skipped", payload=payload)
+                decisions.append({**payload, "iteration_id": iteration_id, "queued": False})
+        return decisions
+
+
+    def recovery_category(self, row: Any) -> Literal["auto_resumable", "manual_waiting", "terminal", "skipped"]:
+        return self._recovery_decision(row)["category"]  # type: ignore[return-value]
+
+
+    def _recovery_decision(self, row: Any) -> dict[str, Any]:
+        status = row["status"]
+        node = self._stopped_resume_node(row)
+        if status in TERMINAL_RECOVERY_STATUSES:
+            return {"category": "terminal", "action": None, "node": node, "reason": "terminal_status"}
+        if status in {
+            IterationStatus.awaiting_requirements_input.value,
+            IterationStatus.awaiting_verify_approval.value,
+        } or node in MANUAL_WAIT_NODES:
+            return {"category": "manual_waiting", "action": None, "node": node, "reason": "manual_waiting"}
+        if status in START_RECOVERY_STATUSES:
+            if self._checkpoint_has_values(row["id"]):
+                return {"category": "skipped", "action": None, "node": node, "reason": "checkpoint_exists"}
+            return {
+                "category": "auto_resumable",
+                "action": "start",
+                "node": NodeName.planner_discovery.value,
+                "reason": "queued_without_checkpoint",
+            }
+        if status not in AUTO_RESUME_STATUSES:
+            return {"category": "skipped", "action": None, "node": node, "reason": f"status_not_recoverable:{status}"}
+        if not node:
+            return {"category": "skipped", "action": None, "node": None, "reason": "missing_resume_node"}
+        if node not in AUTO_RESUMABLE_NODES:
+            return {"category": "skipped", "action": None, "node": node, "reason": "node_not_auto_resumable"}
+        return {"category": "auto_resumable", "action": "resume_stopped", "node": node, "reason": "interrupted_runtime"}
+
+
+    def _checkpoint_has_values(self, iteration_id: str) -> bool:
+        self._ensure_graph_open()
+        try:
+            return bool(self.graph.get_state(self._config(iteration_id)).values)
+        except Exception:
+            return False
 
 
     def _mark_runtime_stopped(self, iteration_id: str, reason: str) -> None:
@@ -536,6 +715,7 @@ class LangGraphPipeline(
 
 
     def resume_stopped(self, iteration_id: str, note: Optional[str] = None) -> None:
+        self._ensure_graph_open()
         row = self._require_iteration(iteration_id)
         if row["status"] != IterationStatus.stopped.value:
             raise ValueError("iteration is not stopped")
@@ -587,14 +767,9 @@ class LangGraphPipeline(
             payload={"node": resume_node, "note": resume_note or None},
         )
 
-        state = self._build_state(iteration_id)
+        state = self._checkpoint_state_with_db_refresh(iteration_id)
         if resume_note:
             state["failure_notes"] = resume_note
-        graph_state = self.graph.get_state(config)
-        if graph_state.values:
-            merged = dict(graph_state.values)
-            merged.update(state)
-            state = merged
         self.graph.update_state(config, state)
         self._begin_invoke(iteration_id)
         try:
@@ -614,8 +789,8 @@ class LangGraphPipeline(
 
     def _infer_node_from_status(self, status: str) -> Optional[str]:
         return {
-            "queued": NodeName.prd_planner.value,
-            "created": NodeName.prd_planner.value,
+            "queued": NodeName.planner_discovery.value,
+            "created": NodeName.planner_discovery.value,
             "planning": NodeName.planner_discovery.value,
             "awaiting_requirements_input": "requirements_input",
             "coding": NodeName.coder.value,
@@ -650,10 +825,16 @@ class LangGraphPipeline(
 
 
     def fail_job(self, iteration_id: str, reason: str) -> None:
+        row = self.db.get_iteration_row(iteration_id)
+        if row is None or row["status"] in TERMINAL_JOB_STATUSES:
+            if row is not None:
+                self._add_event(iteration_id, event_type="job.failed_ignored", payload={"reason": reason, "status": row["status"]})
+            return
         self._block(iteration_id, "job.failed", None, reason)
 
 
     def dashboard_snapshot(self, iteration_id: str) -> dict[str, Any]:
+        self._ensure_graph_open()
         detail_rows = self.db.iteration_detail_rows(iteration_id)
         if detail_rows is None:
             raise KeyError(iteration_id)
@@ -661,6 +842,7 @@ class LangGraphPipeline(
         documents = detail_rows["documents"]
         events = detail_rows["events"]
         runs = detail_rows["runs"]
+        graph_state = None
         if iteration_id in self._invoking:
             graph_next: list[str] = []
         else:
@@ -692,14 +874,14 @@ class LangGraphPipeline(
                 }
                 for doc in documents
             ],
-            "events": self._public_event_records(events),
+            "events": self._public_event_records(events[-self._PUBLIC_EVENT_LIMIT :]),
             "runs": [
                 self._public_run_record(iteration_id, run)
-                for run in runs
+                for run in runs[-self._PUBLIC_RUN_LIMIT :]
             ],
             "ui_results": [result.model_dump() for result in self._ui_results(iteration_id)],
             "live_cli": self._live_cli_snapshot(iteration_id),
-            **self._discovery_snapshot_fields(iteration_id),
+            **self._discovery_snapshot_fields(iteration_id, graph_state=graph_state, skip_graph=iteration_id in self._invoking),
         }
 
 

@@ -175,9 +175,10 @@ class PipelinePromptsMixin:
         )
 
 
-    def _discovery_snapshot_fields(self, iteration_id: str) -> dict[str, Any]:
-        graph_state = self.graph.get_state(self._config(iteration_id))
-        values = graph_state.values or {}
+    def _discovery_snapshot_fields(self, iteration_id: str, *, graph_state: Any | None = None, skip_graph: bool = False) -> dict[str, Any]:
+        if graph_state is None and not skip_graph:
+            graph_state = self.graph.get_state(self._config(iteration_id))
+        values = graph_state.values if graph_state is not None else {}
         discovery_qa = list(values.get("discovery_qa") or [])
         history = [
             {
@@ -198,10 +199,11 @@ class PipelinePromptsMixin:
             }
         else:
             row = self.db.get_iteration_row(iteration_id)
+            graph_next = set(graph_state.next or []) if graph_state is not None else set()
             awaiting_input = (
                 row is not None
                 and row["status"] == IterationStatus.awaiting_requirements_input.value
-            ) or "requirements_input" in set(graph_state.next or [])
+            ) or "requirements_input" in graph_next
             if awaiting_input:
                 pending = self._pending_discovery_from_events(iteration_id, round_num=len(discovery_qa) + 1)
         return {"pending_discovery": pending, "discovery_history": history}

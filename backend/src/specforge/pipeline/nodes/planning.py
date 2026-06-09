@@ -63,6 +63,9 @@ class PlanningNodesMixin:
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.planner_discovery.value, run_result)
+        timeout_state = self._timeout_stop_state(iteration_id, NodeName.planner_discovery.value, run_result, run_id)
+        if timeout_state is not None:
+            return timeout_state
         if run_result.returncode:
             self._node_event(
                 iteration_id,
@@ -237,6 +240,9 @@ class PlanningNodesMixin:
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.prd_planner.value, run_result)
+        timeout_state = self._timeout_stop_state(iteration_id, NodeName.prd_planner.value, run_result, run_id)
+        if timeout_state is not None:
+            return timeout_state
         if run_result.returncode:
             self._node_event(iteration_id, "node.failed", NodeName.prd_planner.value, "PRD 规划失败", "PRD Planner CLI 执行失败。", severity="error", run_id=run_id, action_hint=self._cli_failure_action_hint(run_result))
             return self._block(iteration_id, "prd_planner.failed", run_id, run_result.stderr)
@@ -277,6 +283,9 @@ class PlanningNodesMixin:
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.test_planner.value, run_result)
+        timeout_state = self._timeout_stop_state(iteration_id, NodeName.test_planner.value, run_result, run_id)
+        if timeout_state is not None:
+            return timeout_state
         if run_result.returncode:
             self._node_event(iteration_id, "node.failed", NodeName.test_planner.value, "测试规划失败", "Test Planner CLI 执行失败。", severity="error", run_id=run_id, action_hint="查看运行日志。")
             return self._block(iteration_id, "test_planner.failed", run_id, run_result.stderr)

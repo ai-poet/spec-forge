@@ -26,6 +26,8 @@ class PipelineRuntimeMixin:
     _PUBLIC_EVENT_TEXT_MAX_CHARS = 4 * 1024
     _PUBLIC_RUN_COMMAND_MAX_CHARS = 4 * 1024
     _PUBLIC_CLI_DISPLAY_EVENT_LIMIT = 120
+    _PUBLIC_EVENT_LIMIT = 300
+    _PUBLIC_RUN_LIMIT = 100
     _RUN_LOG_PAGE_SIZE_MAX = 500
     _RUN_OUTPUT_PREVIEW_MAX_CHARS = 8 * 1024
     _PERSISTED_CLI_PHASES = {"session", "tool", "command", "file_change", "mcp", "todo", "hook", "retry", "result", "error"}
@@ -328,8 +330,10 @@ class PipelineRuntimeMixin:
         cwd: Path | None,
     ) -> dict[str, str | None]:
         run_dir = self._run_observability_dir(iteration_id, run_id)
-        raw_log_path = run_dir / "raw.jsonl"
-        self._write_raw_log(raw_log_path, node=node, run_result=run_result)
+        raw_log_meta = run_result.metadata.get("raw_log_path")
+        raw_log_path = Path(raw_log_meta) if isinstance(raw_log_meta, str) and raw_log_meta else run_dir / "raw.jsonl"
+        if not raw_log_path.exists():
+            self._write_raw_log(raw_log_path, node=node, run_result=run_result)
         prompt_path: Path | None = None
         worker_ref_path: Path | None = None
         session_id: str | None = None
@@ -525,6 +529,41 @@ class PipelineRuntimeMixin:
         return {"status": status, "route": "", "current_node": None, "blocked_reason": reason}
 
 
+    def _timeout_stop_state(
+        self,
+        iteration_id: str,
+        node: str,
+        run_result: CLIResult,
+        run_id: Optional[str],
+    ) -> Optional[PipelineState]:
+        if not run_result.timed_out:
+            return None
+        reason = self._format_cli_timeout(run_result)
+        self._node_event(
+            iteration_id,
+            "node.timeout",
+            node,
+            "CLI 执行超时",
+            reason,
+            severity="warning",
+            run_id=run_id,
+            action_hint="该迭代已转为可恢复 stopped；服务重启后会从当前节点自动恢复，或可手动点击恢复。",
+        )
+        self.stop_iteration(iteration_id, reason)
+        return {"status": IterationStatus.stopped.value, "route": "", "current_node": None, "blocked_reason": None}
+
+
+    @staticmethod
+    def _format_cli_timeout(run_result: CLIResult) -> str:
+        diagnostic = " ".join((run_result.stderr or run_result.stdout or "").split())
+        prefix = "CLI timed out"
+        if "idle timed out" in diagnostic.lower():
+            prefix = "CLI idle timed out"
+        if diagnostic:
+            return f"{prefix}; stopped for automatic recovery. {diagnostic}"
+        return f"{prefix}; stopped for automatic recovery."
+
+
     def _execute(
         self,
         state: PipelineState,
@@ -545,10 +584,33 @@ class PipelineRuntimeMixin:
         self._publish_snapshot(iteration_id)
         seen_output = {"stdout": False, "stderr": False}
         seen_cli_events: set[str] = set()
+        run_id = f"run_{uuid4().hex[:8]}"
+        raw_log_path = self._run_observability_dir(iteration_id, run_id) / "raw.jsonl"
+        raw_log_counts = {"stdout": 0, "stderr": 0}
+        raw_log_handle = raw_log_path.open("w", encoding="utf-8")
+
+        def write_raw_log(stream: str, chunk: str) -> None:
+            for text_line in chunk.splitlines():
+                raw_log_counts[stream] = raw_log_counts.get(stream, 0) + 1
+                raw_log_handle.write(
+                    json.dumps(
+                        {
+                            "stream": stream,
+                            "line": raw_log_counts[stream],
+                            "node": str(current_node),
+                            "text": text_line,
+                            "created_at": iso(utcnow()),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+            raw_log_handle.flush()
 
         def on_output(stream: str, chunk: str) -> None:
             if not chunk:
                 return
+            write_raw_log(stream, chunk)
             self._append_live_cli(iteration_id, stream, chunk)
             if not chunk.strip():
                 return
@@ -585,31 +647,45 @@ class PipelineRuntimeMixin:
             cwd = self._execution_cwd(state)
             kwargs: dict[str, Any] = {"iteration_id": iteration_id}
             if use_codex_sdk:
+                try:
+                    codex_params = inspect.signature(runner.run_agent).parameters
+                except (TypeError, ValueError):
+                    codex_params = {}
+                if "timeout_seconds" in codex_params:
+                    kwargs["timeout_seconds"] = settings.cli_timeout_seconds or None
+                if "idle_timeout_seconds" in codex_params:
+                    kwargs["idle_timeout_seconds"] = settings.cli_idle_timeout_seconds or None
+                if "capture_max_chars" in codex_params:
+                    kwargs["capture_max_chars"] = settings.cli_result_max_chars
                 result = runner.run_agent(
                     agent_command,
                     cwd=cwd,
                     on_output=on_output,
-                    timeout_seconds=settings.cli_timeout_seconds or None,
                     **kwargs,
                 )
             else:
                 try:
-                    accepts_timeout = "timeout_seconds" in inspect.signature(runner.run).parameters
+                    runner_params = inspect.signature(runner.run).parameters
                 except (TypeError, ValueError):
-                    accepts_timeout = True
-                if accepts_timeout:
+                    runner_params = {"timeout_seconds": None, "idle_timeout_seconds": None, "capture_max_chars": None}
+                if "timeout_seconds" in runner_params:
                     kwargs["timeout_seconds"] = settings.cli_timeout_seconds or None
+                if "idle_timeout_seconds" in runner_params:
+                    kwargs["idle_timeout_seconds"] = settings.cli_idle_timeout_seconds or None
+                if "capture_max_chars" in runner_params:
+                    kwargs["capture_max_chars"] = settings.cli_result_max_chars
                 result = runner.run(
                     command_list,
                     cwd=cwd,
                     on_output=on_output,
                     **kwargs,
                 )
-            result.metadata.update({"agent_command": agent_command, "cwd": str(cwd)})
+            result.metadata.update({"agent_command": agent_command, "cwd": str(cwd), "run_id": run_id, "raw_log_path": str(raw_log_path)})
             if use_codex_sdk and result.metadata.get("codex_thread_id"):
                 result.metadata["session_id"] = result.metadata["codex_thread_id"]
             return result
         finally:
+            raw_log_handle.close()
             self._flush_cli_output(iteration_id)
             if not self._is_iteration_gone(iteration_id):
                 self._publish_snapshot(iteration_id)

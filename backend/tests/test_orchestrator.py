@@ -107,7 +107,18 @@ class SequenceRunner:
             on_output("stdout", result.stdout)
         if on_output and result.stderr:
             on_output("stderr", result.stderr)
-        return CLIResult(command=command, returncode=result.returncode, stdout=result.stdout, stderr=result.stderr, metadata=dict(result.metadata))
+        return CLIResult(
+            command=command,
+            returncode=result.returncode,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            started_at=result.started_at,
+            finished_at=result.finished_at,
+            timed_out=result.timed_out,
+            metadata=dict(result.metadata),
+            stdout_byte_count=result.stdout_bytes,
+            stderr_byte_count=result.stderr_bytes,
+        )
 
     def cancel(self, iteration_id: str) -> bool:
         return False
@@ -128,6 +139,28 @@ class RuntimeSyncRunner:
     def cancel(self, iteration_id: str) -> bool:
         self.cancelled.append(iteration_id)
         return iteration_id in self.cancelled_all
+
+
+class RecoveryQueue:
+    def __init__(self, *, allow: set[str] | None = None) -> None:
+        self.allow = allow
+        self.started: list[str] = []
+        self.resumed: list[tuple[str, str | None]] = []
+
+    def _accept(self, iteration_id: str) -> bool:
+        return self.allow is None or iteration_id in self.allow
+
+    def enqueue_start(self, iteration_id: str) -> bool:
+        if not self._accept(iteration_id):
+            return False
+        self.started.append(iteration_id)
+        return True
+
+    def enqueue_resume_stopped(self, iteration_id: str, note: str | None = None) -> bool:
+        if not self._accept(iteration_id):
+            return False
+        self.resumed.append((iteration_id, note))
+        return True
 
 
 class SequenceCodexSdkRunner:
@@ -192,6 +225,7 @@ def test_delete_epic_and_iterations(tmp_path):
     delete_iteration = client.delete(f"/api/iterations/{iteration_id}")
     assert delete_iteration.status_code == 200
     assert client.get(f"/api/iterations/{iteration_id}").status_code == 404
+    assert not pipeline.graph.get_state(pipeline._config(iteration_id)).values
 
     epic_after = client.get(f"/api/epics/{epic_id}")
     assert epic_after.status_code == 200
@@ -1367,6 +1401,79 @@ def test_resync_runtime_state_preserves_waiting_iterations():
     assert client.get(f"/api/iterations/{approval_id}").json()["status"] == "awaiting_verify_approval"
 
 
+def test_recover_interrupted_runtime_enqueues_resume():
+    iteration_id = create_manual_iteration("startup-recover-coding", mode="dry-run")
+    pipeline.db.update_iteration(iteration_id, status="coding", current_node="coder", last_error=None)
+
+    queue = RecoveryQueue(allow={iteration_id})
+    decisions = pipeline.recover_interrupted_iterations(queue)
+
+    row = pipeline.db.get_iteration_row(iteration_id)
+    assert row["status"] == "stopped"
+    assert row["stopped_at_node"] == "coder"
+    assert (iteration_id, "automatic recovery after service restart") in queue.resumed
+    assert any(decision["iteration_id"] == iteration_id and decision["queued"] for decision in decisions)
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert "runtime.resynced" in [event["type"] for event in detail["events"]]
+    assert "runtime.auto_resume_queued" in [event["type"] for event in detail["events"]]
+
+
+def test_recover_interrupted_runtime_keeps_manual_waiting_nodes():
+    waiting_id = create_manual_iteration("startup-recover-waiting", mode="dry-run")
+    approval_id = create_manual_iteration("startup-recover-approval", mode="dry-run")
+    pipeline.db.update_iteration(waiting_id, status="awaiting_requirements_input", current_node=None, last_error=None)
+    pipeline.db.update_iteration(approval_id, status="awaiting_verify_approval", current_node=None, last_error=None)
+
+    queue = RecoveryQueue(allow={waiting_id, approval_id})
+    pipeline.recover_interrupted_iterations(queue)
+
+    assert waiting_id not in queue.started
+    assert approval_id not in queue.started
+    assert waiting_id not in [item[0] for item in queue.resumed]
+    assert approval_id not in [item[0] for item in queue.resumed]
+    assert pipeline.db.get_iteration_row(waiting_id)["status"] == "awaiting_requirements_input"
+    assert pipeline.db.get_iteration_row(approval_id)["status"] == "awaiting_verify_approval"
+    waiting_events = client.get(f"/api/iterations/{waiting_id}").json()["events"]
+    assert any(event["type"] == "runtime.auto_resume_skipped" and event["payload"]["reason"] == "manual_waiting" for event in waiting_events)
+
+
+def test_recover_queued_iteration_without_checkpoint_restarts_from_discovery():
+    iteration_id = create_manual_iteration("startup-recover-queued", mode="dry-run")
+    pipeline.db.update_iteration(iteration_id, status="queued", current_node=None, last_error=None)
+
+    queue = RecoveryQueue(allow={iteration_id})
+    pipeline.recover_interrupted_iterations(queue)
+
+    assert iteration_id in queue.started
+    assert pipeline.db.get_iteration_row(iteration_id)["status"] == "queued"
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    queued = [event for event in detail["events"] if event["type"] == "runtime.auto_resume_queued"]
+    assert queued
+    assert queued[-1]["payload"]["action"] == "start"
+    assert queued[-1]["payload"]["node"] == "planner_discovery"
+
+
+def test_recover_cleaned_cli_registry_enqueues_resume():
+    iteration_id = create_manual_iteration("startup-recover-registry", mode="real-cli")
+    pipeline.db.update_iteration(iteration_id, status="coding", current_node="coder", last_error=None)
+    original_runner = pipeline.real_runner
+    pipeline.real_runner = RuntimeSyncRunner(cleaned=[iteration_id])  # type: ignore[assignment]
+    queue = RecoveryQueue(allow={iteration_id})
+    try:
+        pipeline.recover_interrupted_iterations(queue)
+    finally:
+        pipeline.real_runner = original_runner
+
+    row = pipeline.db.get_iteration_row(iteration_id)
+    assert row["status"] == "stopped"
+    assert row["stopped_at_node"] == "coder"
+    assert (iteration_id, "automatic recovery after service restart") in queue.resumed
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    event_types = [event["type"] for event in detail["events"]]
+    assert "runtime.resynced" in event_types
+    assert "runtime.auto_resume_queued" in event_types
+
+
 def test_shutdown_cancels_cli_and_stops_active_iteration():
     iteration_id = create_manual_iteration("runtime-shutdown", mode="real-cli")
     pipeline.db.update_iteration(iteration_id, status="testing", current_node="code_tester", last_error=None)
@@ -1538,6 +1645,65 @@ def test_resume_stopped_iteration(tmp_path):
     assert notes[-1] == {"node": "planner_discovery", "note": "continue"}
     resumed = [event for event in detail["events"] if event["type"] == "iteration.resumed"]
     assert resumed[-1]["payload"]["note"] == "continue"
+
+
+def test_duplicate_resume_jobs_are_ignored_instead_of_blocking(tmp_path):
+    project = post_project(tmp_path, "duplicate-resume")
+    project_id = project.json()["id"]
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "goal": "duplicate resume job", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    wait_for_requirements_input(iteration_id)
+
+    job_queue.enqueue_resume(iteration_id, "requirements_input", "Ship a minimal vertical slice first")
+    job_queue.enqueue_resume(iteration_id, "requirements_input", "Duplicate click")
+    drain_jobs()
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert detail["status"] == "awaiting_verify_approval"
+    event_types = [event["type"] for event in detail["events"]]
+    assert "job.failed" not in event_types
+    assert {"job.duplicate_ignored", "job.stale_ignored"} & set(event_types)
+
+    job_queue.enqueue_resume(iteration_id, "verify_approval", "approved")
+    job_queue.enqueue_resume(iteration_id, "verify_approval", "Duplicate approve")
+    drain_jobs()
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    event_types = [event["type"] for event in detail["events"]]
+    assert detail["status"] == "delivered"
+    assert "job.failed" not in event_types
+
+
+def test_checkpoint_state_refresh_preserves_discovery_context(tmp_path):
+    project = post_project(tmp_path, "resume-context")
+    project_id = project.json()["id"]
+    resp = client.post(
+        "/api/iterations",
+        json={"project_id": project_id, "goal": "preserve discovery context", "mode": "dry-run"},
+    )
+    iteration_id = resp.json()["id"]
+    wait_for_requirements_input(iteration_id)
+    job_queue.enqueue_resume(iteration_id, "requirements_input", "Keep the context")
+    drain_jobs()
+
+    before = pipeline.graph.get_state(pipeline._config(iteration_id)).values
+    assert before["discovery_qa"]
+    assert before["requirements_brief"]
+
+    pipeline.db.update_iteration(
+        iteration_id,
+        status="stopped",
+        current_node=None,
+        stopped_at_node="coder",
+        last_error="user stopped",
+    )
+    refreshed = pipeline._checkpoint_state_with_db_refresh(iteration_id)
+
+    assert refreshed["discovery_qa"] == before["discovery_qa"]
+    assert refreshed["requirements_brief"] == before["requirements_brief"]
 
 
 def test_runtime_note_accepts_stopped_iteration(tmp_path):
@@ -1896,6 +2062,32 @@ def test_planning_integrity_blocks_modified_plan_after_coder():
     assert any(event["type"] == "planning_integrity.failed" for event in detail["events"])
     classified = [event for event in detail["events"] if event["type"] == "error.classified"]
     assert classified[-1]["payload"]["title"] == "规划文档完整性失败"
+
+
+def test_timed_out_coder_stops_for_recovery_instead_of_blocking():
+    iteration_id = create_manual_iteration("coder-timeout", mode="dry-run")
+    runner = SequenceRunner([
+        CLIResult(command=[], returncode=124, stdout="", stderr="CLI timed out after 1s", timed_out=True)
+    ])
+    original_runner = pipeline.dry_runner
+    pipeline.dry_runner = runner  # type: ignore[assignment]
+    try:
+        result = pipeline._coder_node({"iteration_id": iteration_id, "mode": "dry-run", "retry_counts": {}})
+    finally:
+        pipeline.dry_runner = original_runner
+
+    row = pipeline.db.get_iteration_row(iteration_id)
+    assert result["status"] == "stopped"
+    assert row["status"] == "stopped"
+    assert row["stopped_at_node"] == "coder"
+    assert "CLI timed out" in row["last_error"]
+    runs = pipeline.db.list_runs(iteration_id)
+    assert runs[-1]["timed_out"] == 1
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    event_types = [event["type"] for event in detail["events"]]
+    assert "node.timeout" in event_types
+    assert "coder.failed" not in event_types
+    assert "job.failed" not in event_types
 
 
 def test_artifact_invalid_retries_same_agent_before_blocking():

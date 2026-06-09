@@ -29,6 +29,9 @@ class VerificationNodesMixin:
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.code_tester.value, run_result)
+        timeout_state = self._timeout_stop_state(iteration_id, NodeName.code_tester.value, run_result, run_id)
+        if timeout_state is not None:
+            return timeout_state
         planning_failure = self._planning_integrity_failure(
             iteration_id,
             node=NodeName.code_tester.value,
@@ -64,6 +67,9 @@ class VerificationNodesMixin:
                         return self._abort_state()
                     review_run_id = self._record_run(iteration_id, NodeName.code_tester.value, review_result)
                     run_id = review_run_id
+                    timeout_state = self._timeout_stop_state(iteration_id, NodeName.code_tester.value, review_result, review_run_id)
+                    if timeout_state is not None:
+                        return timeout_state
                     planning_failure = self._planning_integrity_failure(
                         iteration_id,
                         node=NodeName.code_tester.value,
@@ -169,7 +175,14 @@ class VerificationNodesMixin:
                 "UI Tester Agent 将读取 testing_plan.md/PRD 并执行适用的 UI 验收检查。",
                 run_id=run_id,
             )
-            artifact, run_id = self._run_ui_tester_agent(state, baseline, docs, run_id=run_id)
+            ui_result = self._run_ui_tester_agent(state, baseline, docs, run_id=run_id)
+            if len(ui_result) == 2:
+                artifact, run_id = ui_result
+                timeout_state = None
+            else:
+                artifact, run_id, timeout_state = ui_result
+            if timeout_state is not None:
+                return timeout_state
             artifact = self._normalize_ui_tester_artifact(artifact)
             planning_failure = self._planning_integrity_failure(
                 iteration_id,

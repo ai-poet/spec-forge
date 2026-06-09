@@ -31,7 +31,7 @@ class PipelineUiTesterMixin:
         docs: IterationDocs,
         *,
         run_id: Optional[str],
-    ) -> tuple[VerificationArtifact, Optional[str]]:
+    ) -> tuple[VerificationArtifact, Optional[str], PipelineState | None]:
         iteration_id = state["iteration_id"]
         with try_acquire_cua_session(iteration_id) as session:
             if session is None:
@@ -45,8 +45,11 @@ class PipelineUiTesterMixin:
             command = self._ui_tester_command(state, baseline=baseline, cua_busy_holder=cua_busy_holder)
             run_result = self._execute(state, command, node=NodeName.ui_tester.value)
             if self._is_iteration_gone(iteration_id):
-                return baseline, run_id
+                return baseline, run_id, None
             ui_run_id = self._record_run(iteration_id, NodeName.ui_tester.value, run_result)
+            timeout_state = self._timeout_stop_state(iteration_id, NodeName.ui_tester.value, run_result, ui_run_id)
+            if timeout_state is not None:
+                return baseline, ui_run_id, timeout_state
             if run_result.returncode:
                 parsed = self._try_ui_tester_artifact(state, run_result, baseline)
                 if parsed is None:
@@ -71,12 +74,12 @@ class PipelineUiTesterMixin:
                     event_type="ui_tester.cua_busy",
                     payload={"holder": cua_busy_holder},
                 )
-            return artifact, ui_run_id
+            return artifact, ui_run_id, None
 
         artifact = self._dry_run_ui_artifact(state, baseline)
         if cua_busy_holder:
             artifact.ui_warnings.append(cua_session_busy_message(cua_busy_holder))
-        return artifact, run_id
+        return artifact, run_id, None
 
     def _ui_tester_command(
         self,

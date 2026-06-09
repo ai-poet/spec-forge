@@ -37,6 +37,9 @@ class ImplementationNodesMixin:
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.coder.value, run_result)
+        timeout_state = self._timeout_stop_state(iteration_id, NodeName.coder.value, run_result, run_id)
+        if timeout_state is not None:
+            return timeout_state
         planning_failure = self._planning_integrity_failure(
             iteration_id,
             node=NodeName.coder.value,
@@ -132,6 +135,9 @@ class ImplementationNodesMixin:
         if self._is_iteration_gone(iteration_id):
             return self._abort_state()
         run_id = self._record_run(iteration_id, NodeName.planner_clarification.value, run_result)
+        timeout_state = self._timeout_stop_state(iteration_id, NodeName.planner_clarification.value, run_result, run_id)
+        if timeout_state is not None:
+            return timeout_state
         if run_result.returncode:
             self._node_event(
                 iteration_id,

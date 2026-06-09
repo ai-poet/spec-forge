@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import suppress
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from queue import Empty
 from typing import Optional
@@ -75,7 +76,6 @@ def make_runner():
 
 broker = EventBroker()
 pipeline = LangGraphPipeline(db=db, runner=make_runner(), broker=broker)
-pipeline.resync_runtime_state()
 job_queue = PipelineJobQueue(pipeline)
 job_queue.start()
 
@@ -94,8 +94,8 @@ def on_startup() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.projects_dir.mkdir(parents=True, exist_ok=True)
     db.init()
-    pipeline.resync_runtime_state()
     job_queue.start()
+    pipeline.recover_interrupted_iterations(job_queue)
     log_fast_ui_runtime_status()
 
 
@@ -109,6 +109,12 @@ def health() -> dict[str, object]:
     ui = fast_ui_runtime_status()
     return {
         "status": "ok",
+        "langgraph": {
+            "version": package_version("langgraph"),
+            "checkpoint_db": str(settings.langgraph_db_path),
+            "checkpoint_db_exists": settings.langgraph_db_path.exists(),
+            "checkpoint_db_bytes": settings.langgraph_db_path.stat().st_size if settings.langgraph_db_path.exists() else 0,
+        },
         "ui": {
             "playwright": ui["playwright"],
             "cua": ui["cua"],
@@ -118,6 +124,13 @@ def health() -> dict[str, object]:
         },
         "ui_install_hint": ui["install_hint"],
     }
+
+
+def package_version(package: str) -> str:
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return "not-installed"
 
 
 @app.get("/api/environment/checks")
@@ -335,12 +348,15 @@ def delete_project(project_id: str) -> dict[str, bool]:
     row = db.get_project_row(project_id)
     if row is None:
         raise HTTPException(status_code=404, detail="project not found")
-    for iteration in db.list_iterations(project_id=project_id):
+    iterations = db.list_iterations(project_id=project_id)
+    for iteration in iterations:
         pipeline.cancel_cli(iteration["id"])
         if iteration["status"] not in _TERMINAL_ITERATION_STATUSES:
             pipeline.stop_iteration(iteration["id"], "project deleted")
     if not db.delete_project(project_id):
         raise HTTPException(status_code=404, detail="project not found")
+    for iteration in iterations:
+        pipeline.forget_iteration_state(iteration["id"])
     return {"ok": True}
 
 
@@ -390,12 +406,15 @@ def delete_epic(epic_id: str) -> dict[str, bool]:
     row = db.get_epic_row(epic_id)
     if row is None:
         raise HTTPException(status_code=404, detail="epic not found")
-    for iteration in db.list_iterations(epic_id=epic_id):
+    iterations = db.list_iterations(epic_id=epic_id)
+    for iteration in iterations:
         pipeline.cancel_cli(iteration["id"])
         if iteration["status"] not in _TERMINAL_ITERATION_STATUSES:
             pipeline.stop_iteration(iteration["id"], "epic deleted")
     if not db.delete_epic(epic_id):
         raise HTTPException(status_code=404, detail="epic not found")
+    for iteration in iterations:
+        pipeline.forget_iteration_state(iteration["id"])
     return {"ok": True}
 
 
@@ -489,6 +508,7 @@ def delete_iteration(iteration_id: str) -> dict[str, bool]:
         pipeline.stop_iteration(iteration_id, "iteration deleted")
     if not db.delete_iteration(iteration_id):
         raise HTTPException(status_code=404, detail="iteration not found")
+    pipeline.forget_iteration_state(iteration_id)
     if epic_id:
         db.update_epic_status(epic_id)
     return {"ok": True}
