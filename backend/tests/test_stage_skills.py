@@ -38,6 +38,9 @@ def test_compose_planner_discovery_includes_brief_context() -> None:
     assert "One question per turn" in text
     assert "Round 1 Q: scope?" in text
     assert "React + Vite" in text
+    assert "frontend/**" in text
+    assert "web/**" in text
+    assert "backend/**" in text
     assert "Less Modules" in text
     assert "UI/UX usability" in text
     assert "fault-tolerant" in text
@@ -87,6 +90,7 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "app.route()" in text
     assert "AppType" in text
     assert "local SQLite" in text
+    assert "exception to the `backend/**` rule" in text
     assert "supabase/migrations" in text
     assert "supabase/functions" in text
     assert "supabase/tests" in text

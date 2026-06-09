@@ -158,7 +158,7 @@ updated_at: 2026-06-05T09:00:00Z
 
 | 分区 | 路径模式 | Owner | 说明 |
 |------|----------|-------|------|
-| 源码 | `src/**`（或 convention 中的 `internal/`、`lib/` 等） | **Coder** | 实现代码 |
+| 源码 | 后端 `backend/**`；前端 `frontend/**` 或既有 `web/**`；Supabase 可在 app 根目录使用 `supabase/**` | **Coder** | 实现代码 |
 | 受保护测试 | `tests/unit`、`tests/integration` | **Code Tester**（按 testing_plan.md 编写） | checksum 基线，Coder 不可改 |
 | 对抗测试 | `tests/adversarial/**` | **Code Tester** | Code Tester 可增删 |
 | 验证产物 | `verify_report.md`、`delivery_advice.md`、`ui_*` | **Code Tester** | 验证与交付文档（由 code_tester + ui_tester 写盘） |
@@ -547,7 +547,7 @@ ContextPackage 借鉴 Gold Band 的热/冷上下文分层：
 | **planner_discovery** | Claude CLI | 需求澄清（一次一问或 ready） | `discovery/*` |
 | **prd_planner** | Claude CLI | 产出 `prd.md`、context manifests | `prd.md`、`context/for_*.jsonl` |
 | **test_planner** | Claude CLI | 产出 `testing_plan.md`（含自动化测试策略 + 人工测试场景） | `testing_plan.md` |
-| **coder** | Claude CLI | 按 PRD/测试实现 | `src/**`（及 convention 中的源码根） |
+| **coder** | Claude CLI | 按 PRD/测试实现 | 后端 `backend/**`；前端 `frontend/**` 或既有 `web/**`；Supabase 例外为 app 根目录 `supabase/**` |
 | **planner_clarification** | Claude CLI | 回答 Coder 澄清 | `clarifications/*` |
 | **code_tester** | Codex SDK / Claude CLI（可配置） | 按 testing_plan.md 编写自动化测试；独立代码审查、`defects[]`、对抗测试；无 UI 自动化 | `verify_report.md`、`delivery_advice.md`、`tests/unit|integration`、`tests/adversarial/` |
 | **ui_tester** | Claude CLI / Codex SDK（可配置） | Agent 执行 testing_plan.md 中的 Manual Tests（playwright-cli / cua-driver）、合并验证产物 | `ui_results.json`、`ui_report.md`（在 code_tester 产物基础上） |
@@ -558,7 +558,7 @@ ContextPackage 借鉴 Gold Band 的热/冷上下文分层：
 
 ## 后端架构（给开发者）
 
-后端开发默认遵循清晰的层级/能力分目录：HTTP 入口、应用服务/use-case、领域/契约模型、数据访问/仓储、集成适配器、配置与测试应有明确边界。避免把大量互不相关的 routes、services、schemas、repositories、adapters、config 文件直接平铺在同一个目录里；当模块职责增长时，优先按层或 bounded feature 拆成内聚子目录。
+全栈项目默认前后端分离：后端统一放在 `backend/**`，前端统一放在 `frontend/**`，若仓库已有 `web/**` 前端根则沿用 `web/**`。Supabase 是例外：`supabase/**` 可以放在 app 根目录下，包括 `frontend/` 或既有 `web/` 前端根。后端开发默认遵循清晰的层级/能力分目录：HTTP 入口、应用服务/use-case、领域/契约模型、数据访问/仓储、集成适配器、配置与测试应有明确边界。避免把大量互不相关的 routes、services、schemas、repositories、adapters、config 文件直接平铺在同一个目录里；当模块职责增长时，优先按层或 bounded feature 拆成内聚子目录。
 
 ```text
 FastAPI (main.py — HTTP + WebSocket)

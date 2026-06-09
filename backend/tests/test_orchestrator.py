@@ -400,6 +400,9 @@ def test_iteration_workspace_under_project_root(tmp_path):
     assert "## Development Conventions" in prd_text
     assert "## Architecture and Boundaries" in prd_text
     assert "React + Vite" in prd_text
+    assert "frontend/**" in prd_text
+    assert "web/**" in prd_text
+    assert "backend/**" in prd_text
     assert "Less Modules" in prd_text
     assert "UI/UX usability" in prd_text
     assert "fault-tolerant" in prd_text
@@ -411,6 +414,7 @@ def test_iteration_workspace_under_project_root(tmp_path):
     assert "app.route()" in prd_text
     assert "AppType" in prd_text
     assert "local SQLite" in prd_text
+    assert "exception to the `backend/**` rule" in prd_text
     assert "supabase/migrations" in prd_text
     assert "supabase/functions" in prd_text
     assert "supabase/tests" in prd_text
