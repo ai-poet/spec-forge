@@ -405,6 +405,8 @@ def test_iteration_workspace_under_project_root(tmp_path):
     assert "fault-tolerant" in prd_text
     assert "transport routes/controllers" in prd_text
     assert "application services/use cases" in prd_text
+    assert "flat backend directories" in prd_text
+    assert "cohesive subdirectories" in prd_text
     assert "APIRouter" in prd_text
     assert "app.route()" in prd_text
     assert "AppType" in prd_text

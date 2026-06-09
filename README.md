@@ -558,6 +558,8 @@ ContextPackage 借鉴 Gold Band 的热/冷上下文分层：
 
 ## 后端架构（给开发者）
 
+后端开发默认遵循清晰的层级/能力分目录：HTTP 入口、应用服务/use-case、领域/契约模型、数据访问/仓储、集成适配器、配置与测试应有明确边界。避免把大量互不相关的 routes、services、schemas、repositories、adapters、config 文件直接平铺在同一个目录里；当模块职责增长时，优先按层或 bounded feature 拆成内聚子目录。
+
 ```text
 FastAPI (main.py — HTTP + WebSocket)
     │

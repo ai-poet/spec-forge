@@ -81,6 +81,8 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "fault-tolerant" in text
     assert "transport routes/controllers" in text
     assert "application services/use cases" in text
+    assert "flat backend directories" in text
+    assert "layer- or feature-oriented folder structure" in text
     assert "APIRouter" in text
     assert "app.route()" in text
     assert "AppType" in text
