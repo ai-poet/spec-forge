@@ -24,7 +24,7 @@ def run_project_commands(repo_root: Path, *, build_command: str | None, test_com
     return True, ""
 
 
-def read_framework_conventions(*, max_chars: int = 2200) -> str:
+def read_framework_conventions(*, max_chars: int = 4200) -> str:
     if not _FRAMEWORK_CONVENTIONS_PATH.exists():
         return ""
     text = _FRAMEWORK_CONVENTIONS_PATH.read_text(encoding="utf-8").strip()

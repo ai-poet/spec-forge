@@ -15,6 +15,13 @@ def test_read_framework_conventions_returns_rules() -> None:
     assert "visual polish" in text
     assert "fault-tolerant" in text
     assert "routes/controllers" in text
+    assert "application services/use cases" in text
+    assert "APIRouter" in text
+    assert "app.route()" in text
+    assert "AppType" in text
+    assert "supabase/migrations" in text
+    assert "supabase/functions" in text
+    assert "supabase/tests" in text
     assert "extensibility" in text
     assert "maintainability" in text
     assert "performance" in text

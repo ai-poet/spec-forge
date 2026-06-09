@@ -403,7 +403,14 @@ def test_iteration_workspace_under_project_root(tmp_path):
     assert "Less Modules" in prd_text
     assert "UI/UX usability" in prd_text
     assert "fault-tolerant" in prd_text
-    assert "route/service/domain/data-access" in prd_text
+    assert "transport routes/controllers" in prd_text
+    assert "application services/use cases" in prd_text
+    assert "APIRouter" in prd_text
+    assert "app.route()" in prd_text
+    assert "AppType" in prd_text
+    assert "supabase/migrations" in prd_text
+    assert "supabase/functions" in prd_text
+    assert "supabase/tests" in prd_text
     assert "maintainability" in prd_text
     assert "performance" in prd_text
     assert "main/preload/renderer" in prd_text

@@ -41,7 +41,10 @@ def test_compose_planner_discovery_includes_brief_context() -> None:
     assert "Less Modules" in text
     assert "UI/UX usability" in text
     assert "fault-tolerant" in text
-    assert "route/service/domain/data-access" in text
+    assert "FastAPI" in text
+    assert "HonoJS" in text
+    assert "Supabase" in text
+    assert "其他（请说明）" in text
     assert "maintainability" in text
     assert "performance" in text
     assert "Electron" in text
@@ -75,7 +78,14 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "Less Modules" in text
     assert "UI/UX usability" in text
     assert "fault-tolerant" in text
-    assert "route/controller" in text
+    assert "transport routes/controllers" in text
+    assert "application services/use cases" in text
+    assert "APIRouter" in text
+    assert "app.route()" in text
+    assert "AppType" in text
+    assert "supabase/migrations" in text
+    assert "supabase/functions" in text
+    assert "supabase/tests" in text
     assert "maintainability" in text
     assert "performance" in text
     assert "main/preload/renderer" in text
