@@ -75,7 +75,42 @@ class CliDisplayEvent:
         return payload
 
 
+@dataclass
+class _PendingCodexText:
+    node: str
+    item_id: Optional[str] = None
+    parts: list[str] = field(default_factory=list)
+    raw_event: dict[str, Any] = field(default_factory=dict)
+
+    def append(self, event: CliDisplayEvent, text: str) -> None:
+        self.item_id = event.item_id or self.item_id
+        self.raw_event = event.raw_event
+        if event.status == "completed":
+            self.parts = [text]
+            return
+        self.parts.append(text)
+
+    def to_event(self) -> Optional[CliDisplayEvent]:
+        text = "".join(self.parts)
+        if not text:
+            return None
+        return CliDisplayEvent(
+            "codex",
+            self.node,
+            "text",
+            "Codex 输出结论",
+            text,
+            item_id=self.item_id,
+            status="completed",
+            preview=text,
+            raw_event=self.raw_event,
+        )
+
+
 class CliEventPresenter:
+    def __init__(self) -> None:
+        self._pending_codex_text: dict[str, _PendingCodexText] = {}
+
     def present_chunk(self, chunk: str, *, node: str) -> list[CliDisplayEvent]:
         events: list[CliDisplayEvent] = []
         for line in [line.strip() for line in chunk.splitlines() if line.strip()]:
@@ -85,8 +120,26 @@ class CliEventPresenter:
                 continue
             event = self.present(payload, node=node)
             if event:
+                events.extend(self._consume_event(event, node=node))
+            else:
+                flushed = self._flush_codex_text(node)
+                if flushed:
+                    events.append(flushed)
+        return events
+
+    def flush(self, *, node: Optional[str] = None) -> list[CliDisplayEvent]:
+        if node is not None:
+            event = self._flush_codex_text(node)
+            return [event] if event else []
+        events: list[CliDisplayEvent] = []
+        for pending_node in list(self._pending_codex_text):
+            event = self._flush_codex_text(pending_node)
+            if event:
                 events.append(event)
         return events
+
+    def has_pending_text(self, *, node: str) -> bool:
+        return node in self._pending_codex_text
 
     def present(self, payload: dict[str, Any], *, node: str) -> Optional[CliDisplayEvent]:
         if self._looks_like_codex(payload):
@@ -94,6 +147,33 @@ class CliEventPresenter:
         if self._looks_like_claude(payload):
             return ClaudeCodeEventPresenter().present(payload, node=node)
         return None
+
+    def _consume_event(self, event: CliDisplayEvent, *, node: str) -> list[CliDisplayEvent]:
+        text = _codex_text_event_value(event)
+        if event.provider == "codex" and event.phase == "text" and text:
+            events: list[CliDisplayEvent] = []
+            pending = self._pending_codex_text.get(node)
+            if pending and pending.item_id and event.item_id and pending.item_id != event.item_id:
+                flushed = self._flush_codex_text(node)
+                if flushed:
+                    events.append(flushed)
+                pending = None
+            if pending is None:
+                pending = _PendingCodexText(node=node, item_id=event.item_id)
+                self._pending_codex_text[node] = pending
+            pending.append(event, text)
+            return events
+
+        flushed = self._flush_codex_text(node)
+        if flushed:
+            return [flushed, event]
+        return [event]
+
+    def _flush_codex_text(self, node: str) -> Optional[CliDisplayEvent]:
+        pending = self._pending_codex_text.pop(node, None)
+        if not pending:
+            return None
+        return pending.to_event()
 
     def _looks_like_codex(self, payload: dict[str, Any]) -> bool:
         event_type = str(payload.get("type") or payload.get("event") or "")
@@ -400,6 +480,14 @@ def _codex_item_text(item: Any) -> str:
     if isinstance(root, dict):
         return _codex_item_text(root)
     return ""
+
+
+def _codex_text_event_value(event: CliDisplayEvent) -> str:
+    item = event.raw_event.get("item") if isinstance(event.raw_event, dict) else None
+    text = _codex_item_text(item)
+    if text:
+        return text
+    return event.preview or ""
 
 
 def _canonical_codex_item_type(value: str) -> str:

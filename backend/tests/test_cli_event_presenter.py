@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from specforge.agents.cli_event_presenter import CliEventPresenter
 
 
@@ -7,6 +9,10 @@ def present(payload):
     event = CliEventPresenter().present(payload, node="code_tester")
     assert event is not None
     return event
+
+
+def json_line(payload):
+    return json.dumps(payload, ensure_ascii=False) + "\n"
 
 
 def test_claude_hook_event_is_displayed():
@@ -151,3 +157,128 @@ def test_codex_agent_message_text_is_extracted_from_nested_content():
     assert nested_message.phase == "text"
     assert nested_message.status == "completed"
     assert nested_message.preview == "visible final text"
+
+
+def test_codex_text_deltas_flush_before_next_non_text_json():
+    presenter = CliEventPresenter()
+    events = presenter.present_chunk(
+        "".join(
+            [
+                json_line(
+                    {
+                        "type": "item.updated",
+                        "sdk_method": "item/agentMessage/delta",
+                        "item": {"type": "agentMessage", "id": "msg_1", "text": "hel"},
+                    }
+                ),
+                json_line(
+                    {
+                        "type": "item.updated",
+                        "sdk_method": "item/agentMessage/delta",
+                        "item": {"type": "agentMessage", "id": "msg_1", "text": "lo"},
+                    }
+                ),
+                json_line(
+                    {
+                        "type": "item.started",
+                        "item": {"type": "commandExecution", "id": "cmd_1", "command": "pytest -q"},
+                    }
+                ),
+            ]
+        ),
+        node="code_tester",
+    )
+
+    assert [event.phase for event in events] == ["text", "command"]
+    assert events[0].preview == "hello"
+    assert events[0].message == "hello"
+    assert events[0].status == "completed"
+    assert events[1].command == "pytest -q"
+
+
+def test_codex_text_deltas_merge_across_chunks():
+    presenter = CliEventPresenter()
+
+    assert (
+        presenter.present_chunk(
+            json_line(
+                {
+                    "type": "item.updated",
+                    "sdk_method": "item/agentMessage/delta",
+                    "item": {"type": "agentMessage", "id": "msg_1", "text": "hel"},
+                }
+            ),
+            node="code_tester",
+        )
+        == []
+    )
+    assert (
+        presenter.present_chunk(
+            json_line(
+                {
+                    "type": "item.updated",
+                    "sdk_method": "item/agentMessage/delta",
+                    "item": {"type": "agentMessage", "id": "msg_1", "text": "lo"},
+                }
+            ),
+            node="code_tester",
+        )
+        == []
+    )
+
+    events = presenter.present_chunk(json_line({"type": "turn.completed", "source": "codex-sdk"}), node="code_tester")
+
+    assert [event.phase for event in events] == ["text", "result"]
+    assert events[0].preview == "hello"
+    assert events[0].status == "completed"
+
+
+def test_codex_completed_agent_message_replaces_delta_buffer():
+    presenter = CliEventPresenter()
+    presenter.present_chunk(
+        json_line(
+            {
+                "type": "item.updated",
+                "sdk_method": "item/agentMessage/delta",
+                "item": {"type": "agentMessage", "id": "msg_1", "text": "partial"},
+            }
+        ),
+        node="code_tester",
+    )
+    presenter.present_chunk(
+        json_line(
+            {
+                "type": "item.completed",
+                "item": {"type": "agentMessage", "id": "msg_1", "text": "final text"},
+            }
+        ),
+        node="code_tester",
+    )
+
+    events = presenter.present_chunk(json_line({"type": "turn.completed", "source": "codex-sdk"}), node="code_tester")
+
+    assert [event.phase for event in events] == ["text", "result"]
+    assert events[0].preview == "final text"
+    assert "partialfinal" not in events[0].preview
+
+
+def test_codex_text_flush_returns_pending_tail():
+    presenter = CliEventPresenter()
+    presenter.present_chunk(
+        json_line(
+            {
+                "type": "item.updated",
+                "sdk_method": "item/agentMessage/delta",
+                "item": {"type": "agentMessage", "id": "msg_1", "text": "tail"},
+            }
+        ),
+        node="code_tester",
+    )
+
+    events = presenter.flush(node="code_tester")
+
+    assert len(events) == 1
+    assert events[0].phase == "text"
+    assert events[0].preview == "tail"
+    assert events[0].status == "completed"
+    assert presenter.flush(node="code_tester") == []

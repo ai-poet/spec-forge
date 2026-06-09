@@ -916,6 +916,41 @@ def test_execute_persists_codex_completed_agent_text_display():
     )
 
 
+def test_execute_flushes_codex_delta_text_without_fallback_progress():
+    iteration_id = create_manual_iteration("cli-codex-delta-text")
+    pipeline.db.update_iteration(iteration_id, current_node="code_tester", status="testing", last_error=None)
+    state = {"iteration_id": iteration_id, "mode": "real-cli", "current_node": "code_tester"}
+    lines = [
+        {
+            "type": "item.updated",
+            "sdk_method": "item/agentMessage/delta",
+            "item": {"type": "agentMessage", "id": "msg_1", "text": "hel"},
+        },
+        {
+            "type": "item.updated",
+            "sdk_method": "item/agentMessage/delta",
+            "item": {"type": "agentMessage", "id": "msg_1", "text": "lo"},
+        },
+    ]
+    code = f"import json; [print(json.dumps(line)) for line in {lines!r}]"
+
+    pipeline._execute(state, [sys.executable, "-c", code], node="code_tester")
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    cli_events = [event for event in detail["events"] if event["type"] == "cli.display"]
+
+    assert any(
+        event["payload"]["phase"] == "text"
+        and event["payload"]["provider"] == "codex"
+        and event["payload"]["preview"] == "hello"
+        and event["payload"]["status"] == "completed"
+        for event in cli_events
+    )
+    assert not any(
+        event["type"] == "node.progress" and event["payload"].get("title") == "已收到模型输出"
+        for event in detail["events"]
+    )
+
+
 def test_execute_stderr_plain_logs_use_diagnostic_title():
     iteration_id = create_manual_iteration("cli-stderr-plain")
     pipeline.db.update_iteration(iteration_id, current_node="code_tester", status="testing", last_error=None)

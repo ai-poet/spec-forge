@@ -588,6 +588,7 @@ class PipelineRuntimeMixin:
         raw_log_path = self._run_observability_dir(iteration_id, run_id) / "raw.jsonl"
         raw_log_counts = {"stdout": 0, "stderr": 0}
         raw_log_handle = raw_log_path.open("w", encoding="utf-8")
+        cli_presenter = type(self.cli_presenter)()
 
         def write_raw_log(stream: str, chunk: str) -> None:
             for text_line in chunk.splitlines():
@@ -615,15 +616,10 @@ class PipelineRuntimeMixin:
             if not chunk.strip():
                 return
             if self._is_real_cli(state.get("mode")):
-                cli_events = self.cli_presenter.present_chunk(chunk, node=str(current_node))
-                for event in cli_events:
-                    key = event.key
-                    if key in seen_cli_events and event.phase not in ("text", "thinking"):
-                        continue
-                    if event.phase not in ("text", "thinking"):
-                        seen_cli_events.add(key)
-                    self._cli_display_event(iteration_id, event)
-                if cli_events:
+                cli_events = cli_presenter.present_chunk(chunk, node=str(current_node))
+                has_pending_cli_text = cli_presenter.has_pending_text(node=str(current_node))
+                publish_cli_display_events(cli_events)
+                if cli_events or has_pending_cli_text:
                     return
             if seen_output[stream]:
                 return
@@ -642,6 +638,15 @@ class PipelineRuntimeMixin:
                 message,
                 severity="info",
             )
+
+        def publish_cli_display_events(events: list[CliDisplayEvent]) -> None:
+            for event in events:
+                key = event.key
+                if key in seen_cli_events and event.phase not in ("text", "thinking"):
+                    continue
+                if event.phase not in ("text", "thinking"):
+                    seen_cli_events.add(key)
+                self._cli_display_event(iteration_id, event)
 
         try:
             cwd = self._execution_cwd(state)
@@ -688,6 +693,8 @@ class PipelineRuntimeMixin:
             raw_log_handle.close()
             self._flush_cli_output(iteration_id)
             if not self._is_iteration_gone(iteration_id):
+                if self._is_real_cli(state.get("mode")):
+                    publish_cli_display_events(cli_presenter.flush(node=str(current_node)))
                 self._publish_snapshot(iteration_id)
 
 
