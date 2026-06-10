@@ -181,6 +181,13 @@ def test_compose_coder_includes_manifest_and_docs_root() -> None:
     assert "advisory planning context, not as a binding file-edit checklist" in text
     assert "inspect the current repository structure" in text
     assert "choose the final implementation surface" in text
+    assert "## Coder execution discipline" in text
+    assert "Preflight before editing" in text
+    assert "Acceptance-driven implementation" in text
+    assert "Deviation discipline" in text
+    assert "Blast-radius control" in text
+    assert "Clarify instead of guessing" in text
+    assert "Artifact summary expectations" in text
 
 
 def test_project_extra_appended_when_present(tmp_path: Path) -> None:
