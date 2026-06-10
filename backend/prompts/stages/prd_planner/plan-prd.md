@@ -12,10 +12,12 @@ Produce a single **prd** string (Markdown) for this iteration:
 - Source-of-truth and change-control rules: what existing docs/code are canonical, what this PRD overrides for this iteration, and what must be reconciled after implementation
 - A concise component/status map for touched areas when the repo has multiple modules, agents, jobs, services, or UI surfaces: current state, target state, owner/boundary, dependencies, and explicit in-scope/deferred/out-of-scope calls
 - Boundary I/O contracts for each affected workflow, API, agent, background job, or persistent artifact: triggers, reads, mechanisms, writes, durable vs transient state, status vocabulary, and verification evidence
+- A lightweight completion contract modeled after goal-oriented planning: objective, done conditions, evidence surfaces, constraints, boundaries, and blocked/stop conditions. Keep this concise for trivial/simple tasks and expand it only when risk or complexity demands it.
 
 The PRD must include these Markdown sections:
 
 - `## Problem, Goals, and Scope`
+- `## Completion Contract`
 - `## Technical Stack`
 - `## Development Conventions`
 - `## Architecture and Boundaries`
@@ -26,6 +28,25 @@ The PRD must include these Markdown sections:
 - `## Risks and Locked Decisions`
 
 Treat these technical sections as a built-in technical specification layer inspired by marketplace technical-specification skills. Avoid vague words like "fast", "secure", or "scalable" unless you provide a measurable or verifiable target, boundary, or testable signal. Define ownership for contracts and data shapes instead of leaving them to Coder invention.
+
+Use layered strictness so simple work stays lightweight:
+
+- `trivial`: keep the PRD compact. `## Completion Contract` must include `Objective`, `Done When`, and 1-3 acceptance points with evidence. Other technical sections may be one-line `N/A` entries with a reason.
+- `simple`: include a short completion contract, main scope boundaries, and acceptance evidence for the primary path. API/data/migration/security sections may be `N/A` with a reason when truly not applicable.
+- `moderate`: include a standard completion contract, explicit `AC-*` acceptance IDs, major boundary I/O, and enough test strategy for Test Planner to map each acceptance point.
+- `complex` or high-risk: expand into a strict technical contract with status vocabulary, data/API contracts, concurrency/idempotency, permissions/security, migration/compatibility, failure/retry, rollback/fallback, and evidence for every acceptance point.
+
+Treat work as high-risk, regardless of discovery complexity, when it touches persistent data, migrations, authentication/authorization, user-sensitive data, external integrations, async/background jobs, multi-agent workflow state, cross-service API contracts, billing/payment, destructive actions, or expensive rollback. In high-risk cases, do not leave the relevant locked decision implicit.
+
+In `## Completion Contract`, use this compact shape:
+
+- `Objective`: the user/system outcome this iteration must achieve.
+- `Done When`: concrete completion conditions, preferably with stable `AC-*` IDs for non-trivial work.
+- `Verification Evidence`: tests, UI states, API responses, database rows, emitted events, generated docs, raw logs, telemetry, or manual checks that prove completion.
+- `Constraints and Boundaries`: important limits, non-goals, source roots, write zones, and ownership boundaries.
+- `Blocked If`: unresolved decisions or missing inputs that should stop implementation rather than force Coder to guess. For trivial/simple tasks, include only genuinely blocking ambiguity.
+
+Prefer warnings in prose over over-constraining execution: do not inflate trivial/simple tasks with full architecture tables, but never omit the completion signal that tells downstream agents when the work is actually done.
 
 Apply these design-contract disciplines:
 

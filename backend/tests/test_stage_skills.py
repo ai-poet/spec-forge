@@ -76,6 +76,11 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "Build feature X" in text
     assert "Planner project context cache" in text
     assert "## Problem, Goals, and Scope" in text
+    assert "## Completion Contract" in text
+    assert "`Objective`, `Done When`, and 1-3 acceptance points" in text
+    assert "Use layered strictness" in text
+    assert "Blocked If" in text
+    assert "high-risk" in text
     assert "## Technical Stack" in text
     assert "## Development Conventions" in text
     assert "docs/00_convention.md" in text
@@ -143,6 +148,10 @@ def test_compose_test_planner_includes_planner_context() -> None:
     assert "## SpecForge stage: test_planner" in text
     assert "Planner project context cache" in text
     assert "Read `prd.md`" in text
+    assert "## Acceptance Coverage" in text
+    assert "maps the PRD's acceptance point(s) to evidence" in text
+    assert "`N/A — reason`" in text
+    assert "PRD's `Done When` conditions" in text
 
 
 def test_compose_coder_includes_manifest_and_docs_root() -> None:
