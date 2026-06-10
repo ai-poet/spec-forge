@@ -84,8 +84,11 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "## Technical Stack" in text
     assert "## Development Conventions" in text
     assert "## Project Structure and Change Targets" in text
-    assert "candidate files/modules to modify or create" in text
+    assert "candidate/suggested files or modules to modify or create" in text
     assert "`modify`, `create`, `remove`, `observe only`, or `N/A`" in text
+    assert "advisory candidate surfaces" in text
+    assert "Coder must inspect the current repository" in text
+    assert "may deviate from the candidate list" in text
     assert "context_for_coder` and `context_for_tester` manifests" in text
     assert "not a line-by-line implementation checklist" in text
     assert "docs/00_convention.md" in text
@@ -175,6 +178,9 @@ def test_compose_coder_includes_manifest_and_docs_root() -> None:
     assert "/tmp/iter" in text
     assert "prd.md" in text
     assert "src/**" in text
+    assert "advisory planning context, not as a binding file-edit checklist" in text
+    assert "inspect the current repository structure" in text
+    assert "choose the final implementation surface" in text
 
 
 def test_project_extra_appended_when_present(tmp_path: Path) -> None:

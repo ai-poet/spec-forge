@@ -6,4 +6,6 @@ For backend work, preserve or introduce a clear layer- or feature-oriented folde
 
 Read project docs under `docs/` and the approved iteration specs under the iteration docs root.
 
+Treat the PRD's `Project Structure and Change Targets` section as advisory planning context, not as a binding file-edit checklist. Before editing, inspect the current repository structure and relevant code paths yourself, validate whether the PRD's candidate targets still match code reality, then choose the final implementation surface. You may edit different in-scope files than the PRD candidates when the codebase clearly points there, but keep the PRD requirements, boundaries, no-touch areas, and acceptance evidence intact.
+
 Do not edit `docs/**`, `tests/**`, `.specforge/**`, `verify_report.md`, or protected planning documents.

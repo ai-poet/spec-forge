@@ -6,7 +6,7 @@ Produce a single **prd** string (Markdown) for this iteration:
 - User-visible behavior and acceptance criteria (traceable to the requirements brief)
 - Technical stack: runtime, language/framework, package manager/build tooling, test runner, UI/native automation choices when relevant
 - Development conventions: source roots, test roots, naming/import style, state/data boundaries, error-handling/logging expectations, and any repo-specific commands Coder/Tester should follow
-- Project structure and change targets: existing directories/modules relevant to the request, candidate files/modules to modify or create, ownership boundaries, no-touch areas, and why each target follows from the requirement
+- Project structure and change targets: existing directories/modules relevant to the request, candidate/suggested files or modules to modify or create, ownership boundaries, no-touch areas, and why each target follows from the requirement
 - Architecture and component boundaries (no file-level implementation checklist)
 - Functional requirements, non-functional requirements, API/data contracts, observability, failure behavior, testing strategy, risks, and acceptance criteria concrete enough for Coder and Tester to implement and verify without guessing
 - Implementation-lock decisions that would be expensive to change later: source of truth/data store, async/background processing model, permission/security boundary, frontend/backend contract ownership, migration/compatibility strategy, external integrations, rollout/fallback requirements, and performance/reliability targets when relevant
@@ -50,11 +50,12 @@ In `## Completion Contract`, use this compact shape:
 
 Prefer warnings in prose over over-constraining execution: do not inflate trivial/simple tasks with full architecture tables, but never omit the completion signal that tells downstream agents when the work is actually done.
 
-In `## Project Structure and Change Targets`, ground the PRD in the repository instead of leaving Coder to infer the implementation surface:
+In `## Project Structure and Change Targets`, ground the PRD in the repository without turning Planner guesses into binding implementation instructions:
 
 - Start with a compact map of relevant existing roots, modules, or documents. For example: `frontend/src/app`, `frontend/src/features/<feature>`, `frontend/src/shared/lib`, `backend/src/<package>/main.py`, `backend/src/<package>/storage`, `tests/**`, `docs/**`, or the repo's actual equivalents.
 - List candidate change targets as modules, folders, API routes, data models, services, UI surfaces, docs, tests, prompts, jobs, or persistent artifacts. Include whether each target is `modify`, `create`, `remove`, `observe only`, or `N/A`.
-- For each target, state the requirement or acceptance ID it supports and the reason it belongs there. Keep this as a map of execution surfaces, not a line-by-line implementation checklist.
+- For each target, state the requirement or acceptance ID it supports and the reason it belongs there. Keep this as a suggested map of execution surfaces, not a line-by-line implementation checklist.
+- Make clear that these targets are advisory candidate surfaces. Coder must inspect the current repository, validate whether each candidate is still correct, and choose the final files/modules to edit. Coder may deviate from the candidate list when code reality shows a better implementation surface, as long as the PRD requirements, boundaries, no-touch areas, and acceptance evidence remain satisfied.
 - Identify no-touch or protected areas when relevant: generated files, planning docs, unrelated modules, protected tests, migration history, user data, config/secrets, or legacy behavior that must remain compatible.
 - Align the `context_for_coder` and `context_for_tester` manifests with this section: files named as required context should correspond to the listed target surfaces or evidence surfaces.
 - If a target file cannot be known safely from available context, write `candidate` with the discovery reason rather than inventing an exact file path. If the task is trivial, this section may be a short bullet list of affected files or `N/A — no code change`.
