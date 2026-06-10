@@ -119,9 +119,19 @@ button {
 }
 
 .task-log-summary-view {
-  flex: 1;
-  min-height: 0;
   width: 100%;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.task-log-summary-header {
+  display: grid;
+  gap: 6px;
+}
+
+.task-log-summary-header .muted {
+  margin: 0;
 }
 
 .task-workspace {

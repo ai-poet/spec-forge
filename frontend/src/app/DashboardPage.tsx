@@ -416,8 +416,8 @@ export function DashboardPage() {
                   onCreatePipeline={handleCreatePipeline}
                 >
                   {taskView === 'log_summary' ? (
-                    <div className="task-log-summary-view stack">
-                      <div>
+                    <div className="task-log-summary-view">
+                      <div className="task-log-summary-header">
                         <p className="eyebrow">任务级日志</p>
                         <h2 className="section-title">日志总结</h2>
                         <p className="muted">全局汇总本任务所有阶段、run、事件、文档与验收点；可从阶段行进入对应 run 原始日志。</p>
