@@ -9,6 +9,7 @@ import { mergeCliDisplayEvents } from '../../../shared/lib/cliDisplayMerge'
 import { cliPhaseLabel, cliProviderLabel, presentEvent, presentNodeName } from '../../../shared/lib/presentation'
 import { buildToolCardView } from '../../../shared/lib/toolPresentation'
 import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
+import { formatLogSummaryMarkdown, logSummaryMarkdownFilename } from '../lib/logSummaryMarkdown'
 import styles from './RunLogPanel.module.less'
 
 interface Props {
@@ -177,6 +178,7 @@ function RunTraceList({
 
 function LogSummaryPanel({
   summary,
+  detail,
   loading,
   generating,
   error,
@@ -185,6 +187,7 @@ function LogSummaryPanel({
   onOpenRunLogs,
 }: {
   summary: LogSummaryResponse | null
+  detail: IterationDetail
   loading: boolean
   generating: boolean
   error: string | null
@@ -193,7 +196,23 @@ function LogSummaryPanel({
   onOpenRunLogs: (run: NodeRunRecord, tab?: AttemptTab) => void
 }) {
   const showGenerate = !summary?.generated
+  const showExport = Boolean(summary?.generated && !summary.generating)
   const runById = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs])
+
+  function handleExportMarkdown() {
+    if (!summary?.generated) return
+    const markdown = formatLogSummaryMarkdown(summary, detail)
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = logSummaryMarkdownFilename(detail)
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className={styles.summaryPanel}>
       <div className="section-row">
@@ -203,6 +222,11 @@ function LogSummaryPanel({
         </div>
         <div className={styles.summaryActions}>
           {summary?.generating || generating ? <RunningIndicator size="sm" mode="dot" label="整理中" /> : null}
+          {showExport ? (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={handleExportMarkdown}>
+              导出 Markdown
+            </button>
+          ) : null}
           {showGenerate ? (
             <button type="button" className="btn btn-sm" onClick={onGenerate} disabled={loading || generating || summary?.generating}>
               {generating || summary?.generating ? '生成中...' : '生成日志总结'}
@@ -355,6 +379,7 @@ export function TaskLogSummaryPanel({ detail }: { detail: IterationDetail | null
     <>
       <LogSummaryPanel
         summary={logSummary}
+        detail={detail}
         loading={summaryLoading}
         generating={summaryGenerating}
         error={summaryError}
