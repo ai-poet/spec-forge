@@ -83,6 +83,11 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "high-risk" in text
     assert "## Technical Stack" in text
     assert "## Development Conventions" in text
+    assert "## Project Structure and Change Targets" in text
+    assert "candidate files/modules to modify or create" in text
+    assert "`modify`, `create`, `remove`, `observe only`, or `N/A`" in text
+    assert "context_for_coder` and `context_for_tester` manifests" in text
+    assert "not a line-by-line implementation checklist" in text
     assert "docs/00_convention.md" in text
     assert "React + Vite" in text
     assert "Less Modules" in text
