@@ -44,21 +44,13 @@ button {
 /* App shell */
 .app {
   display: grid;
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--rail-width);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
   background: var(--bg-app);
 }
 
 .app.with-epic-sidebar {
-  grid-template-columns: var(--sidebar-width) var(--epic-sidebar-width) minmax(0, 1fr) var(--rail-width);
-}
-
-.app.no-rail {
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-}
-
-.app.with-epic-sidebar.no-rail {
   grid-template-columns: var(--sidebar-width) var(--epic-sidebar-width) minmax(0, 1fr);
 }
 
@@ -93,6 +85,55 @@ button {
   align-items: center;
   justify-content: flex-start;
   padding: 32px 24px 40px;
+}
+
+.task-view-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-main);
+  flex-shrink: 0;
+}
+
+.task-view-tab {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.task-view-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.task-view-tab-active {
+  color: var(--text-primary);
+  background: var(--accent-soft);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.task-log-summary-view {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.task-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.task-workspace-with-rail {
+  grid-template-columns: minmax(0, 1fr) var(--rail-width);
 }
 
 .workspace-stage {
@@ -576,13 +617,18 @@ button {
 
 @media (max-width: 1080px) {
   .app,
-  .app.no-rail,
   .app.with-epic-sidebar,
-  .app.with-epic-sidebar.no-rail {
+  .task-workspace,
+  .task-workspace-with-rail {
     grid-template-columns: 1fr;
     height: auto;
     min-height: 100vh;
     overflow: visible;
+  }
+
+  .task-workspace,
+  .task-workspace-with-rail {
+    min-height: 0;
   }
 
   .workspace-main {

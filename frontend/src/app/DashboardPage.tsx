@@ -20,12 +20,15 @@ import { PipelineRail } from '../features/pipeline/PipelineRail'
 import { StageFocusPanel } from '../features/pipeline/StageFocusPanel'
 import type { PipelineStepKey } from '../features/pipeline/lib/pipelineSteps'
 import { useIterationLive } from '../features/iteration/hooks/useIterationLive'
+import { TaskLogSummaryPanel } from '../features/iteration/RunLogPanel'
 import { useProjects } from '../features/projects/hooks/useProjects'
 import { ContextHeader } from '../features/workspace/ContextHeader'
 import { WorkspaceShell } from '../features/workspace/WorkspaceShell'
 import type { CreateProjectInput, IterationSummary, UpdateProjectInput } from '../shared/lib/types'
 
 const SELECTED_ITERATION_KEY = 'specforge:selected-iteration'
+
+type WorkspaceTaskView = 'stage' | 'log_summary'
 
 function buildIterationGoal(title: string, description: string, acceptanceCriteria: string) {
   return [description, acceptanceCriteria ? `验收标准:\n${acceptanceCriteria}` : ''].filter(Boolean).join('\n\n') || title
@@ -57,6 +60,7 @@ export function DashboardPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [showCreatePipeline, setShowCreatePipeline] = useState(false)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
+  const [taskView, setTaskView] = useState<WorkspaceTaskView>('stage')
   const live = useIterationLive(selectedIterationId)
 
   async function refreshIterations(preferredEpicId?: string, preferredIterationId?: string) {
@@ -93,6 +97,7 @@ export function DashboardPage() {
   useEffect(() => {
     setReviewStepKey(null)
     setShowCreatePipeline(false)
+    setTaskView('stage')
     refreshIterations().catch(console.error)
   }, [projects.selectedProjectId])
 
@@ -100,6 +105,7 @@ export function DashboardPage() {
     setReviewStepKey(null)
     setShowCreatePipeline(false)
     setSettingsOpen(false)
+    setTaskView('stage')
   }, [projects.selectedProjectId])
 
   useEffect(() => {
@@ -110,6 +116,7 @@ export function DashboardPage() {
     setSelectedIterationId(iteration?.id ?? null)
     setReviewStepKey(null)
     setShowCreatePipeline(false)
+    setTaskView('stage')
   }, [epics.selectedEpicId, iterations])
 
   useEffect(() => {
@@ -129,6 +136,7 @@ export function DashboardPage() {
 
   useEffect(() => {
     rememberIterationId(selectedIterationId)
+    setTaskView('stage')
   }, [selectedIterationId])
 
   async function handleAddProject(input: CreateProjectInput) {
@@ -290,19 +298,22 @@ export function DashboardPage() {
   function handleSelectProject(id: string) {
     projects.setSelectedProjectId(id)
     setSettingsOpen(false)
+    setTaskView('stage')
   }
 
   function handleSelectPipeline(epicId: string) {
     epics.setSelectedEpicId(epicId)
     setShowCreatePipeline(false)
+    setTaskView('stage')
   }
 
-  const showRail = Boolean(selectedIterationId && !settingsOpen)
+  const showTaskTabs = Boolean(selectedIterationId && !settingsOpen && !showCreatePipeline && projects.selectedProject)
+  const showRail = Boolean(selectedIterationId && !settingsOpen && !showCreatePipeline && taskView === 'stage')
   const hasEpicColumn = Boolean(projects.selectedProject)
   const selectedIteration = iterations.find((item) => item.id === selectedIterationId) ?? null
 
   return (
-    <div className={`app ${hasEpicColumn ? 'with-epic-sidebar' : ''} ${showRail ? '' : 'no-rail'}`}>
+    <div className={`app ${hasEpicColumn ? 'with-epic-sidebar' : ''}`}>
       <ProjectSidebar
         projects={projects.projects}
         selectedProjectId={projects.selectedProjectId}
@@ -366,52 +377,90 @@ export function DashboardPage() {
               />
             ) : null}
 
-            <div className={`workspace-body ${!selectedIterationId ? 'workspace-body-stage' : ''}`}>
-              <WorkspaceShell
-                project={projects.selectedProject}
-                epics={epics.epics}
-                selectedEpicId={epics.selectedEpicId}
-                selectedIterationId={selectedIterationId}
-                busy={busy}
-                showCreatePipeline={showCreatePipeline}
-                onStartPipeline={() => setShowCreatePipeline(true)}
-                onCreatePipeline={handleCreatePipeline}
-              >
-                <StageFocusPanel
+            {showTaskTabs ? (
+              <div className="task-view-nav" role="tablist" aria-label="任务视图">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={taskView === 'stage'}
+                  className={`task-view-tab ${taskView === 'stage' ? 'task-view-tab-active' : ''}`}
+                  onClick={() => setTaskView('stage')}
+                >
+                  阶段执行
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={taskView === 'log_summary'}
+                  className={`task-view-tab ${taskView === 'log_summary' ? 'task-view-tab-active' : ''}`}
+                  onClick={() => {
+                    setReviewStepKey(null)
+                    setTaskView('log_summary')
+                  }}
+                >
+                  日志总结
+                </button>
+              </div>
+            ) : null}
+
+            <div className={`task-workspace ${showRail ? 'task-workspace-with-rail' : ''}`}>
+              <div className={`workspace-body ${!selectedIterationId ? 'workspace-body-stage' : ''}`}>
+                <WorkspaceShell
+                  project={projects.selectedProject}
+                  epics={epics.epics}
+                  selectedEpicId={epics.selectedEpicId}
+                  selectedIterationId={selectedIterationId}
+                  busy={busy}
+                  showCreatePipeline={showCreatePipeline}
+                  onStartPipeline={() => setShowCreatePipeline(true)}
+                  onCreatePipeline={handleCreatePipeline}
+                >
+                  {taskView === 'log_summary' ? (
+                    <div className="task-log-summary-view stack">
+                      <div>
+                        <p className="eyebrow">任务级日志</p>
+                        <h2 className="section-title">日志总结</h2>
+                        <p className="muted">全局汇总本任务所有阶段、run、事件、文档与验收点；可从阶段行进入对应 run 原始日志。</p>
+                      </div>
+                      <TaskLogSummaryPanel detail={live.detail} />
+                    </div>
+                  ) : (
+                    <StageFocusPanel
+                      detail={live.detail}
+                      docText={live.docText}
+                      reviewStepKey={reviewStepKey}
+                      onSelectStep={setReviewStepKey}
+                      isLoading={live.isLoading}
+                      busy={busy}
+                      onLoadDocument={live.loadDocument}
+                      onAnswerRequirements={handleAnswerRequirements}
+                      onSkipDiscovery={handleSkipDiscovery}
+                      onApproveVerify={handleApproveVerify}
+                      onStop={handleStop}
+                      onResume={handleResume}
+                      onManualSkip={handleManualSkip}
+                      onRuntimeNoteSubmitted={() => live.loadDetail().catch(console.error)}
+                    />
+                  )}
+                </WorkspaceShell>
+              </div>
+              {showRail ? (
+                <PipelineRail
                   detail={live.detail}
-                  docText={live.docText}
+                  epic={epics.selectedEpic}
+                  liveError={live.liveError}
+                  connectionStatus={live.connectionStatus}
+                  lastMessageAt={live.lastMessageAt}
                   reviewStepKey={reviewStepKey}
                   onSelectStep={setReviewStepKey}
-                  isLoading={live.isLoading}
-                  busy={busy}
-                  onLoadDocument={live.loadDocument}
-                  onAnswerRequirements={handleAnswerRequirements}
-                  onSkipDiscovery={handleSkipDiscovery}
-                  onApproveVerify={handleApproveVerify}
-                  onStop={handleStop}
-                  onResume={handleResume}
                   onManualSkip={handleManualSkip}
-                  onRuntimeNoteSubmitted={() => live.loadDetail().catch(console.error)}
+                  manualSkipBusy={busy}
                 />
-              </WorkspaceShell>
+              ) : null}
             </div>
           </>
         )}
       </main>
-
-      {showRail ? (
-        <PipelineRail
-          detail={live.detail}
-          epic={epics.selectedEpic}
-          liveError={live.liveError}
-          connectionStatus={live.connectionStatus}
-          lastMessageAt={live.lastMessageAt}
-          reviewStepKey={reviewStepKey}
-          onSelectStep={setReviewStepKey}
-          onManualSkip={handleManualSkip}
-          manualSkipBusy={busy}
-        />
-      ) : null}
     </div>
   )
 }
