@@ -609,6 +609,8 @@ def get_document(iteration_id: str, name: str) -> dict[str, str]:
             from pathlib import Path
 
             path = Path(doc["path"])
+            if not path.exists():
+                raise HTTPException(status_code=404, detail="document file not found")
             return {"name": name, "content": path.read_text(encoding="utf-8"), "checksum": doc["checksum"]}
     raise HTTPException(status_code=404, detail="document not found")
 
