@@ -290,6 +290,90 @@ function LogSummaryPanel({
   )
 }
 
+export function TaskLogSummaryPanel({ detail }: { detail: IterationDetail | null }) {
+  const [selectedRun, setSelectedRun] = useState<NodeRunRecord | null>(null)
+  const [selectedInitialTab, setSelectedInitialTab] = useState<AttemptTab>('details')
+  const [logSummary, setLogSummary] = useState<LogSummaryResponse | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryGenerating, setSummaryGenerating] = useState(false)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+
+  const logSummaryEventKey = useMemo(
+    () => (detail?.events ?? [])
+      .filter((event) => event.type.startsWith('log_summary.'))
+      .map((event) => event.id)
+      .join('|'),
+    [detail?.events],
+  )
+
+  const openRun = useCallback((run: NodeRunRecord, tab: AttemptTab = 'details') => {
+    setSelectedInitialTab(tab)
+    setSelectedRun(run)
+  }, [])
+
+  const handleGenerateSummary = useCallback(async () => {
+    if (!detail) return
+    setSummaryGenerating(true)
+    setSummaryError(null)
+    try {
+      const payload = await generateLogSummary(detail.id)
+      setLogSummary(payload)
+    } catch (exc) {
+      setSummaryError(exc instanceof Error ? exc.message : '生成失败')
+    } finally {
+      setSummaryGenerating(false)
+    }
+  }, [detail])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!detail) {
+      setLogSummary(null)
+      setSummaryError(null)
+      return
+    }
+    setSummaryLoading(true)
+    setSummaryError(null)
+    getLogSummary(detail.id)
+      .then((payload) => {
+        if (!cancelled) setLogSummary(payload)
+      })
+      .catch((exc) => {
+        if (!cancelled) setSummaryError(exc instanceof Error ? exc.message : '读取日志总结失败')
+      })
+      .finally(() => {
+        if (!cancelled) setSummaryLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [detail?.id, logSummaryEventKey])
+
+  if (!detail) return null
+
+  return (
+    <>
+      <LogSummaryPanel
+        summary={logSummary}
+        loading={summaryLoading}
+        generating={summaryGenerating}
+        error={summaryError}
+        onGenerate={handleGenerateSummary}
+        runs={detail.runs}
+        onOpenRunLogs={openRun}
+      />
+      {selectedRun ? (
+        <AttemptDrawer
+          detail={detail}
+          run={selectedRun}
+          initialTab={selectedInitialTab}
+          onClose={() => setSelectedRun(null)}
+        />
+      ) : null}
+    </>
+  )
+}
+
 function JsonBlock({ value }: { value: unknown }) {
   return <pre className={styles.drawerCode}>{JSON.stringify(value, null, 2)}</pre>
 }
@@ -432,24 +516,6 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedRun, setSelectedRun] = useState<NodeRunRecord | null>(null)
   const [selectedInitialTab, setSelectedInitialTab] = useState<AttemptTab>('details')
-  const [logSummary, setLogSummary] = useState<LogSummaryResponse | null>(null)
-  const [summaryLoading, setSummaryLoading] = useState(false)
-  const [summaryGenerating, setSummaryGenerating] = useState(false)
-  const [summaryError, setSummaryError] = useState<string | null>(null)
-
-  const handleGenerateSummary = useCallback(async () => {
-    if (!detail) return
-    setSummaryGenerating(true)
-    setSummaryError(null)
-    try {
-      const payload = await generateLogSummary(detail.id)
-      setLogSummary(payload)
-    } catch (exc) {
-      setSummaryError(exc instanceof Error ? exc.message : '生成失败')
-    } finally {
-      setSummaryGenerating(false)
-    }
-  }, [detail])
   const nodes = stepKey ? new Set(nodesForStep(stepKey)) : null
   const cliActive = isCliActive(detail, stepKey, reviewMode)
   const progress = latestNodeProgress(detail, stepKey)
@@ -476,13 +542,6 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
   const cliDisplayKey = visibleCliDisplays.map((event) => event.id).join('|')
   const groupKey = grouped.groups.map((group) => group.id).join('|')
   const pendingNode = detail?.current_node ?? 'agent'
-  const logSummaryEventKey = useMemo(
-    () => (detail?.events ?? [])
-      .filter((event) => event.type.startsWith('log_summary.'))
-      .map((event) => event.id)
-      .join('|'),
-    [detail?.events],
-  )
   const visibleRuns = useMemo(() => {
     const source = detail?.runs ?? []
     if (!nodes) return source
@@ -493,30 +552,6 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
     setSelectedInitialTab(tab)
     setSelectedRun(run)
   }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    if (!detail) {
-      setLogSummary(null)
-      setSummaryError(null)
-      return
-    }
-    setSummaryLoading(true)
-    setSummaryError(null)
-    getLogSummary(detail.id)
-      .then((payload) => {
-        if (!cancelled) setLogSummary(payload)
-      })
-      .catch((exc) => {
-        if (!cancelled) setSummaryError(exc instanceof Error ? exc.message : '读取日志总结失败')
-      })
-      .finally(() => {
-        if (!cancelled) setSummaryLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [detail?.id, logSummaryEventKey])
 
   useEffect(() => {
     setExpanded(defaultExpandedRunIds(grouped.groups, reviewMode))
@@ -622,17 +657,6 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
         </div>
       ) : null}
       <p className={styles.permissionHint}>流水线模式：Agent 权限按 provider 自动配置，无需逐项确认。</p>
-      {detail ? (
-        <LogSummaryPanel
-          summary={logSummary}
-          loading={summaryLoading}
-          generating={summaryGenerating}
-          error={summaryError}
-          onGenerate={handleGenerateSummary}
-          runs={detail.runs}
-          onOpenRunLogs={openRun}
-        />
-      ) : null}
       <RunTraceList detail={detail} runs={visibleRuns} onSelect={(run) => openRun(run)} />
       <RawCliFold detail={detail} cliActive={cliActive} />
       {grouped.roundCount > 1 ? (

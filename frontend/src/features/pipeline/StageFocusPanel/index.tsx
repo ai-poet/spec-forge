@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { IterationDetail } from '../../../shared/lib/types'
 import { RunningIndicator } from '../../../shared/ui/RunningIndicator'
 import type { PipelineStepKey } from '../lib/pipelineSteps'
@@ -7,9 +8,12 @@ import { ActionPanel } from '../../iteration/ActionPanel'
 import { DocumentPanel } from '../../iteration/DocumentPanel'
 import { IterationSummaryPanel } from '../../iteration/IterationSummaryPanel'
 import { StepExecutionPanel } from '../StepExecutionPanel'
+import { TaskLogSummaryPanel } from '../../iteration/RunLogPanel'
 import { TimelinePanel } from '../../iteration/TimelinePanel'
 import { UIVerificationPanel } from '../../iteration/UIVerificationPanel'
 import styles from './StageFocusPanel.module.less'
+
+type TaskViewTab = 'stage' | 'log_summary'
 
 interface Props {
   detail: IterationDetail | null
@@ -44,6 +48,7 @@ export function StageFocusPanel({
   onManualSkip,
   onRuntimeNoteSubmitted,
 }: Props) {
+  const [activeView, setActiveView] = useState<TaskViewTab>('stage')
   const reviewMode = Boolean(reviewStepKey)
   const focusStep = reviewStepKey ?? (detail ? inferFocusStep(detail) : null)
   const stepMeta = PIPELINE_STEPS.find((step) => step.key === focusStep)
@@ -51,6 +56,10 @@ export function StageFocusPanel({
   const progress = latestNodeProgress(detail, focusStep)
   const pipelineRunning = isPipelineRunning(detail)
   const liveNode = runningNodeLabel(detail)
+
+  useEffect(() => {
+    setActiveView('stage')
+  }, [detail?.id])
 
   async function loadFirstDoc(names: string[]) {
     if (!detail) return
@@ -157,28 +166,62 @@ export function StageFocusPanel({
       </div>
 
       {isBlocked && !reviewMode ? (
-        <section className={`surface stack ${styles.section}`}>
+        <section className={`surface stack ${styles.section} ${activeView === 'stage' ? '' : styles.hiddenView}`}>
           <TimelinePanel detail={detail} filter="failures" />
         </section>
       ) : null}
 
+      <div className={styles.viewTabs} role="tablist" aria-label="任务视图">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeView === 'stage'}
+          className={activeView === 'stage' ? styles.viewTabActive : styles.viewTab}
+          onClick={() => setActiveView('stage')}
+        >
+          {reviewMode ? '阶段回顾' : '阶段执行'}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeView === 'log_summary'}
+          className={activeView === 'log_summary' ? styles.viewTabActive : styles.viewTab}
+          onClick={() => setActiveView('log_summary')}
+        >
+          日志总结
+        </button>
+      </div>
+
       <section className={`${styles.section} stack ${styles.content}`}>
-        <div className="section-row">
-          <div>
-            <p className="eyebrow">{reviewMode ? '阶段回顾' : '当前阶段'}</p>
-            <div className={styles.stageTitleRow}>
-              <h2 className="section-title">{stepMeta?.label ?? '流转中'}</h2>
-              {stepLive ? <RunningIndicator size="sm" mode="dot" label="执行中" /> : null}
+        {activeView === 'stage' ? (
+          <>
+            <div className="section-row">
+              <div>
+                <p className="eyebrow">{reviewMode ? '阶段回顾' : '当前阶段'}</p>
+                <div className={styles.stageTitleRow}>
+                  <h2 className="section-title">{stepMeta?.label ?? '流转中'}</h2>
+                  {stepLive ? <RunningIndicator size="sm" mode="dot" label="执行中" /> : null}
+                </div>
+                <p className="muted">{stepLive && progress?.message ? progress.message : stepMeta?.hint}</p>
+              </div>
+              {!reviewMode && focusStep === 'verify_approval' ? (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => loadFirstDoc(['verify_report', 'delivery_advice'])}>
+                  打开验证报告
+                </button>
+              ) : null}
             </div>
-            <p className="muted">{stepLive && progress?.message ? progress.message : stepMeta?.hint}</p>
+            {renderStepContent()}
+          </>
+        ) : (
+          <div className="stack">
+            <div>
+              <p className="eyebrow">任务复盘</p>
+              <h2 className="section-title">日志总结</h2>
+              <p className="muted">按任务阶段汇总状态、说明、最终总结和验收点；可从阶段行进入对应 run 原始日志。</p>
+            </div>
+            <TaskLogSummaryPanel detail={detail} />
           </div>
-          {!reviewMode && focusStep === 'verify_approval' ? (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => loadFirstDoc(['verify_report', 'delivery_advice'])}>
-              打开验证报告
-            </button>
-          ) : null}
-        </div>
-        {renderStepContent()}
+        )}
       </section>
     </div>
   )
