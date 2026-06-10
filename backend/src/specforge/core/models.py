@@ -27,6 +27,7 @@ class CliBindings(BaseModel):
     coder: CliProviderName = CliProviderName.claude
     code_tester: CliProviderName = CliProviderName.claude
     ui_tester: CliProviderName = CliProviderName.claude
+    log_summarizer: CliProviderName = CliProviderName.claude
 
 
 class IterationStatus(str, Enum):
@@ -54,6 +55,7 @@ class NodeName(str, Enum):
     integrity_check = "integrity_check"
     code_tester = "code_tester"
     ui_tester = "ui_tester"
+    log_summarizer = "log_summarizer"
     planner_clarification = "planner_clarification"
     planner_verify = "planner_verify"
 
@@ -252,6 +254,31 @@ class RunLogPage(BaseModel):
     limit: int = 200
     total: int = 0
     has_more: bool = False
+
+
+class LogSummaryStage(BaseModel):
+    stage: str
+    status: str
+    description: str = ""
+    run_ids: list[str] = Field(default_factory=list)
+
+
+class LogSummaryAcceptancePoint(BaseModel):
+    point: str
+    status: str
+    evidence: str = ""
+
+
+class LogSummaryResponse(BaseModel):
+    generated: bool = False
+    generating: bool = False
+    generated_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    error: Optional[str] = None
+    stages: list[LogSummaryStage] = Field(default_factory=list)
+    final_summary: str = ""
+    acceptance_points: list[LogSummaryAcceptancePoint] = Field(default_factory=list)
+    risks_or_followups: list[str] = Field(default_factory=list)
 
 
 class EventRecord(BaseModel):

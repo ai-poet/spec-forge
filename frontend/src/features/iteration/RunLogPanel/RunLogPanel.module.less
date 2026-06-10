@@ -127,6 +127,141 @@
   color: #7a8799;
 }
 
+.summaryPanel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #202838;
+  border-radius: 8px;
+  background: #090f19;
+}
+
+.summaryTitle {
+  margin: 0;
+  font-size: 14px;
+  color: #edf2f8;
+}
+
+.summaryActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.summaryGrid {
+  display: grid;
+  gap: 10px;
+}
+
+.stageTable {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #202838;
+  border-radius: 8px;
+}
+
+.stageHead,
+.stageRow {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.8fr) minmax(78px, 0.45fr) minmax(0, 2fr);
+  gap: 10px;
+  align-items: start;
+  padding: 8px 10px;
+}
+
+.stageHead {
+  background: #0d1422;
+  color: #9facbf;
+  font-size: 11px;
+}
+
+.stageRow {
+  border-top: 1px solid #202838;
+  color: #b8c4d6;
+  font-size: 12px;
+
+  strong,
+  span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  strong {
+    color: #edf2f8;
+  }
+}
+
+.stageEmpty {
+  padding: 12px;
+  border-top: 1px solid #202838;
+  color: #7a8799;
+  font-size: 12px;
+}
+
+.summaryStatus {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid rgba(117, 208, 179, 0.35);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: #75d0b3;
+  font-size: 11px;
+}
+
+.summaryBlock {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #1a2434;
+  border-radius: 8px;
+  background: #0d1422;
+
+  strong {
+    color: #edf2f8;
+    font-size: 12px;
+  }
+
+  p {
+    margin: 0;
+    color: #b8c4d6;
+    font-size: 12px;
+  }
+}
+
+.acceptanceList,
+.riskList {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acceptanceList li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+
+  span {
+    border: 1px solid #263247;
+    border-radius: 999px;
+    padding: 2px 7px;
+    color: #b8c4d6;
+    font-size: 11px;
+  }
+}
+
+.riskList {
+  color: #f0c56b;
+  font-size: 12px;
+
+  li {
+    overflow-wrap: anywhere;
+  }
+}
+
 .traceList {
   display: grid;
   gap: 6px;

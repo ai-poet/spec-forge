@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import time
 import inspect
-from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
@@ -12,8 +11,9 @@ from ...agents.cli_event_presenter import CliDisplayEvent
 from ...agents.cli_runner import CLIResult
 from ...agents.providers import AgentCommand, worker_ref_from_result
 from ...core.config import settings
+from ...core.contracts import LogSummaryArtifact, parse_json_artifact
 from ...core.models import IterationStatus, Mode
-from ...context_profiles import context_package_for_run, workflow_snapshot
+from ...context_profiles import STAGE_LABELS, context_package_for_run, workflow_snapshot
 from ...documents.docs_io import checksum
 from ...runtime.events import EventEnvelope
 from ...storage.db import iso, utcnow
@@ -31,11 +31,11 @@ class PipelineRuntimeMixin:
     _PUBLIC_RUN_LIMIT = 100
     _RUN_LOG_PAGE_SIZE_MAX = 500
     _RUN_OUTPUT_PREVIEW_MAX_CHARS = 8 * 1024
-    _EXPORT_LOG_HEAD_LIMIT = 20
-    _EXPORT_LOG_TAIL_LIMIT = 80
-    _EXPORT_LOG_DIAGNOSTIC_LIMIT = 80
-    _EXPORT_LOG_LINE_MAX_CHARS = 1200
-    _EXPORT_LOG_DIAGNOSTIC_TERMS = ("error", "failed", "exception", "traceback", "timeout", "cancelled")
+    _LOG_SUMMARY_LINE_MAX_CHARS = 1200
+    _LOG_SUMMARY_DIAGNOSTIC_LIMIT = 12
+    _LOG_SUMMARY_TAIL_LIMIT = 8
+    _LOG_SUMMARY_DOCUMENT_PREVIEW_MAX_CHARS = 1800
+    _LOG_SUMMARY_DIAGNOSTIC_TERMS = ("error", "failed", "exception", "traceback", "timeout", "cancelled")
     _PERSISTED_CLI_PHASES = {"session", "tool", "command", "file_change", "mcp", "todo", "hook", "retry", "result", "error"}
     _PREVIEW_CLI_PHASES = {"text", "thinking"}
 
@@ -397,144 +397,305 @@ class PipelineRuntimeMixin:
         total = len(lines)
         return {"items": lines[offset : offset + limit], "offset": offset, "limit": limit, "total": total, "has_more": offset + limit < total}
 
-    def export_iteration_logs(self, iteration_id: str, *, mode: str = "full") -> dict[str, Any]:
+    def log_summary(self, iteration_id: str) -> dict[str, Any]:
         self._require_iteration(iteration_id)
-        if mode == "summary":
-            return self._export_iteration_logs_summary(iteration_id)
-        runs = self.db.list_runs(iteration_id)
-        run_logs: list[dict[str, Any]] = []
-        for run in runs:
-            run_id = run["id"]
-            all_items: list[dict[str, Any]] = []
-            offset = 0
-            while True:
-                page = self.run_logs_page(iteration_id, run_id, offset=offset, limit=self._RUN_LOG_PAGE_SIZE_MAX)
-                all_items.extend(page["items"])
-                if not page["has_more"]:
-                    break
-                offset += len(page["items"])
-            run_logs.append({
-                "run_id": run_id,
-                "node": run["node"],
-                "status": run["status"],
-                "provider": run["provider"] if "provider" in run.keys() else None,
-                "started_at": run["started_at"],
-                "finished_at": run["finished_at"] if "finished_at" in run.keys() else None,
-                "duration_ms": run["duration_ms"] if "duration_ms" in run.keys() else None,
-                "exit_code": run["exit_code"] if "exit_code" in run.keys() else None,
-                "stdout_bytes": run["stdout_bytes"] if "stdout_bytes" in run.keys() else 0,
-                "stderr_bytes": run["stderr_bytes"] if "stderr_bytes" in run.keys() else 0,
-                "logs": {"items": all_items, "total": len(all_items)},
-            })
-        return {
+        path = self._log_summary_path(iteration_id)
+        generating = self._log_summary_is_generating(iteration_id)
+        if path.is_file():
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                payload = {}
+            return {
+                **self._basic_log_summary(iteration_id),
+                **payload,
+                "generated": True,
+                "generating": generating,
+            }
+        return {**self._basic_log_summary(iteration_id), "generated": False, "generating": generating}
+
+
+    def generate_log_summary(self, iteration_id: str) -> dict[str, Any]:
+        row = self._require_iteration(iteration_id)
+        state: PipelineState = {
             "iteration_id": iteration_id,
-            "exported_at": iso(utcnow()),
-            "runs": run_logs,
+            "project_id": row["project_id"],
+            "project_name": row["project_name"],
+            "goal": row["goal"],
+            "mode": row["mode"],
+            "status": row["status"],
+            "current_node": row["current_node"],
+            "route": "",
+        }
+        summary_input = json.dumps(self._log_summary_input(iteration_id), ensure_ascii=False, indent=2)
+        self._reset_live_cli(iteration_id, "log_summarizer")
+        self._node_event(
+            iteration_id,
+            "node.started",
+            "log_summarizer",
+            "日志总结已启动",
+            "Log Summarizer 正在整理阶段、状态、说明和验收点。",
+        )
+        self._add_event(iteration_id, event_type="log_summary.started", payload={})
+        run_result = self._execute(
+            state,
+            self._log_summarizer_command(state, summary_input=summary_input),
+            node="log_summarizer",
+        )
+        run_id = self._record_run(iteration_id, "log_summarizer", run_result)
+        if run_result.returncode:
+            reason = self._format_cli_failure(run_result)
+            self.mark_log_summary_failed(iteration_id, reason, run_id=run_id)
+            return self.log_summary(iteration_id)
+        try:
+            if self._is_real_cli(row["mode"]):
+                artifact = parse_json_artifact(run_result.stdout or run_result.stderr, LogSummaryArtifact)
+            else:
+                artifact = LogSummaryArtifact.model_validate(self._basic_log_summary(iteration_id))
+        except Exception as exc:
+            self.mark_log_summary_failed(iteration_id, str(exc), run_id=run_id)
+            return self.log_summary(iteration_id)
+
+        payload = self._log_summary_payload(artifact, generated_at=iso(utcnow()))
+        path = self._log_summary_path(iteration_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._record_document(iteration_id, "log_summary", path)
+        self._add_event(iteration_id, event_type="log_summary.completed", payload={"run_id": run_id})
+        self._node_event(
+            iteration_id,
+            "artifact.created",
+            "log_summarizer",
+            "日志总结已生成",
+            "log_summary.json 已写入 iteration 文档目录。",
+            severity="success",
+            document="log_summary",
+            run_id=run_id,
+        )
+        self._node_event(
+            iteration_id,
+            "node.completed",
+            "log_summarizer",
+            "日志总结完成",
+            "阶段、状态、说明和验收点已整理完成。",
+            severity="success",
+            run_id=run_id,
+        )
+        self._publish_snapshot(iteration_id)
+        return self.log_summary(iteration_id)
+
+
+    def mark_log_summary_failed(self, iteration_id: str, reason: str, *, run_id: Optional[str] = None) -> None:
+        self._add_event(iteration_id, event_type="log_summary.failed", payload={"reason": reason, "run_id": run_id})
+        self._node_event(
+            iteration_id,
+            "node.failed",
+            "log_summarizer",
+            "日志总结失败",
+            reason,
+            severity="error",
+            run_id=run_id,
+            action_hint="查看 Log Summarizer 原始输出后重试生成日志总结。",
+        )
+        self._publish_snapshot(iteration_id)
+
+
+    def _log_summary_path(self, iteration_id: str) -> Path:
+        return self.docs_root(iteration_id) / "log_summary.json"
+
+
+    def _log_summary_is_generating(self, iteration_id: str) -> bool:
+        state = "idle"
+        for event in self.db.list_events(iteration_id):
+            if event["type"] in {"log_summary.queued", "log_summary.started"}:
+                state = "generating"
+            elif event["type"] in {"log_summary.completed", "log_summary.failed"}:
+                state = "idle"
+        return state == "generating"
+
+
+    def _log_summary_payload(self, artifact: LogSummaryArtifact, *, generated_at: str) -> dict[str, Any]:
+        return {
+            "generated": True,
+            "generated_at": generated_at,
+            "updated_at": generated_at,
+            "error": None,
+            "stages": [stage.model_dump() for stage in artifact.stages],
+            "final_summary": artifact.final_summary,
+            "acceptance_points": [point.model_dump() for point in artifact.acceptance_points],
+            "risks_or_followups": list(artifact.risks_or_followups),
         }
 
 
-    def _export_iteration_logs_summary(self, iteration_id: str) -> dict[str, Any]:
+    def _basic_log_summary(self, iteration_id: str) -> dict[str, Any]:
+        row = self._require_iteration(iteration_id)
         runs = self.db.list_runs(iteration_id)
-        run_logs: list[dict[str, Any]] = []
-        total_stdout_bytes = 0
-        total_stderr_bytes = 0
-        failed_run_count = 0
-        has_truncated = False
-        for run in runs:
-            stdout_bytes = run["stdout_bytes"] if "stdout_bytes" in run.keys() else len((run["stdout"] or "").encode("utf-8"))
-            stderr_bytes = run["stderr_bytes"] if "stderr_bytes" in run.keys() else len((run["stderr"] or "").encode("utf-8"))
-            total_stdout_bytes += stdout_bytes
-            total_stderr_bytes += stderr_bytes
-            if run["status"] != "success":
-                failed_run_count += 1
-            log_summary = self._summarize_run_logs(run)
-            has_truncated = has_truncated or bool(log_summary.get("truncated"))
-            run_logs.append({
-                "run_id": run["id"],
-                "node": run["node"],
-                "status": run["status"],
-                "provider": run["provider"] if "provider" in run.keys() else None,
-                "started_at": run["started_at"],
-                "finished_at": run["finished_at"] if "finished_at" in run.keys() else None,
-                "duration_ms": run["duration_ms"] if "duration_ms" in run.keys() else None,
-                "exit_code": run["exit_code"] if "exit_code" in run.keys() else None,
-                "timed_out": bool(run["timed_out"]) if "timed_out" in run.keys() else False,
-                "stdout_bytes": stdout_bytes,
-                "stderr_bytes": stderr_bytes,
-                "logs_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/logs",
-                "raw_log_url": f"/api/iterations/{iteration_id}/runs/{run['id']}/logs",
-                "prompt_hash": run["prompt_hash"] if "prompt_hash" in run.keys() else None,
-                "logs": {"summary": log_summary},
-            })
+        stages = self._basic_log_summary_stages(runs)
+        failed_runs = [run for run in runs if run["status"] != "success"]
+        risks = []
+        if row["last_error"]:
+            risks.append(str(row["last_error"]))
+        for run in failed_runs[:5]:
+            risks.append(f"{STAGE_LABELS.get(run['node'], run['node'])} run {run['id']} ended with {run['status']}.")
+        final_summary = self._basic_log_summary_text(row, runs)
         return {
-            "iteration_id": iteration_id,
-            "exported_at": iso(utcnow()),
-            "mode": "summary",
-            "summary": {
-                "run_count": len(runs),
-                "failed_run_count": failed_run_count,
-                "stdout_bytes": total_stdout_bytes,
-                "stderr_bytes": total_stderr_bytes,
-                "has_truncated": has_truncated,
+            "generated": False,
+            "generated_at": None,
+            "updated_at": None,
+            "error": self._latest_log_summary_error(iteration_id),
+            "stages": stages,
+            "final_summary": final_summary,
+            "acceptance_points": self._basic_acceptance_points(iteration_id),
+            "risks_or_followups": risks,
+        }
+
+
+    def _basic_log_summary_stages(self, runs: list[Any]) -> list[dict[str, Any]]:
+        grouped: dict[str, list[Any]] = {}
+        for run in runs:
+            if run["node"] == "log_summarizer":
+                continue
+            grouped.setdefault(run["node"], []).append(run)
+        stages: list[dict[str, Any]] = []
+        for node, node_runs in grouped.items():
+            latest = node_runs[-1]
+            failed = any(run["status"] != "success" for run in node_runs)
+            status = "失败" if failed else "完成"
+            if latest["finished_at"] is None and latest["status"] not in {"success", "failed"}:
+                status = "执行中"
+            provider = latest["provider"] if "provider" in latest.keys() and latest["provider"] else "system"
+            stages.append(
+                {
+                    "stage": STAGE_LABELS.get(node, node),
+                    "status": status,
+                    "description": f"{len(node_runs)} 次执行，最近由 {provider} 处理，状态 {latest['status']}。",
+                    "run_ids": [run["id"] for run in node_runs],
+                }
+            )
+        return stages
+
+
+    def _basic_log_summary_text(self, row: Any, runs: list[Any]) -> str:
+        if row["status"] == IterationStatus.delivered.value:
+            return "本任务已交付，流水线完成最终确认。"
+        if row["status"] in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.failed.value}:
+            return row["last_error"] or "本任务当前存在阻断，需要处理失败日志后继续。"
+        if row["status"] == IterationStatus.stopped.value:
+            return "本任务已停止，可查看阶段日志后决定是否恢复。"
+        if runs:
+            return "本任务已有阶段执行记录，可生成 AI 日志总结获得更完整的阶段说明和验收点。"
+        return "本任务尚未产生阶段运行日志。"
+
+
+    def _basic_acceptance_points(self, iteration_id: str) -> list[dict[str, str]]:
+        points: list[dict[str, str]] = []
+        doc_names = {doc["name"] for doc in self.db.list_documents(iteration_id)}
+        if "verify_report" in doc_names:
+            points.append({"point": "验证报告已生成", "status": "present", "evidence": "verify_report"})
+        if "ui_report" in doc_names or "ui_results" in doc_names:
+            points.append({"point": "UI 验证产物已生成", "status": "present", "evidence": "ui_report / ui_results"})
+        if self._require_iteration(iteration_id)["status"] == IterationStatus.delivered.value:
+            points.append({"point": "人工交付确认已完成", "status": "passed", "evidence": "iteration status delivered"})
+        return points
+
+
+    def _latest_log_summary_error(self, iteration_id: str) -> str | None:
+        for event in reversed(self.db.list_events(iteration_id)):
+            if event["type"] != "log_summary.failed":
+                continue
+            try:
+                payload = json.loads(event["payload"])
+            except json.JSONDecodeError:
+                return "日志总结失败。"
+            reason = payload.get("reason")
+            return str(reason) if reason else "日志总结失败。"
+        return None
+
+
+    def _log_summary_input(self, iteration_id: str) -> dict[str, Any]:
+        row = self._require_iteration(iteration_id)
+        runs = self.db.list_runs(iteration_id)
+        return {
+            "iteration": {
+                "id": row["id"],
+                "goal": row["goal"],
+                "status": row["status"],
+                "current_node": row["current_node"],
+                "last_error": row["last_error"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
             },
-            "runs": run_logs,
+            "runs": [self._log_summary_run_record(run) for run in runs if run["node"] != "log_summarizer"],
+            "events": self._public_event_records(self.db.list_events(iteration_id)[-80:]),
+            "documents": self._log_summary_document_previews(iteration_id),
+            "ui_results": [result.model_dump() for result in self._ui_results(iteration_id)],
         }
 
 
-    def _summarize_run_logs(self, run: Any) -> dict[str, Any]:
-        head: list[dict[str, Any]] = []
-        tail: deque[dict[str, Any]] = deque(maxlen=self._EXPORT_LOG_TAIL_LIMIT)
-        diagnostics: list[dict[str, Any]] = []
-        seen_diagnostics: set[tuple[str, str]] = set()
-        total = 0
-        text_truncated = False
-        diagnostics_truncated = False
+    def _log_summary_run_record(self, run: Any) -> dict[str, Any]:
+        return {
+            "id": run["id"],
+            "node": run["node"],
+            "stage": STAGE_LABELS.get(run["node"], run["node"]),
+            "status": run["status"],
+            "provider": run["provider"] if "provider" in run.keys() else None,
+            "started_at": run["started_at"],
+            "finished_at": run["finished_at"] if "finished_at" in run.keys() else None,
+            "duration_ms": run["duration_ms"] if "duration_ms" in run.keys() else None,
+            "exit_code": run["exit_code"] if "exit_code" in run.keys() else None,
+            "timed_out": bool(run["timed_out"]) if "timed_out" in run.keys() else False,
+            "stdout_bytes": run["stdout_bytes"] if "stdout_bytes" in run.keys() else 0,
+            "stderr_bytes": run["stderr_bytes"] if "stderr_bytes" in run.keys() else 0,
+            "log_digest": self._log_summary_run_digest(run),
+        }
 
+
+    def _log_summary_run_digest(self, run: Any) -> dict[str, Any]:
+        diagnostics: list[dict[str, Any]] = []
+        tail: list[dict[str, Any]] = []
+        total = 0
         for item in self._iter_run_log_items(run):
             total += 1
-            compact_item, item_truncated = self._compact_export_log_item(item)
-            text_truncated = text_truncated or item_truncated
-            if len(head) < self._EXPORT_LOG_HEAD_LIMIT:
-                head.append(compact_item)
-            tail.append(compact_item)
-            if self._is_diagnostic_log_line(compact_item):
-                key = self._export_log_item_key(compact_item, fallback_line=total)
-                if key in seen_diagnostics:
-                    continue
-                if len(diagnostics) >= self._EXPORT_LOG_DIAGNOSTIC_LIMIT:
-                    diagnostics_truncated = True
-                    continue
-                seen_diagnostics.add(key)
-                diagnostics.append(compact_item)
+            compact = self._compact_log_summary_item(item)
+            tail.append(compact)
+            if len(tail) > self._LOG_SUMMARY_TAIL_LIMIT:
+                tail.pop(0)
+            if len(diagnostics) < self._LOG_SUMMARY_DIAGNOSTIC_LIMIT and self._is_diagnostic_log_line(compact):
+                diagnostics.append(compact)
+        return {"items_total": total, "diagnostics": diagnostics, "tail": tail}
 
-        head_keys = {self._export_log_item_key(item, fallback_line=index) for index, item in enumerate(head, start=1)}
-        tail_items = [
-            item
-            for index, item in enumerate(tail, start=max(total - len(tail) + 1, 1))
-            if self._export_log_item_key(item, fallback_line=index) not in head_keys
-        ]
-        omitted_middle_count = max(0, total - len(head) - len(tail_items))
-        truncated = (
-            omitted_middle_count > 0
-            or text_truncated
-            or diagnostics_truncated
-        )
-        return {
-            "items_total": total,
-            "head": head,
-            "tail": tail_items,
-            "diagnostics": diagnostics,
-            "omitted_middle_count": omitted_middle_count,
-            "limits": {
-                "head": self._EXPORT_LOG_HEAD_LIMIT,
-                "tail": self._EXPORT_LOG_TAIL_LIMIT,
-                "diagnostics": self._EXPORT_LOG_DIAGNOSTIC_LIMIT,
-                "text_chars": self._EXPORT_LOG_LINE_MAX_CHARS,
-            },
-            "truncated": truncated,
-            "text_truncated": text_truncated,
-            "diagnostics_truncated": diagnostics_truncated,
+
+    def _log_summary_document_previews(self, iteration_id: str) -> list[dict[str, Any]]:
+        important = {
+            "requirements_brief",
+            "prd",
+            "testing_plan",
+            "verify_report",
+            "delivery_advice",
+            "ui_report",
+            "ui_results",
         }
+        previews: list[dict[str, Any]] = []
+        for document in self.db.list_documents(iteration_id):
+            if document["name"] not in important:
+                continue
+            path = Path(document["path"])
+            preview = ""
+            if path.is_file():
+                preview = self._truncate_public_text(
+                    path.read_text(encoding="utf-8", errors="replace"),
+                    self._LOG_SUMMARY_DOCUMENT_PREVIEW_MAX_CHARS,
+                )
+            previews.append(
+                {
+                    "name": document["name"],
+                    "path": document["path"],
+                    "checksum": document["checksum"],
+                    "updated_at": document["updated_at"],
+                    "preview": preview,
+                }
+            )
+        return previews
 
 
     def _iter_run_log_items(self, run: Any):
@@ -554,20 +715,16 @@ class PipelineRuntimeMixin:
                 yield {"stream": stream, "line": line_no, "text": text_line}
 
 
-    def _compact_export_log_item(self, item: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    def _compact_log_summary_item(self, item: dict[str, Any]) -> dict[str, Any]:
         compact = dict(item)
         text = str(compact.get("text", ""))
-        if len(text) <= self._EXPORT_LOG_LINE_MAX_CHARS:
+        if len(text) <= self._LOG_SUMMARY_LINE_MAX_CHARS:
             compact["text"] = text
-            return compact, False
-        omitted = len(text) - self._EXPORT_LOG_LINE_MAX_CHARS
-        compact["text"] = f"{text[:self._EXPORT_LOG_LINE_MAX_CHARS]}\n...[truncated {omitted} chars]"
+            return compact
+        omitted = len(text) - self._LOG_SUMMARY_LINE_MAX_CHARS
+        compact["text"] = f"{text[:self._LOG_SUMMARY_LINE_MAX_CHARS]}\n...[truncated {omitted} chars]"
         compact["text_truncated"] = True
-        return compact, True
-
-
-    def _export_log_item_key(self, item: dict[str, Any], *, fallback_line: int) -> tuple[str, str]:
-        return (str(item.get("stream", "")), str(item.get("line", fallback_line)))
+        return compact
 
 
     def _is_diagnostic_log_line(self, item: dict[str, Any]) -> bool:
@@ -575,7 +732,7 @@ class PipelineRuntimeMixin:
         if stream == "stderr":
             return True
         text = str(item.get("text", "")).lower()
-        return any(term in text for term in self._EXPORT_LOG_DIAGNOSTIC_TERMS)
+        return any(term in text for term in self._LOG_SUMMARY_DIAGNOSTIC_TERMS)
 
 
     def _read_raw_log_page(self, path: Path, *, offset: int, limit: int) -> dict[str, Any]:

@@ -13,6 +13,7 @@ CliStage = Literal[
     "coder",
     "code_tester",
     "ui_tester",
+    "log_summarizer",
 ]
 
 DEFAULT_CLI_BINDINGS: dict[CliStage, CliProvider] = {
@@ -23,6 +24,7 @@ DEFAULT_CLI_BINDINGS: dict[CliStage, CliProvider] = {
     "coder": "claude",
     "code_tester": "claude",
     "ui_tester": "claude",
+    "log_summarizer": "claude",
 }
 
 

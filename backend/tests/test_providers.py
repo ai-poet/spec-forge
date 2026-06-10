@@ -129,7 +129,7 @@ def test_run_observability_files_and_log_pagination(tmp_path):
     assert run["worker_ref_path"]
 
 
-def test_iteration_log_summary_export_compacts_large_raw_logs(tmp_path):
+def test_log_summary_input_compacts_large_raw_logs(tmp_path):
     from specforge.pipeline import LangGraphPipeline
     from specforge.storage.db import Database
 
@@ -149,7 +149,8 @@ def test_iteration_log_summary_export_compacts_large_raw_logs(tmp_path):
                 text = f"stdout line {index}"
             handle.write(f'{{"stream":"stdout","line":{index},"node":"coder","text":"{text}","created_at":"2026-01-01T00:00:00Z"}}\n')
         for index in range(1, 91):
-            handle.write(f'{{"stream":"stderr","line":{index},"node":"coder","text":"stderr diagnostic {index}","created_at":"2026-01-01T00:00:00Z"}}\n')
+            text = long_text if index == 1 else f"stderr diagnostic {index}"
+            handle.write(f'{{"stream":"stderr","line":{index},"node":"coder","text":"{text}","created_at":"2026-01-01T00:00:00Z"}}\n')
     db.add_run(
         iteration_id,
         run_id="run_large",
@@ -167,32 +168,18 @@ def test_iteration_log_summary_export_compacts_large_raw_logs(tmp_path):
         timed_out=True,
     )
 
-    payload = pipeline.export_iteration_logs(iteration_id, mode="summary")
+    payload = pipeline._log_summary_input(iteration_id)
     run = payload["runs"][0]
-    log_summary = run["logs"]["summary"]
+    log_digest = run["log_digest"]
 
-    assert payload["mode"] == "summary"
-    assert payload["summary"] == {
-        "run_count": 1,
-        "failed_run_count": 1,
-        "stdout_bytes": 2048,
-        "stderr_bytes": 1024,
-        "has_truncated": True,
-    }
-    assert run["run_id"] == "run_large"
+    assert run["id"] == "run_large"
     assert run["timed_out"] is True
-    assert run["prompt_hash"] == "hash-1"
-    assert "items" not in run["logs"]
-    assert log_summary["items_total"] == 240
-    assert len(log_summary["head"]) == 20
-    assert len(log_summary["tail"]) == 80
-    assert len(log_summary["diagnostics"]) == 80
-    assert log_summary["diagnostics_truncated"] is True
-    assert log_summary["text_truncated"] is True
-    assert log_summary["omitted_middle_count"] == 140
-    assert all("stdout line 25" not in section_item["text"] for section in ("head", "tail", "diagnostics") for section_item in log_summary[section])
-    assert any(item["text"].startswith("operation failed") for item in log_summary["diagnostics"])
-    assert any(item.get("text_truncated") for item in log_summary["head"] + log_summary["tail"] + log_summary["diagnostics"])
+    assert run["stdout_bytes"] == 2048
+    assert run["stderr_bytes"] == 1024
+    assert log_digest["items_total"] == 240
+    assert len(log_digest["tail"]) == pipeline._LOG_SUMMARY_TAIL_LIMIT
+    assert len(log_digest["diagnostics"]) == pipeline._LOG_SUMMARY_DIAGNOSTIC_LIMIT
+    assert any(item.get("text_truncated") for item in log_digest["tail"] + log_digest["diagnostics"])
 
 
 def test_worker_ref_from_result_prefers_codex_sdk_thread_id(tmp_path):

@@ -34,6 +34,26 @@ class TestPlannerArtifact(BaseModel):
     testing_plan: str
 
 
+class LogSummaryStageArtifact(BaseModel):
+    stage: str = Field(min_length=1)
+    status: str = Field(min_length=1)
+    description: str = ""
+    run_ids: list[str] = Field(default_factory=list)
+
+
+class LogSummaryAcceptancePointArtifact(BaseModel):
+    point: str = Field(min_length=1)
+    status: str = Field(min_length=1)
+    evidence: str = ""
+
+
+class LogSummaryArtifact(BaseModel):
+    stages: list[LogSummaryStageArtifact] = Field(default_factory=list)
+    final_summary: str = ""
+    acceptance_points: list[LogSummaryAcceptancePointArtifact] = Field(default_factory=list)
+    risks_or_followups: list[str] = Field(default_factory=list)
+
+
 class PlannerDiscoveryArtifact(BaseModel):
     status: Literal["ask", "ready"]
     complexity: Literal["trivial", "simple", "moderate", "complex"] = "moderate"

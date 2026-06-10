@@ -75,6 +75,7 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "context/for_tester.jsonl" in text
     assert "Build feature X" in text
     assert "Planner project context cache" in text
+    assert "## Problem, Goals, and Scope" in text
     assert "## Technical Stack" in text
     assert "## Development Conventions" in text
     assert "docs/00_convention.md" in text
@@ -100,6 +101,25 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "Capacitor 7" in text
     assert "frontend/backend separation" in text
     assert "explicit API contracts" in text
+    assert "## Functional Requirements" in text
+    assert "## Non-Functional Requirements" in text
+    assert "## API and Data Contracts" in text
+    assert "## Testing and Acceptance Strategy" in text
+    assert "## Risks and Locked Decisions" in text
+    assert "Implementation-lock decisions" in text
+    assert "source of truth/data store" in text
+    assert "async/background processing model" in text
+    assert "permission/security boundary" in text
+    assert "performance/reliability targets" in text
+    assert "authoritative pre-build contract" in text
+    assert "Component/status map" in text
+    assert "Boundary I/O" in text
+    assert "`Trigger`, `Reads`, `Mechanism`, `Writes`, `Persistence`, `Failure/Retry`, and `Verification`" in text
+    assert "system-boundary inputs and outputs" in text
+    assert "Delta/override discipline" in text
+    assert "durable vs transient state" in text
+    assert "explicit NOT-included items" in text
+    assert "generated docs, raw logs, or telemetry signals" in text
     assert "modification_plan" not in text
 
 

@@ -78,7 +78,74 @@ class PipelineArtifactsMixin:
             raw = merge_cli_artifact_output(run_result.stdout, run_result.stderr)
             return parse_json_artifact(raw, PrdPlannerArtifact)  # type: ignore[return-value]
         goal = state["goal"]
-        prd = f"""---\ndoc: prd\niteration: 1\nstatus: draft\nowner: prd_planner\n---\n\n# Iteration 1 - PRD\n\nGoal: {goal}\n\n## Scope\nDry-run PRD from prd_planner.\n\n## Technical Stack\n- Frontend/web UI default: React + Vite under `frontend/**` by default, or `web/**` when the repository already uses that root, with componentized UI, Less Modules, modern large-scale frontend layering, and strong UI/UX usability, visual polish, and fault-tolerant states when UI work is needed and the repo does not specify otherwise.\n- Backend/API default: extend the existing backend architecture under `backend/**` with transport routes/controllers, application services/use cases, domain models, data-access/repository/storage boundaries, integrations, migrations, tests, extensibility, maintainability, and performance when one is present; organize backend code into clear layer- or feature-oriented folders; ask during discovery before adding a new backend stack.\n- Fast backend prototype references after Discovery confirms a new backend: FastAPI with `backend/app/main.py` or `backend/src/<package>/main.py`, `routers/` using `APIRouter`, `dependencies.py`, local SQLite first for prototype persistence, `schemas/models`, `services/`, and `repositories/` or `storage/`; HonoJS with `backend/src/index.ts`, `backend/src/routes/*.ts` mounted through `app.route()`, optional `hono/factory`, local SQLite first for prototype persistence, `services/`, `db/` or `lib/`, middleware/env/types, and exported `AppType`; Supabase is the exception to the `backend/**` rule and may live under the frontend app root (`frontend/` or existing `web/`) with `supabase/config.toml`, `supabase/migrations/*.sql`, `supabase/functions/<name>/index.ts`, and `supabase/tests/*.sql` or `*.pg`, seed data, and versioned schema/RLS/function changes. Avoid flat backend directories where many unrelated implementation files are placed side by side.\n- Desktop default: Electron with main/preload/renderer process boundaries when a desktop shell is required.\n- Mobile default: Capacitor 7 with shared app/domain/UI layers and isolated native adapters for cross-platform mobile delivery.\n- Dry-run verification path: Python runtime with pytest-compatible checks.\n\n## Development Conventions\n- Keep backend implementation under `backend/**`; keep frontend implementation under `frontend/**` by default or `web/**` when that root already exists; Supabase may use `supabase/**` under the app root, including the frontend root.\n- For backend work, prefer cohesive subdirectories by layer or bounded feature over placing many route, service, schema, repository, adapter, and configuration files directly in one folder.\n- Keep generated tests under the project test roots declared by convention or under `tests/**` for dry-run projects; Supabase database tests belong under `supabase/tests/**` when that stack is selected.\n- Preserve SpecForge planning documents as planner-owned artifacts.\n\n## Architecture and Boundaries\n- Keep frontend and backend separated when both are in scope: UI talks to backend through explicit API contracts, frontend code stays in `frontend/**` or existing `web/**`, backend code stays in `backend/**`, Supabase stays in `supabase/**` under the app root, and neither side depends on the other's implementation details.\n- Backend PRDs must name the transport/API boundary, service/use-case boundary, domain/schema/model boundary, data-access/storage boundary, migration policy, and integration test boundary before Coder edits files.\n- Backend boundaries should be reflected in the folder structure, avoiding flat multi-file directories once a backend has multiple responsibilities.\n- Provide a minimal source module with a stable public function for tester verification.\n- Avoid file-level implementation checklists; Coder owns concrete code edits.\n\n## Acceptance criteria\n- Generate a minimal source module that satisfies test_planner protected tests.\n"""
+        prd = f"""---
+doc: prd
+iteration: 1
+status: draft
+owner: prd_planner
+---
+
+# Iteration 1 - PRD
+
+Goal: {goal}
+
+## Problem, Goals, and Scope
+- Problem: Dry-run PRD from prd_planner needs a stable planning artifact for downstream stages.
+- Goal: generate a minimal source module that can be verified by protected tests.
+- Scope: exercise the SpecForge planning, coding, testing, and approval flow without production integrations.
+- Out of scope: real provider calls, production persistence, external services, and UI-specific implementation unless the goal explicitly asks for them.
+
+## Technical Stack
+- Frontend/web UI default: React + Vite under `frontend/**` by default, or `web/**` when the repository already uses that root, with componentized UI, Less Modules, modern large-scale frontend layering, and strong UI/UX usability, visual polish, and fault-tolerant states when UI work is needed and the repo does not specify otherwise.
+- Backend/API default: extend the existing backend architecture under `backend/**` with transport routes/controllers, application services/use cases, domain models, data-access/repository/storage boundaries, integrations, migrations, tests, extensibility, maintainability, and performance when one is present; organize backend code into clear layer- or feature-oriented folders; ask during discovery before adding a new backend stack.
+- Fast backend prototype references after Discovery confirms a new backend: FastAPI with `backend/app/main.py` or `backend/src/<package>/main.py`, `routers/` using `APIRouter`, `dependencies.py`, local SQLite first for prototype persistence, `schemas/models`, `services/`, and `repositories/` or `storage/`; HonoJS with `backend/src/index.ts`, `backend/src/routes/*.ts` mounted through `app.route()`, optional `hono/factory`, local SQLite first for prototype persistence, `services/`, `db/` or `lib/`, middleware/env/types, and exported `AppType`; Supabase is the exception to the `backend/**` rule and may live under the frontend app root (`frontend/` or existing `web/`) with `supabase/config.toml`, `supabase/migrations/*.sql`, `supabase/functions/<name>/index.ts`, and `supabase/tests/*.sql` or `*.pg`, seed data, and versioned schema/RLS/function changes. Avoid flat backend directories where many unrelated implementation files are placed side by side.
+- Desktop default: Electron with main/preload/renderer process boundaries when a desktop shell is required.
+- Mobile default: Capacitor 7 with shared app/domain/UI layers and isolated native adapters for cross-platform mobile delivery.
+- Dry-run verification path: Python runtime with pytest-compatible checks.
+
+## Development Conventions
+- Keep backend implementation under `backend/**`; keep frontend implementation under `frontend/**` by default or `web/**` when that root already exists; Supabase may use `supabase/**` under the app root, including the frontend root.
+- For backend work, prefer cohesive subdirectories by layer or bounded feature over placing many route, service, schema, repository, adapter, and configuration files directly in one folder.
+- Keep generated tests under the project test roots declared by convention or under `tests/**` for dry-run projects; Supabase database tests belong under `supabase/tests/**` when that stack is selected.
+- Preserve SpecForge planning documents as planner-owned artifacts.
+
+## Architecture and Boundaries
+- Treat this PRD as the authoritative pre-build contract for this dry-run iteration; generated planning docs are the source of truth until implementation evidence updates them.
+- Keep frontend and backend separated when both are in scope: UI talks to backend through explicit API contracts, frontend code stays in `frontend/**` or existing `web/**`, backend code stays in `backend/**`, Supabase stays in `supabase/**` under the app root, and neither side depends on the other's implementation details.
+- Backend PRDs must name the transport/API boundary, service/use-case boundary, domain/schema/model boundary, data-access/storage boundary, migration policy, and integration test boundary before Coder edits files.
+- Backend boundaries should be reflected in the folder structure, avoiding flat multi-file directories once a backend has multiple responsibilities.
+- Boundary I/O contract: Coder exposes a stable public function or module; protected tests verify only public behavior and generated artifacts, not private implementation details.
+- Workflow/status map: prd_planner produces `prd.md`, test_planner produces protected checks, coder changes source files, and code_tester records verification evidence.
+- Avoid file-level implementation checklists; Coder owns concrete code edits.
+
+## Functional Requirements
+- FR-1: Generate a minimal source module that satisfies the protected tests produced by test_planner.
+- FR-2: Preserve PRD and context manifests so Coder and Tester can trace the dry-run requirement to implementation evidence.
+- FR-3: Keep the dry-run workflow state observable through generated docs, run records, and verification output.
+
+## Non-Functional Requirements
+- NFR-1 Reliability: the dry-run path must complete deterministically without external provider calls.
+- NFR-2 Maintainability: source and tests must stay in the repository's declared roots and avoid unrelated refactors.
+- NFR-3 Observability: acceptance evidence must be visible in generated documents and verification reports.
+- NFR-4 Compatibility: no production configuration, migration, or external API requirement is introduced by the dry-run artifact.
+
+## API and Data Contracts
+- Input: the iteration goal string and discovery brief are the system-boundary inputs for this dry-run.
+- Output: `prd.md`, `context/for_coder.jsonl`, `context/for_tester.jsonl`, protected tests, source changes, and verification reports are durable artifacts.
+- Status values: planning, coding, testing, blocked, approval, and completed states remain owned by the orchestrator; Coder must not invent new pipeline states.
+- Persistence: dry-run documents and run records are durable; transient CLI stdout/stderr should only be used as evidence after it is captured in run logs or reports.
+
+## Testing and Acceptance Strategy
+- Protected tests must verify the public source behavior required by FR-1.
+- Pipeline-level acceptance requires generated PRD/context manifests, Coder output, and a passing verification report.
+- Evidence should cite tests, generated docs, run records, or logs rather than unstated manual assumptions.
+
+## Risks and Locked Decisions
+- Locked: dry-run mode does not call real LLM providers or external services.
+- Locked: Coder owns implementation details; PRD owns boundaries, behavior, and acceptance evidence.
+- Deferred: production integrations, migrations, and UI/browser acceptance are outside this dry-run unless explicitly requested.
+- Risk: if repository conventions are missing or stale, the generated convention document must be reconciled before relying on it for future real runs.
+"""
         return PrdPlannerArtifact(
             prd=prd,
             context_for_coder=[

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { exportIterationLogs, getRunContextPackage, getRunLogs, getRunPromptBundle, getRunWorkerRef } from '../../../shared/lib/api'
-import type { ContextPackagePayload, IterationDetail, NodeRunRecord, PromptBundlePayload, RunLogPage, SemanticEvent, WorkerRefPayload } from '../../../shared/lib/types'
+import { generateLogSummary, getLogSummary, getRunContextPackage, getRunLogs, getRunPromptBundle, getRunWorkerRef } from '../../../shared/lib/api'
+import type { ContextPackagePayload, IterationDetail, LogSummaryResponse, NodeRunRecord, PromptBundlePayload, RunLogPage, SemanticEvent, WorkerRefPayload } from '../../../shared/lib/types'
 import type { PipelineStepKey } from '../../pipeline/lib/pipelineSteps'
 import { nodesForStep } from '../../pipeline/lib/pipelineSteps'
 import { isStepLive, latestNodeProgress } from '../../pipeline/lib/pipelineLive'
@@ -169,6 +169,89 @@ function RunTraceList({
   )
 }
 
+function LogSummaryPanel({
+  summary,
+  loading,
+  generating,
+  error,
+  onGenerate,
+}: {
+  summary: LogSummaryResponse | null
+  loading: boolean
+  generating: boolean
+  error: string | null
+  onGenerate: () => void
+}) {
+  const showGenerate = !summary?.generated
+  return (
+    <div className={styles.summaryPanel}>
+      <div className="section-row">
+        <div>
+          <h3 className={styles.summaryTitle}>任务日志总结</h3>
+          {summary?.generated_at ? <p className="muted">生成于 {new Date(summary.generated_at).toLocaleString()}</p> : null}
+        </div>
+        <div className={styles.summaryActions}>
+          {summary?.generating || generating ? <RunningIndicator size="sm" mode="dot" label="整理中" /> : null}
+          {showGenerate ? (
+            <button type="button" className="btn btn-sm" onClick={onGenerate} disabled={loading || generating || summary?.generating}>
+              {generating || summary?.generating ? '生成中...' : '生成日志总结'}
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {error || summary?.error ? <div className="error-text">{error ?? summary?.error}</div> : null}
+      {loading && !summary ? <RunningIndicator label="读取日志总结…" /> : null}
+      {summary ? (
+        <div className={styles.summaryGrid}>
+          <div className={styles.stageTable} role="table" aria-label="任务阶段日志总结">
+            <div className={styles.stageHead} role="row">
+              <span role="columnheader">阶段</span>
+              <span role="columnheader">状态</span>
+              <span role="columnheader">说明</span>
+            </div>
+            {summary.stages.length ? summary.stages.map((stage, index) => (
+              <div key={`${stage.stage}-${index}`} className={styles.stageRow} role="row">
+                <strong role="cell">{stage.stage}</strong>
+                <span role="cell" className={styles.summaryStatus}>{stage.status}</span>
+                <span role="cell">{stage.description || '暂无说明'}</span>
+              </div>
+            )) : (
+              <div className={styles.stageEmpty}>暂无阶段运行记录。</div>
+            )}
+          </div>
+          <div className={styles.summaryBlock}>
+            <strong>最终总结</strong>
+            <p>{summary.final_summary || '暂无最终总结。'}</p>
+          </div>
+          <div className={styles.summaryBlock}>
+            <strong>验收点</strong>
+            {summary.acceptance_points.length ? (
+              <ul className={styles.acceptanceList}>
+                {summary.acceptance_points.map((point, index) => (
+                  <li key={`${point.point}-${index}`}>
+                    <span>{point.status}</span>
+                    <p>{point.point}{point.evidence ? ` · ${point.evidence}` : ''}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>暂无验收点。</p>
+            )}
+          </div>
+          {summary.risks_or_followups.length ? (
+            <div className={styles.summaryBlock}>
+              <strong>风险与后续</strong>
+              <ul className={styles.riskList}>
+                {summary.risks_or_followups.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function JsonBlock({ value }: { value: unknown }) {
   return <pre className={styles.drawerCode}>{JSON.stringify(value, null, 2)}</pre>
 }
@@ -308,19 +391,22 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
   const [animatedEventIds, setAnimatedEventIds] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedRun, setSelectedRun] = useState<NodeRunRecord | null>(null)
-  const [exporting, setExporting] = useState(false)
-  const [exportError, setExportError] = useState<string | null>(null)
+  const [logSummary, setLogSummary] = useState<LogSummaryResponse | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryGenerating, setSummaryGenerating] = useState(false)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
 
-  const handleExport = useCallback(async () => {
+  const handleGenerateSummary = useCallback(async () => {
     if (!detail) return
-    setExporting(true)
-    setExportError(null)
+    setSummaryGenerating(true)
+    setSummaryError(null)
     try {
-      await exportIterationLogs(detail.id)
+      const payload = await generateLogSummary(detail.id)
+      setLogSummary(payload)
     } catch (exc) {
-      setExportError(exc instanceof Error ? exc.message : '导出失败')
+      setSummaryError(exc instanceof Error ? exc.message : '生成失败')
     } finally {
-      setExporting(false)
+      setSummaryGenerating(false)
     }
   }, [detail])
   const nodes = stepKey ? new Set(nodesForStep(stepKey)) : null
@@ -349,11 +435,42 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
   const cliDisplayKey = visibleCliDisplays.map((event) => event.id).join('|')
   const groupKey = grouped.groups.map((group) => group.id).join('|')
   const pendingNode = detail?.current_node ?? 'agent'
+  const logSummaryEventKey = useMemo(
+    () => (detail?.events ?? [])
+      .filter((event) => event.type.startsWith('log_summary.'))
+      .map((event) => event.id)
+      .join('|'),
+    [detail?.events],
+  )
   const visibleRuns = useMemo(() => {
     const source = detail?.runs ?? []
     if (!nodes) return source
     return source.filter((run) => nodes.has(run.node))
   }, [detail?.runs, stepKey])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!detail) {
+      setLogSummary(null)
+      setSummaryError(null)
+      return
+    }
+    setSummaryLoading(true)
+    setSummaryError(null)
+    getLogSummary(detail.id)
+      .then((payload) => {
+        if (!cancelled) setLogSummary(payload)
+      })
+      .catch((exc) => {
+        if (!cancelled) setSummaryError(exc instanceof Error ? exc.message : '读取日志总结失败')
+      })
+      .finally(() => {
+        if (!cancelled) setSummaryLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [detail?.id, logSummaryEventKey])
 
   useEffect(() => {
     setExpanded(defaultExpandedRunIds(grouped.groups, reviewMode))
@@ -450,19 +567,8 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
         <h2 className="section-title">{stepKey ? '本阶段 CLI 日志' : '运行日志'}</h2>
         <div className={styles.headerActions}>
           {cliActive ? <RunningIndicator size="sm" mode="dot" label="实时输出" /> : null}
-          {detail ? (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={handleExport}
-              disabled={exporting}
-            >
-              {exporting ? '导出中...' : '导出日志'}
-            </button>
-          ) : null}
         </div>
       </div>
-      {exportError ? <div className="error-text">{exportError}</div> : null}
       {cliActive ? (
         <div className={styles.liveBanner}>
           <RunningIndicator mode="both" label={progress?.title ?? `${presentNodeName(pendingNode)} 正在运行…`} />
@@ -470,6 +576,15 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
         </div>
       ) : null}
       <p className={styles.permissionHint}>流水线模式：Agent 权限按 provider 自动配置，无需逐项确认。</p>
+      {detail ? (
+        <LogSummaryPanel
+          summary={logSummary}
+          loading={summaryLoading}
+          generating={summaryGenerating}
+          error={summaryError}
+          onGenerate={handleGenerateSummary}
+        />
+      ) : null}
       <RunTraceList detail={detail} runs={visibleRuns} onSelect={setSelectedRun} />
       <RawCliFold detail={detail} cliActive={cliActive} />
       {grouped.roundCount > 1 ? (

@@ -20,6 +20,7 @@ PROFILE_STAGES: tuple[CliStage, ...] = (
     "coder",
     "code_tester",
     "ui_tester",
+    "log_summarizer",
 )
 
 STAGE_LABELS: dict[str, str] = {
@@ -31,6 +32,7 @@ STAGE_LABELS: dict[str, str] = {
     "code_tester": "代码验证",
     "integrity_check": "测试完整性",
     "ui_tester": "UI 验证",
+    "log_summarizer": "日志总结",
     "planner_verify": "规格复核",
     "verify_approval": "交付确认",
     "done": "交付完成",
@@ -45,6 +47,7 @@ DEFAULT_SESSION_POLICY: dict[str, str] = {
     "code_tester": "new session; self-retry continue best-effort",
     "integrity_check": "system check",
     "ui_tester": "new session; self-retry continue best-effort",
+    "log_summarizer": "on-demand summary session",
     "planner_verify": "system review",
     "verify_approval": "human approval",
     "done": "archive",

@@ -18,6 +18,7 @@ import type {
   PickFolderResult,
   PromptBundlePayload,
   RunLogPage,
+  LogSummaryResponse,
   WorkerRefPayload,
   WorkflowSnapshot,
 } from './types'
@@ -297,27 +298,12 @@ export function getRunContextPackage(iterationId: string, runId: string): Promis
   return request(`/api/iterations/${encodeURIComponent(iterationId)}/runs/${encodeURIComponent(runId)}/context-package`)
 }
 
-export type IterationLogExportMode = 'summary' | 'full'
+export function getLogSummary(iterationId: string): Promise<LogSummaryResponse> {
+  return request(`/api/iterations/${encodeURIComponent(iterationId)}/log-summary`)
+}
 
-export async function exportIterationLogs(iterationId: string, mode: IterationLogExportMode = 'summary'): Promise<void> {
-  let response: Response
-  try {
-    response = await fetch(`${API_BASE}/api/iterations/${encodeURIComponent(iterationId)}/export-logs?mode=${mode}`)
-  } catch {
-    throw new Error('无法连接后端，请确认服务已启动。')
-  }
-  if (!response?.ok) {
-    throw new Error(await readableHttpError(response))
-  }
-  const blob = await response.blob()
-  const url = window.URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = mode === 'summary'
-    ? `iteration-${iterationId}-logs-summary.json`
-    : `iteration-${iterationId}-logs.json`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  window.URL.revokeObjectURL(url)
+export function generateLogSummary(iterationId: string): Promise<LogSummaryResponse> {
+  return request(`/api/iterations/${encodeURIComponent(iterationId)}/log-summary/generate`, {
+    method: 'POST',
+  })
 }

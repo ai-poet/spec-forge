@@ -7,14 +7,39 @@ Produce a single **prd** string (Markdown) for this iteration:
 - Technical stack: runtime, language/framework, package manager/build tooling, test runner, UI/native automation choices when relevant
 - Development conventions: source roots, test roots, naming/import style, state/data boundaries, error-handling/logging expectations, and any repo-specific commands Coder/Tester should follow
 - Architecture and component boundaries (no file-level implementation checklist)
+- Functional requirements, non-functional requirements, API/data contracts, observability, failure behavior, testing strategy, risks, and acceptance criteria concrete enough for Coder and Tester to implement and verify without guessing
+- Implementation-lock decisions that would be expensive to change later: source of truth/data store, async/background processing model, permission/security boundary, frontend/backend contract ownership, migration/compatibility strategy, external integrations, rollout/fallback requirements, and performance/reliability targets when relevant
+- Source-of-truth and change-control rules: what existing docs/code are canonical, what this PRD overrides for this iteration, and what must be reconciled after implementation
+- A concise component/status map for touched areas when the repo has multiple modules, agents, jobs, services, or UI surfaces: current state, target state, owner/boundary, dependencies, and explicit in-scope/deferred/out-of-scope calls
+- Boundary I/O contracts for each affected workflow, API, agent, background job, or persistent artifact: triggers, reads, mechanisms, writes, durable vs transient state, status vocabulary, and verification evidence
 
 The PRD must include these Markdown sections:
 
+- `## Problem, Goals, and Scope`
 - `## Technical Stack`
 - `## Development Conventions`
 - `## Architecture and Boundaries`
+- `## Functional Requirements`
+- `## Non-Functional Requirements`
+- `## API and Data Contracts`
+- `## Testing and Acceptance Strategy`
+- `## Risks and Locked Decisions`
+
+Treat these technical sections as a built-in technical specification layer inspired by marketplace technical-specification skills. Avoid vague words like "fast", "secure", or "scalable" unless you provide a measurable or verifiable target, boundary, or testable signal. Define ownership for contracts and data shapes instead of leaving them to Coder invention.
+
+Apply these design-contract disciplines:
+
+- Authoritative contract: the PRD is the authoritative pre-build contract for this iteration. If requirements, existing docs, code reality, and prior generated artifacts disagree, identify the precedence and the exact delta instead of blending them silently. Do not overturn discovery decisions; mark contradictions as risks or open questions.
+- Status discipline: when changing an existing system, name the canonical status source if one exists, distinguish current state from target state, and list any docs/status trackers that implementation should update or reconcile.
+- Component/status map: for multi-part work, include a compact table or bullets covering touched component/stage, current status, target status, owner or source root, dependencies, and whether it is in scope, deferred, or explicitly excluded.
+- Boundary I/O: for pipelines, agents, scheduled jobs, APIs, and data flows, describe each boundary with `Trigger`, `Reads`, `Mechanism`, `Writes`, `Persistence`, `Failure/Retry`, and `Verification`. Include provider/model tier or worker ownership when relevant.
+- Data-contract precision: define system-boundary inputs and outputs, IDs, status enums, request/response fields, document/event/log artifacts, validation rules, pagination/idempotency/concurrency expectations, and durable vs transient state. Typed contracts and tables take precedence over diagrams or narrative.
+- Delta/override discipline: when the task updates an existing spec or behavior, list the exact deltas to apply, the compatibility or migration effect, unchanged behavior, and the old assumptions that must no longer guide Coder or Tester.
+- Evidence discipline: acceptance points must name observable evidence: tests, UI states, API responses, database rows, emitted events, generated docs, raw logs, or telemetry signals.
 
 When both frontend and backend work are in scope, the PRD must require frontend/backend separation in `## Architecture and Boundaries`: keep UI and backend source boundaries independent, put backend code under `backend/**`, put frontend code under `frontend/**` by default or `web/**` when the repository already uses that root, communicate through explicit API contracts, avoid UI code depending on backend internals, avoid backend code depending on frontend implementation details, and document ownership for request/response models, validation, error handling, authentication, and integration tests.
+
+In `## Functional Requirements`, make each requirement traceable to the brief and state the expected behavior, user/system actor, state transition, and acceptance evidence. In `## Non-Functional Requirements`, cover reliability, performance, security/permissions, accessibility/UX, observability, compatibility, and maintainability only where relevant, with concrete targets or verification signals. In `## API and Data Contracts`, define schemas/contracts rather than prose-only intent. In `## Testing and Acceptance Strategy`, separate protected/automated checks from manual or UI acceptance. In `## Risks and Locked Decisions`, include open questions, explicit NOT-included items, deferrals, rollback/fallback expectations, and expensive decisions that must be locked before implementation.
 
 When stack choices are not explicitly decided and the repository does not contradict them, use these defaults in `## Technical Stack`:
 

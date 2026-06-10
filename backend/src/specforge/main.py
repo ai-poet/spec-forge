@@ -10,7 +10,7 @@ import asyncio
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 
 from specforge.agents.cli_commands import parse_cli_bindings, serialize_cli_bindings
 from specforge.agents.cli_runner import DryRunRunner, RealCLIRunner
@@ -36,7 +36,7 @@ from specforge.core.models import (
     ProjectProfileRequest,
     ProjectSummary,
     RetryRequest,
-    RunLogPage,
+    LogSummaryResponse,
     WorkflowSnapshot,
     ContextPackage,
     ManualSkipRequest,
@@ -646,23 +646,23 @@ def get_workflow_snapshot(iteration_id: str) -> WorkflowSnapshot:
         raise HTTPException(status_code=404, detail="iteration not found") from None
 
 
-@app.get("/api/iterations/{iteration_id}/export-logs")
-def export_iteration_logs(
-    iteration_id: str,
-    mode: str = Query(default="full", pattern="^(summary|full)$"),
-) -> StreamingResponse:
-    import json
+@app.get("/api/iterations/{iteration_id}/log-summary", response_model=LogSummaryResponse)
+def get_log_summary(iteration_id: str) -> LogSummaryResponse:
     try:
-        payload = pipeline.export_iteration_logs(iteration_id, mode=mode)
+        return LogSummaryResponse(**pipeline.log_summary(iteration_id))
     except KeyError:
         raise HTTPException(status_code=404, detail="iteration not found") from None
-    data = json.dumps(payload, ensure_ascii=False, indent=2)
-    filename = f"iteration-{iteration_id}-logs-summary.json" if mode == "summary" else f"iteration-{iteration_id}-logs.json"
-    return StreamingResponse(
-        iter([data]),
-        media_type="application/json",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
-    )
+
+
+@app.post("/api/iterations/{iteration_id}/log-summary/generate", response_model=LogSummaryResponse)
+def generate_log_summary(iteration_id: str) -> LogSummaryResponse:
+    try:
+        pipeline.log_summary(iteration_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="iteration not found") from None
+    pipeline._add_event(iteration_id, event_type="log_summary.queued", payload={})
+    job_queue.enqueue_log_summary(iteration_id)
+    return LogSummaryResponse(**pipeline.log_summary(iteration_id))
 
 
 @app.get("/api/iterations/{iteration_id}/runs/{run_id}/logs")

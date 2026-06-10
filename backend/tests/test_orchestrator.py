@@ -396,9 +396,15 @@ def test_iteration_workspace_under_project_root(tmp_path):
     assert str(workspace).startswith(str((Path(root_path) / ".specforge" / "iterations").resolve()))
     assert (docs_root / "prd.md").exists()
     prd_text = (docs_root / "prd.md").read_text(encoding="utf-8")
+    assert "## Problem, Goals, and Scope" in prd_text
     assert "## Technical Stack" in prd_text
     assert "## Development Conventions" in prd_text
     assert "## Architecture and Boundaries" in prd_text
+    assert "## Functional Requirements" in prd_text
+    assert "## Non-Functional Requirements" in prd_text
+    assert "## API and Data Contracts" in prd_text
+    assert "## Testing and Acceptance Strategy" in prd_text
+    assert "## Risks and Locked Decisions" in prd_text
     assert "React + Vite" in prd_text
     assert "frontend/**" in prd_text
     assert "web/**" in prd_text
@@ -424,6 +430,12 @@ def test_iteration_workspace_under_project_root(tmp_path):
     assert "Capacitor 7" in prd_text
     assert "frontend and backend separated" in prd_text
     assert "explicit API contracts" in prd_text
+    assert "authoritative pre-build contract" in prd_text
+    assert "Boundary I/O contract" in prd_text
+    assert "Workflow/status map" in prd_text
+    assert "Status values" in prd_text
+    assert "durable artifacts" in prd_text
+    assert "generated docs, run records, or logs" in prd_text
     assert (Path(root_path) / "docs" / "00_convention.md").exists()
     assert (docs_root / "context" / "for_coder.jsonl").exists()
     assert (docs_root / "context" / "for_tester.jsonl").exists()
@@ -596,11 +608,11 @@ def test_iteration_detail_uses_lean_run_metadata_and_logs_endpoint():
     assert "dry-run" in logs["stdout"]
 
 
-def test_export_logs_supports_summary_mode_and_keeps_full_default():
-    iteration_id = create_manual_iteration("export-logs", mode="dry-run")
+def test_log_summary_get_generate_and_export_logs_removed():
+    iteration_id = create_manual_iteration("log-summary", mode="dry-run")
     pipeline.db.add_run(
         iteration_id,
-        run_id="run_export",
+        run_id="run_summary",
         node="coder",
         status="failed",
         command="claude -p",
@@ -609,26 +621,31 @@ def test_export_logs_supports_summary_mode_and_keeps_full_default():
         exit_code=1,
     )
 
-    default_resp = client.get(f"/api/iterations/{iteration_id}/export-logs")
-    summary_resp = client.get(f"/api/iterations/{iteration_id}/export-logs?mode=summary")
-    full_resp = client.get(f"/api/iterations/{iteration_id}/export-logs?mode=full")
+    initial_resp = client.get(f"/api/iterations/{iteration_id}/log-summary")
+    assert initial_resp.status_code == 200
+    initial = initial_resp.json()
+    assert initial["generated"] is False
+    assert initial["stages"][0]["stage"] == "实现"
+    assert initial["stages"][0]["status"] == "失败"
 
-    assert default_resp.status_code == 200
-    assert default_resp.headers["content-disposition"].endswith(f"iteration-{iteration_id}-logs.json")
-    assert "summary" not in default_resp.json()
-    assert default_resp.json()["runs"][0]["logs"]["items"]
+    removed_resp = client.get(f"/api/iterations/{iteration_id}/export-logs")
+    assert removed_resp.status_code == 404
 
-    assert full_resp.status_code == 200
-    assert full_resp.headers["content-disposition"].endswith(f"iteration-{iteration_id}-logs.json")
-    assert full_resp.json()["runs"][0]["logs"]["items"]
+    queued_resp = client.post(f"/api/iterations/{iteration_id}/log-summary/generate")
+    assert queued_resp.status_code == 200
+    drain_jobs()
 
-    assert summary_resp.status_code == 200
-    assert summary_resp.headers["content-disposition"].endswith(f"iteration-{iteration_id}-logs-summary.json")
-    payload = summary_resp.json()
-    assert payload["mode"] == "summary"
-    assert payload["summary"]["failed_run_count"] == 1
-    assert "items" not in payload["runs"][0]["logs"]
-    assert payload["runs"][0]["logs"]["summary"]["diagnostics"]
+    generated_resp = client.get(f"/api/iterations/{iteration_id}/log-summary")
+    assert generated_resp.status_code == 200
+    generated = generated_resp.json()
+    assert generated["generated"] is True
+    assert generated["generating"] is False
+    assert generated["final_summary"]
+    assert any(point["point"] for point in generated["acceptance_points"]) or generated["stages"]
+
+    detail = client.get(f"/api/iterations/{iteration_id}").json()
+    assert any(doc["name"] == "log_summary" for doc in detail["documents"])
+    assert any(run["node"] == "log_summarizer" for run in detail["runs"])
 
 
 def test_iteration_detail_compacts_large_history_for_live_refresh():

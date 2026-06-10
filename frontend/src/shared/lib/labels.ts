@@ -32,6 +32,7 @@ export const nodeLabel: Record<NodeName, string> = {
   integrity_check: '测试完整性检查',
   code_tester: '代码验证',
   ui_tester: 'UI 验证',
+  log_summarizer: '日志总结',
   ui_driver: 'UI Driver',
   planner_clarification: '规划澄清',
   planner_verify: '规格复核',
@@ -104,6 +105,10 @@ export function eventLabel(value: string) {
     'ui_driver.failed': 'UI Driver 需复核',
     'planner_verify.accepted': '规格复核通过',
     'planner_verify.rejected': '规格复核驳回',
+    'log_summary.queued': '日志总结已排队',
+    'log_summary.started': '日志总结已开始',
+    'log_summary.completed': '日志总结已生成',
+    'log_summary.failed': '日志总结失败',
     'verify.approved': '验证结果已确认',
     'iteration.delivered': '流水线已交付',
     'iteration.stopped': '流水线已停止',
@@ -132,6 +137,7 @@ export function documentLabel(value: string) {
     requirements_brief: '需求摘要',
     ui_report: 'UI 验证报告',
     ui_results: 'UI 验证结果',
+    log_summary: '日志总结',
   }
   return labels[value] ?? value
 }

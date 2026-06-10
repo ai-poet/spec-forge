@@ -14,6 +14,7 @@ from ...context_profiles import context_metadata_for_stage
 from ...core.contracts import (
     CodeTesterArtifact,
     CoderArtifact,
+    LogSummaryArtifact,
     PlannerClarificationArtifact,
     PlannerDiscoveryArtifact,
     PrdPlannerArtifact,
@@ -475,6 +476,37 @@ class PipelinePromptsMixin:
                 previous_feedback=state.get("failure_notes") or "",
             )
         return ["specforge", "test_planner", iteration_id]
+
+
+    def _log_summarizer_command(self, state: PipelineState, *, summary_input: str) -> list[str] | AgentCommand:
+        iteration_id = state["iteration_id"]
+        if self._is_real_cli(state.get("mode")):
+            repo_root = self.project_repo_root(iteration_id)
+            prompt = compose_stage_prompt(
+                "log_summarizer",
+                repo_root=repo_root,
+                variables={
+                    "schema_hint": (
+                        "{stages:[{stage:string,status:string,description:string,run_ids:[string]}], "
+                        "final_summary:string, "
+                        "acceptance_points:[{point:string,status:string,evidence:string}], "
+                        "risks_or_followups:[string]}"
+                    ),
+                    "summary_input": summary_input,
+                    "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.log_summarizer.value),
+                    "runtime_notes": "",
+                },
+            )
+            provider = self._cli_provider(state, "log_summarizer")
+            return self._agent_command(
+                state,
+                provider=provider,
+                stage="log_summarizer",
+                prompt=prompt,
+                schema_inline=self._artifact_schema_inline(LogSummaryArtifact),
+                schema_file=self._artifact_schema_file(iteration_id, "log_summarizer_artifact", LogSummaryArtifact),
+            )
+        return ["specforge", "log_summarizer", iteration_id]
 
 
     @staticmethod

@@ -22,6 +22,7 @@ export type NodeName =
   | 'integrity_check'
   | 'code_tester'
   | 'ui_tester'
+  | 'log_summarizer'
   | 'ui_driver'
   | 'planner_clarification'
   | 'planner_verify'
@@ -74,6 +75,7 @@ export interface CliBindings {
   coder: CliBindingProvider
   code_tester: CliBindingProvider
   ui_tester: CliBindingProvider
+  log_summarizer: CliBindingProvider
 }
 
 export const DEFAULT_CLI_BINDINGS: CliBindings = {
@@ -84,6 +86,7 @@ export const DEFAULT_CLI_BINDINGS: CliBindings = {
   coder: 'claude',
   code_tester: 'claude',
   ui_tester: 'claude',
+  log_summarizer: 'claude',
 }
 
 export interface ProjectSummary {
@@ -213,6 +216,31 @@ export interface RunLogPage {
   has_more: boolean
   stdout?: string
   stderr?: string
+}
+
+export interface LogSummaryStage {
+  stage: string
+  status: string
+  description: string
+  run_ids: string[]
+}
+
+export interface LogSummaryAcceptancePoint {
+  point: string
+  status: string
+  evidence: string
+}
+
+export interface LogSummaryResponse {
+  generated: boolean
+  generating: boolean
+  generated_at?: string | null
+  updated_at?: string | null
+  error?: string | null
+  stages: LogSummaryStage[]
+  final_summary: string
+  acceptance_points: LogSummaryAcceptancePoint[]
+  risks_or_followups: string[]
 }
 
 export interface PromptBundlePayload {

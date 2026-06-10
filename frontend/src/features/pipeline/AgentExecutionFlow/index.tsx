@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { exportIterationLogs, getWorkflowSnapshot, type IterationLogExportMode } from '../../../shared/lib/api'
+import { getWorkflowSnapshot } from '../../../shared/lib/api'
 import type { IterationDetail, WorkflowSnapshot } from '../../../shared/lib/types'
 import { isStepLive, latestNodeProgress } from '../lib/pipelineLive'
 import { inferFocusStep, PIPELINE_STEPS, type PipelineStepKey } from '../lib/pipelineSteps'
@@ -46,8 +46,6 @@ export function AgentExecutionFlow({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<WorkflowSnapshot | null>(null)
-  const [exporting, setExporting] = useState<IterationLogExportMode | null>(null)
-  const [exportError, setExportError] = useState<string | null>(null)
 
   const runsKey = micro.runs.map((run) => run.id).join('|')
   useEffect(() => {
@@ -109,19 +107,6 @@ export function AgentExecutionFlow({
     setSelectedMilestoneId(defaultMilestone?.id ?? null)
   }
 
-  async function handleExportLogs(mode: IterationLogExportMode) {
-    if (!detail) return
-    setExporting(mode)
-    setExportError(null)
-    try {
-      await exportIterationLogs(detail.id, mode)
-    } catch (exc) {
-      setExportError(exc instanceof Error ? exc.message : '导出失败')
-    } finally {
-      setExporting(null)
-    }
-  }
-
   return (
     <section className="panel stack">
       <div className="section-row">
@@ -129,17 +114,8 @@ export function AgentExecutionFlow({
         <div className={styles.headerMeta}>
           {stepLive ? <RunningIndicator size="sm" mode="dot" label="执行中" /> : null}
           {selectedStepKey ? <span className="pill">{countLabel}</span> : null}
-          <div className={styles.exportActions}>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => handleExportLogs('summary')} disabled={!detail || Boolean(exporting)}>
-              {exporting === 'summary' ? '导出中...' : '导出精简日志'}
-            </button>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => handleExportLogs('full')} disabled={!detail || Boolean(exporting)}>
-              {exporting === 'full' ? '导出中...' : '完整 JSON'}
-            </button>
-          </div>
         </div>
       </div>
-      {exportError ? <div className="error-text">{exportError}</div> : null}
 
       {stepLive ? (
         <div className={styles.liveBanner}>

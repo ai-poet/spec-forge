@@ -11,7 +11,7 @@ from ..core.config import settings
 
 @dataclass(frozen=True)
 class PipelineJob:
-    kind: Literal["start", "resume", "resume_stopped", "manual_skip"]
+    kind: Literal["start", "resume", "resume_stopped", "manual_skip", "log_summary"]
     iteration_id: str
     checkpoint: Optional[str] = None
     node: Optional[str] = None
@@ -53,6 +53,9 @@ class PipelineJobQueue:
 
     def enqueue_manual_skip(self, iteration_id: str, node: str, note: Optional[str] = None) -> bool:
         return self._enqueue(PipelineJob(kind="manual_skip", iteration_id=iteration_id, node=node, note=note, enqueued_at=time.monotonic()))
+
+    def enqueue_log_summary(self, iteration_id: str) -> bool:
+        return self._enqueue(PipelineJob(kind="log_summary", iteration_id=iteration_id, enqueued_at=time.monotonic()))
 
     def join(self) -> None:
         self._queue.join()
@@ -134,9 +137,14 @@ class PipelineJobQueue:
                         self.pipeline.manual_skip(job.iteration_id, job.node, job.note)
                     except ValueError as exc:
                         self._record_stale(job, str(exc))
+                elif job.kind == "log_summary":
+                    self.pipeline.generate_log_summary(job.iteration_id)
             except Exception as exc:  # pragma: no cover - defensive guard for the worker
                 try:
-                    self.pipeline.fail_job(job.iteration_id, str(exc))
+                    if job.kind == "log_summary":
+                        self.pipeline.mark_log_summary_failed(job.iteration_id, str(exc))
+                    else:
+                        self.pipeline.fail_job(job.iteration_id, str(exc))
                 except Exception:
                     pass
             finally:
