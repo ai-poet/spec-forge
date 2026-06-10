@@ -989,6 +989,8 @@ class PipelineRuntimeMixin:
                     kwargs["idle_timeout_seconds"] = settings.cli_idle_timeout_seconds or None
                 if "capture_max_chars" in runner_params:
                     kwargs["capture_max_chars"] = settings.cli_result_max_chars
+                if agent_command and "stdin_text" in runner_params:
+                    kwargs["stdin_text"] = agent_command.stdin_text
                 result = runner.run(
                     command_list,
                     cwd=cwd,

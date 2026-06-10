@@ -43,6 +43,23 @@ def test_real_cli_runner_streams_stdout_and_stderr():
     assert any(stream == "stderr" and "visible stderr" in chunk for stream, chunk in chunks)
 
 
+def test_real_cli_runner_forwards_stdin_text():
+    runner = RealCLIRunner()
+
+    result = runner.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; data=sys.stdin.read(); print(len(data)); print(data[:7])",
+        ],
+        stdin_text="prompt from stdin",
+    )
+
+    assert result.returncode == 0
+    assert "17" in result.stdout
+    assert "prompt " in result.stdout
+
+
 def test_real_cli_runner_keeps_bounded_stdout_tail():
     runner = RealCLIRunner()
 

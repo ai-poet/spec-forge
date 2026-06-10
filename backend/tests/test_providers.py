@@ -24,9 +24,11 @@ def test_build_agent_command_wraps_prompt_bundle():
     assert command.command[0] == "claude"
     assert command.provider == "claude"
     assert command.stage == "coder"
+    assert command.stdin_text == "do the work"
+    assert "do the work" not in command.command
     assert command.prompt_bundle.metadata["stage"] == "coder"
     assert command.prompt_bundle.prompt_hash
-    assert command.public_command().endswith("[prompt omitted]")
+    assert command.public_command().endswith("< [prompt omitted]")
 
 
 def test_prompt_bundle_hash_is_stable_and_in_payload():

@@ -97,10 +97,12 @@ class SequenceRunner:
     def __init__(self, results: list[CLIResult]) -> None:
         self.results = list(results)
         self.commands: list[list[str]] = []
+        self.stdin_texts: list[str | None] = []
         self.cwd_history: list[Path | None] = []
 
-    def run(self, command, cwd=None, on_output=None, *, iteration_id=None):
+    def run(self, command, cwd=None, on_output=None, *, iteration_id=None, stdin_text=None):
         self.commands.append(command)
+        self.stdin_texts.append(stdin_text)
         self.cwd_history.append(cwd)
         result = self.results.pop(0)
         if on_output and result.stdout:
@@ -1055,11 +1057,12 @@ def test_coder_prompt_points_to_project_src_and_iteration_docs(tmp_path):
     )
     state = {"iteration_id": iteration_id, "mode": "real-cli", "project_id": project_id}
     command = pipeline._coder_command(state)
-    prompt = command[-1]
+    prompt = command.stdin_text or command.prompt_bundle.user_prompt
 
     assert "current working directory is the project root" in prompt
     assert "write zones" in prompt or "src/**" in prompt
     assert str(pipeline.docs_root(iteration_id)) in prompt
+    assert prompt not in command.command
 
 
 def test_tester_command_uses_project_cli_bindings(tmp_path):
@@ -1275,8 +1278,8 @@ def test_tester_review_fallback_succeeds_without_retry(monkeypatch):
     assert detail["status"] == "awaiting_verify_approval"
     assert detail["retry_counts"] == {}
     assert len(runner.commands) == 3
-    assert any("Do not invoke Playwright" in part for part in runner.commands[1])
-    assert any("Manual Tests" in part for part in runner.commands[2])
+    assert "Do not invoke Playwright" in (runner.stdin_texts[1] or "")
+    assert "Manual Tests" in (runner.stdin_texts[2] or "")
     event_types = [event["type"] for event in detail["events"]]
     assert "code_tester.review_fallback.started" in event_types
     ui_payload = client.get(f"/api/iterations/{iteration_id}/artifacts/ui_results.json").json()

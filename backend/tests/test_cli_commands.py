@@ -37,6 +37,7 @@ def test_build_cli_command_codex_vs_claude():
     assert claude_cmd[0] == "claude"
     assert "--include-hook-events" in claude_cmd
     assert "--json-schema" not in claude_cmd
+    assert prompt not in claude_cmd
 
 
 def test_build_cli_command_claude_session_id():

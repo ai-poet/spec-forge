@@ -141,6 +141,12 @@ function runDuration(run: NodeRunRecord) {
   return '未记录'
 }
 
+function shortRunId(runId: string) {
+  return runId.length > 12 ? `${runId.slice(0, 8)}...` : runId
+}
+
+type AttemptTab = 'details' | 'raw' | 'context' | 'prompt' | 'worker'
+
 function RunTraceList({
   detail,
   runs,
@@ -175,14 +181,19 @@ function LogSummaryPanel({
   generating,
   error,
   onGenerate,
+  runs,
+  onOpenRunLogs,
 }: {
   summary: LogSummaryResponse | null
   loading: boolean
   generating: boolean
   error: string | null
   onGenerate: () => void
+  runs: NodeRunRecord[]
+  onOpenRunLogs: (run: NodeRunRecord, tab?: AttemptTab) => void
 }) {
   const showGenerate = !summary?.generated
+  const runById = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs])
   return (
     <div className={styles.summaryPanel}>
       <div className="section-row">
@@ -209,13 +220,40 @@ function LogSummaryPanel({
               <span role="columnheader">状态</span>
               <span role="columnheader">说明</span>
             </div>
-            {summary.stages.length ? summary.stages.map((stage, index) => (
-              <div key={`${stage.stage}-${index}`} className={styles.stageRow} role="row">
-                <strong role="cell">{stage.stage}</strong>
-                <span role="cell" className={styles.summaryStatus}>{stage.status}</span>
-                <span role="cell">{stage.description || '暂无说明'}</span>
-              </div>
-            )) : (
+            {summary.stages.length ? summary.stages.map((stage, index) => {
+              const runIds = stage.run_ids ?? []
+              return (
+                <div key={`${stage.stage}-${index}`} className={styles.stageRow} role="row">
+                  <strong role="cell">{stage.stage}</strong>
+                  <span role="cell" className={styles.summaryStatus}>{stage.status}</span>
+                  <span role="cell" className={styles.stageDescription}>
+                    <span>{stage.description || '暂无说明'}</span>
+                    {runIds.length ? (
+                      <span className={styles.stageRunLinks} aria-label={`${stage.stage} 关联日志`}>
+                        {runIds.map((runId, runIndex) => {
+                          const run = runById.get(runId)
+                          return run ? (
+                            <button
+                              key={runId}
+                              type="button"
+                              className={styles.stageRunButton}
+                              onClick={() => onOpenRunLogs(run, 'raw')}
+                              title={`查看 ${presentNodeName(run.node)} ${run.id} 原始日志`}
+                            >
+                              查看日志{runIds.length > 1 ? ` ${runIndex + 1}` : ''}
+                            </button>
+                          ) : (
+                            <span key={runId} className={styles.stageRunMissing}>run {shortRunId(runId)} 不在当前详情中</span>
+                          )
+                        })}
+                      </span>
+                    ) : (
+                      <span className={styles.stageNoRun}>暂无关联 run 日志</span>
+                    )}
+                  </span>
+                </div>
+              )
+            }) : (
               <div className={styles.stageEmpty}>暂无阶段运行记录。</div>
             )}
           </div>
@@ -259,13 +297,15 @@ function JsonBlock({ value }: { value: unknown }) {
 function AttemptDrawer({
   detail,
   run,
+  initialTab = 'details',
   onClose,
 }: {
   detail: IterationDetail
   run: NodeRunRecord
+  initialTab?: AttemptTab
   onClose: () => void
 }) {
-  const [tab, setTab] = useState<'details' | 'raw' | 'context' | 'prompt' | 'worker'>('details')
+  const [tab, setTab] = useState<AttemptTab>(initialTab)
   const [logs, setLogs] = useState<RunLogPage | null>(null)
   const [contextPackage, setContextPackage] = useState<ContextPackagePayload | null>(null)
   const [prompt, setPrompt] = useState<PromptBundlePayload | null>(null)
@@ -274,13 +314,13 @@ function AttemptDrawer({
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setTab('details')
+    setTab(initialTab)
     setLogs(null)
     setContextPackage(null)
     setPrompt(null)
     setWorkerRef(null)
     setError(null)
-  }, [run.id])
+  }, [run.id, initialTab])
 
   useEffect(() => {
     let cancelled = false
@@ -391,6 +431,7 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
   const [animatedEventIds, setAnimatedEventIds] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedRun, setSelectedRun] = useState<NodeRunRecord | null>(null)
+  const [selectedInitialTab, setSelectedInitialTab] = useState<AttemptTab>('details')
   const [logSummary, setLogSummary] = useState<LogSummaryResponse | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [summaryGenerating, setSummaryGenerating] = useState(false)
@@ -447,6 +488,11 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
     if (!nodes) return source
     return source.filter((run) => nodes.has(run.node))
   }, [detail?.runs, stepKey])
+
+  const openRun = useCallback((run: NodeRunRecord, tab: AttemptTab = 'details') => {
+    setSelectedInitialTab(tab)
+    setSelectedRun(run)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -583,9 +629,11 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
           generating={summaryGenerating}
           error={summaryError}
           onGenerate={handleGenerateSummary}
+          runs={detail.runs}
+          onOpenRunLogs={openRun}
         />
       ) : null}
-      <RunTraceList detail={detail} runs={visibleRuns} onSelect={setSelectedRun} />
+      <RunTraceList detail={detail} runs={visibleRuns} onSelect={(run) => openRun(run)} />
       <RawCliFold detail={detail} cliActive={cliActive} />
       {grouped.roundCount > 1 ? (
         <div className={styles.runToggles}>
@@ -618,7 +666,14 @@ export function RunLogPanel({ detail, stepKey = null, reviewMode = false }: Prop
           </div>
         )}
       </div>
-      {detail && selectedRun ? <AttemptDrawer detail={detail} run={selectedRun} onClose={() => setSelectedRun(null)} /> : null}
+      {detail && selectedRun ? (
+        <AttemptDrawer
+          detail={detail}
+          run={selectedRun}
+          initialTab={selectedInitialTab}
+          onClose={() => setSelectedRun(null)}
+        />
+      ) : null}
     </section>
   )
 }

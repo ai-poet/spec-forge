@@ -75,6 +75,7 @@ class AgentCommand:
     provider: CliProvider
     stage: CliStage
     prompt_bundle: PromptBundle
+    stdin_text: str | None = None
     session_id: str | None = None
     session_mode: SessionMode = "new"
     continue_requested: bool = False
@@ -83,6 +84,8 @@ class AgentCommand:
     def public_command(self) -> str:
         if not self.command:
             return ""
+        if self.stdin_text is not None:
+            return f"{' '.join(self.command)} < [prompt omitted]"
         redacted = list(self.command)
         if redacted:
             redacted[-1] = "[prompt omitted]"
@@ -358,6 +361,7 @@ def build_agent_command(
         provider=provider,
         stage=stage,
         prompt_bundle=prompt_bundle,
+        stdin_text=prompt if provider == "claude" else None,
         session_id=session_id,
         session_mode="continue" if resume and session_id else "new",
         continue_requested=continue_requested,

@@ -80,7 +80,6 @@ def _claude_command(
             cmd.extend(["--resume", session_id])
         else:
             cmd.extend(["--session-id", session_id])
-    cmd.append(prompt)
     return cmd
 
 

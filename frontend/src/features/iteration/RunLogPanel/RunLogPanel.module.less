@@ -209,6 +209,41 @@
   font-size: 11px;
 }
 
+.stageDescription {
+  display: grid;
+  gap: 6px;
+}
+
+.stageRunLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stageRunButton {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid #263247;
+  border-radius: 6px;
+  background: #111a2a;
+  color: #edf2f8;
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1.25;
+  cursor: pointer;
+
+  &:hover {
+    border-color: rgba(117, 208, 179, 0.45);
+    background: #172236;
+  }
+}
+
+.stageRunMissing,
+.stageNoRun {
+  color: #7a8799;
+  font-size: 11px;
+}
+
 .summaryBlock {
   display: grid;
   gap: 6px;

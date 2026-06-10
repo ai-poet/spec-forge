@@ -102,10 +102,11 @@ class BaseRunner:
         timeout_seconds: Optional[int] = None,
         idle_timeout_seconds: Optional[int] = None,
         capture_max_chars: Optional[int] = _DEFAULT_CAPTURE_MAX_CHARS,
+        stdin_text: Optional[str] = None,
     ) -> CLIResult:
         started_at = _utcnow()
         try:
-            proc = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout_seconds)
+            proc = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout_seconds, input=stdin_text)
             finished_at = _utcnow()
             if on_output and proc.stdout:
                 on_output("stdout", proc.stdout)
@@ -128,6 +129,8 @@ class BaseRunner:
             )
         except FileNotFoundError as exc:
             return CLIResult(command=command, returncode=127, stdout="", stderr=str(exc), started_at=started_at, finished_at=_utcnow())
+        except OSError as exc:
+            return CLIResult(command=command, returncode=126, stdout="", stderr=str(exc), started_at=started_at, finished_at=_utcnow())
         except subprocess.TimeoutExpired as exc:
             stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout or b"").decode("utf-8", errors="replace")
             stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode("utf-8", errors="replace")
@@ -148,9 +151,12 @@ class DryRunRunner(BaseRunner):
         timeout_seconds: Optional[int] = None,
         idle_timeout_seconds: Optional[int] = None,
         capture_max_chars: Optional[int] = _DEFAULT_CAPTURE_MAX_CHARS,
+        stdin_text: Optional[str] = None,
     ) -> CLIResult:
         started_at = _utcnow()
         payload = {"command": command, "cwd": str(cwd) if cwd else None, "mode": "dry-run"}
+        if stdin_text is not None:
+            payload["stdin_bytes"] = len(stdin_text.encode("utf-8"))
         stdout = json.dumps(payload, indent=2)
         if on_output:
             on_output("stdout", stdout)
@@ -173,12 +179,14 @@ class RealCLIRunner(BaseRunner):
         timeout_seconds: Optional[int] = None,
         idle_timeout_seconds: Optional[int] = None,
         capture_max_chars: Optional[int] = _DEFAULT_CAPTURE_MAX_CHARS,
+        stdin_text: Optional[str] = None,
     ) -> CLIResult:
         started_at = _utcnow()
         try:
             proc = subprocess.Popen(
                 command,
                 cwd=cwd,
+                stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -186,6 +194,21 @@ class RealCLIRunner(BaseRunner):
             )
         except FileNotFoundError as exc:
             return CLIResult(command=command, returncode=127, stdout="", stderr=str(exc), started_at=started_at, finished_at=_utcnow())
+        except OSError as exc:
+            return CLIResult(command=command, returncode=126, stdout="", stderr=str(exc), started_at=started_at, finished_at=_utcnow())
+
+        stdin_thread: Thread | None = None
+        if stdin_text is not None:
+            def write_stdin() -> None:
+                try:
+                    if proc.stdin:
+                        proc.stdin.write(stdin_text)
+                        proc.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
+
+            stdin_thread = Thread(target=write_stdin, daemon=True)
+            stdin_thread.start()
 
         if iteration_id:
             with self._lock:
@@ -234,6 +257,8 @@ class RealCLIRunner(BaseRunner):
                 for thread in threads:
                     thread.join(timeout=0.01)
         finally:
+            if stdin_thread is not None:
+                stdin_thread.join(timeout=0.5)
             for thread in threads:
                 thread.join(timeout=0.1)
             if iteration_id:
