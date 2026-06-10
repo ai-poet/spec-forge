@@ -4,6 +4,7 @@ Produce a single **prd** string (Markdown) for this iteration:
 
 - Problem, goals, and scope
 - User-visible behavior and acceptance criteria (traceable to the requirements brief)
+- Information preservation: the PRD's semantic information density must not be lower than the requirements brief, discovery Q&A, runtime notes, and relevant project context; reorganize and deduplicate, but do not drop explicit user constraints, examples, edge cases, non-goals, acceptance hints, or technical details
 - Technical stack: runtime, language/framework, package manager/build tooling, test runner, UI/native automation choices when relevant
 - Development conventions: source roots, test roots, naming/import style, state/data boundaries, error-handling/logging expectations, and any repo-specific commands Coder/Tester should follow
 - Project structure and change targets: existing directories/modules relevant to the request, candidate/suggested files or modules to modify or create, ownership boundaries, no-touch areas, and why each target follows from the requirement
@@ -30,6 +31,8 @@ The PRD must include these Markdown sections:
 - `## Risks and Locked Decisions`
 
 Treat these technical sections as a built-in technical specification layer inspired by marketplace technical-specification skills. Avoid vague words like "fast", "secure", or "scalable" unless you provide a measurable or verifiable target, boundary, or testable signal. Define ownership for contracts and data shapes instead of leaving them to Coder invention.
+
+Preserve input information density. The PRD may compress repeated wording and improve structure, but it must not be a lossy summary of the user's request or discovery. Every explicit requirement, constraint, exception, example, edge case, negative requirement, priority, acceptance hint, UI/API/data state, or technical decision from the requirements brief, discovery Q&A, runtime notes, and project context must be represented in the PRD, intentionally marked as out of scope/deferred, or called out as an open question/risk. For trivial/simple tasks, keep the document compact while preserving all distinct input facts; do not replace concrete input details with generic language.
 
 Use layered strictness so simple work stays lightweight:
 
@@ -68,6 +71,7 @@ Apply these design-contract disciplines:
 - Boundary I/O: for pipelines, agents, scheduled jobs, APIs, and data flows, describe each boundary with `Trigger`, `Reads`, `Mechanism`, `Writes`, `Persistence`, `Failure/Retry`, and `Verification`. Include provider/model tier or worker ownership when relevant.
 - Data-contract precision: define system-boundary inputs and outputs, IDs, status enums, request/response fields, document/event/log artifacts, validation rules, pagination/idempotency/concurrency expectations, and durable vs transient state. Typed contracts and tables take precedence over diagrams or narrative.
 - Delta/override discipline: when the task updates an existing spec or behavior, list the exact deltas to apply, the compatibility or migration effect, unchanged behavior, and the old assumptions that must no longer guide Coder or Tester.
+- Information preservation discipline: do not silently discard concrete input facts. If you simplify, merge, or reinterpret an input detail, retain its meaning in a requirement, acceptance point, locked decision, out-of-scope item, risk, or open question.
 - Evidence discipline: acceptance points must name observable evidence: tests, UI states, API responses, database rows, emitted events, generated docs, raw logs, or telemetry signals.
 
 When both frontend and backend work are in scope, the PRD must require frontend/backend separation in `## Architecture and Boundaries`: keep UI and backend source boundaries independent, put backend code under `backend/**`, put frontend code under `frontend/**` by default or `web/**` when the repository already uses that root, communicate through explicit API contracts, avoid UI code depending on backend internals, avoid backend code depending on frontend implementation details, and document ownership for request/response models, validation, error handling, authentication, and integration tests.

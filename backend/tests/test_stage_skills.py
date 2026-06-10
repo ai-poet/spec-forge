@@ -76,6 +76,9 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "Build feature X" in text
     assert "Planner project context cache" in text
     assert "## Problem, Goals, and Scope" in text
+    assert "semantic information density must not be lower" in text
+    assert "must not be a lossy summary" in text
+    assert "do not replace concrete input details with generic language" in text
     assert "## Completion Contract" in text
     assert "`Objective`, `Done When`, and 1-3 acceptance points" in text
     assert "Use layered strictness" in text
@@ -130,6 +133,7 @@ def test_compose_prd_planner_includes_context_manifest_anchor() -> None:
     assert "`Trigger`, `Reads`, `Mechanism`, `Writes`, `Persistence`, `Failure/Retry`, and `Verification`" in text
     assert "system-boundary inputs and outputs" in text
     assert "Delta/override discipline" in text
+    assert "Information preservation discipline" in text
     assert "durable vs transient state" in text
     assert "explicit NOT-included items" in text
     assert "generated docs, raw logs, or telemetry signals" in text
