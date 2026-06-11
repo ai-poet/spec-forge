@@ -11,11 +11,12 @@ from ..core.config import settings
 
 @dataclass(frozen=True)
 class PipelineJob:
-    kind: Literal["start", "resume", "resume_stopped", "manual_skip", "log_summary"]
+    kind: Literal["start", "resume", "resume_stopped", "manual_skip", "log_summary", "artifact_comparison"]
     iteration_id: str
     checkpoint: Optional[str] = None
     node: Optional[str] = None
     note: Optional[str] = None
+    target_iteration_id: Optional[str] = None
     enqueued_at: float = 0.0
 
     @property
@@ -24,6 +25,8 @@ class PipelineJob:
             return (self.iteration_id, self.kind, self.checkpoint or "")
         if self.kind == "manual_skip":
             return (self.iteration_id, self.kind, self.node or "")
+        if self.kind == "artifact_comparison":
+            return (self.iteration_id, self.kind, self.target_iteration_id or "")
         return (self.iteration_id, self.kind, "")
 
 
@@ -57,6 +60,16 @@ class PipelineJobQueue:
     def enqueue_log_summary(self, iteration_id: str) -> bool:
         return self._enqueue(PipelineJob(kind="log_summary", iteration_id=iteration_id, enqueued_at=time.monotonic()))
 
+    def enqueue_artifact_comparison(self, iteration_id: str, target_iteration_id: str) -> bool:
+        return self._enqueue(
+            PipelineJob(
+                kind="artifact_comparison",
+                iteration_id=iteration_id,
+                target_iteration_id=target_iteration_id,
+                enqueued_at=time.monotonic(),
+            )
+        )
+
     def join(self) -> None:
         self._queue.join()
 
@@ -84,7 +97,12 @@ class PipelineJobQueue:
             self.pipeline._add_event(
                 job.iteration_id,
                 event_type="job.duplicate_ignored",
-                payload={"kind": job.kind, "checkpoint": job.checkpoint, "node": job.node},
+                payload={
+                    "kind": job.kind,
+                    "checkpoint": job.checkpoint,
+                    "node": job.node,
+                    "target_iteration_id": job.target_iteration_id,
+                },
             )
         except Exception:
             pass
@@ -94,7 +112,13 @@ class PipelineJobQueue:
             self.pipeline._add_event(
                 job.iteration_id,
                 event_type="job.stale_ignored",
-                payload={"kind": job.kind, "checkpoint": job.checkpoint, "node": job.node, "reason": reason},
+                payload={
+                    "kind": job.kind,
+                    "checkpoint": job.checkpoint,
+                    "node": job.node,
+                    "target_iteration_id": job.target_iteration_id,
+                    "reason": reason,
+                },
             )
         except Exception:
             pass
@@ -107,7 +131,11 @@ class PipelineJobQueue:
                     self.pipeline._add_event(
                         job.iteration_id,
                         event_type="job.started",
-                        payload={"kind": job.kind, "queue_wait_ms": int((time.monotonic() - job.enqueued_at) * 1000)},
+                        payload={
+                            "kind": job.kind,
+                            "target_iteration_id": job.target_iteration_id,
+                            "queue_wait_ms": int((time.monotonic() - job.enqueued_at) * 1000),
+                        },
                     )
                 if job.kind == "start":
                     if not self.pipeline.can_start_job(job.iteration_id):
@@ -139,10 +167,15 @@ class PipelineJobQueue:
                         self._record_stale(job, str(exc))
                 elif job.kind == "log_summary":
                     self.pipeline.generate_log_summary(job.iteration_id)
+                elif job.kind == "artifact_comparison":
+                    assert job.target_iteration_id is not None
+                    self.pipeline.generate_artifact_comparison(job.iteration_id, job.target_iteration_id)
             except Exception as exc:  # pragma: no cover - defensive guard for the worker
                 try:
                     if job.kind == "log_summary":
                         self.pipeline.mark_log_summary_failed(job.iteration_id, str(exc))
+                    elif job.kind == "artifact_comparison" and job.target_iteration_id:
+                        self.pipeline.mark_artifact_comparison_failed(job.iteration_id, job.target_iteration_id, str(exc))
                     else:
                         self.pipeline.fail_job(job.iteration_id, str(exc))
                 except Exception:

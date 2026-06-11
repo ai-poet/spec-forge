@@ -16,6 +16,7 @@ import type {
   ValidateProjectPathResult,
   BrowseDirectoryResult,
   PickFolderResult,
+  ArtifactComparisonResponse,
   PromptBundlePayload,
   RunLogPage,
   LogSummaryResponse,
@@ -305,5 +306,16 @@ export function getLogSummary(iterationId: string): Promise<LogSummaryResponse> 
 export function generateLogSummary(iterationId: string): Promise<LogSummaryResponse> {
   return request(`/api/iterations/${encodeURIComponent(iterationId)}/log-summary/generate`, {
     method: 'POST',
+  })
+}
+
+export function getArtifactComparison(iterationId: string, targetIterationId: string): Promise<ArtifactComparisonResponse> {
+  return request(`/api/iterations/${encodeURIComponent(iterationId)}/artifact-comparison?target_id=${encodeURIComponent(targetIterationId)}`)
+}
+
+export function generateArtifactComparison(iterationId: string, targetIterationId: string): Promise<ArtifactComparisonResponse> {
+  return request(`/api/iterations/${encodeURIComponent(iterationId)}/artifact-comparison/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ target_iteration_id: targetIterationId }),
   })
 }

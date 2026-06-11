@@ -194,6 +194,27 @@ def test_compose_coder_includes_manifest_and_docs_root() -> None:
     assert "Artifact summary expectations" in text
 
 
+def test_compose_artifact_comparator_prompt() -> None:
+    text = compose_stage_prompt(
+        "artifact_comparator",
+        variables={
+            "schema_hint": "{overall_summary:string}",
+            "iteration_id": "iter_current",
+            "target_iteration_id": "iter_target",
+            "comparison_input": '{"current":{},"target":{}}',
+            "artifact_retry": "",
+            "runtime_notes": "",
+        },
+    )
+    assert "## SpecForge stage: artifact_comparator" in text
+    assert "Artifact Comparator" in text
+    assert "current iteration" in text
+    assert "Target iteration id: iter_target" in text
+    assert '{"current":{},"target":{}}' in text
+    assert "verdict" in text
+    assert "stability_assessment" in text
+
+
 def test_project_extra_appended_when_present(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     extra_dir = repo / ".specforge" / "skills" / "coder"

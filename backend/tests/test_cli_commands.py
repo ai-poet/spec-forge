@@ -10,6 +10,7 @@ from specforge.agents.cli_commands import (
 def test_resolve_cli_provider_defaults():
     assert resolve_cli_provider(None, "prd_planner") == DEFAULT_CLI_BINDINGS["prd_planner"]
     assert resolve_cli_provider(None, "code_tester") == "claude"
+    assert resolve_cli_provider(None, "artifact_comparator") == "claude"
 
 
 def test_resolve_cli_provider_override():

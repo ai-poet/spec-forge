@@ -14,6 +14,7 @@ CliStage = Literal[
     "code_tester",
     "ui_tester",
     "log_summarizer",
+    "artifact_comparator",
 ]
 
 DEFAULT_CLI_BINDINGS: dict[CliStage, CliProvider] = {
@@ -25,6 +26,7 @@ DEFAULT_CLI_BINDINGS: dict[CliStage, CliProvider] = {
     "code_tester": "claude",
     "ui_tester": "claude",
     "log_summarizer": "claude",
+    "artifact_comparator": "claude",
 }
 
 

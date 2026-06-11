@@ -54,6 +54,39 @@ class LogSummaryArtifact(BaseModel):
     risks_or_followups: list[str] = Field(default_factory=list)
 
 
+class ArtifactComparisonDimensionArtifact(BaseModel):
+    dimension: str = Field(min_length=1)
+    current: str = ""
+    target: str = ""
+    assessment: str = ""
+    evidence: str = ""
+
+
+class ArtifactComparisonFindingArtifact(BaseModel):
+    artifact: str = Field(min_length=1)
+    status: str = Field(min_length=1)
+    summary: str = ""
+    evidence: str = ""
+
+
+class ArtifactComparisonAcceptanceArtifact(BaseModel):
+    point: str = Field(min_length=1)
+    current_status: str = ""
+    target_status: str = ""
+    assessment: str = ""
+    evidence: str = ""
+
+
+class ArtifactComparisonArtifact(BaseModel):
+    overall_summary: str = ""
+    verdict: Literal["current_better", "target_better", "mixed", "equivalent", "inconclusive"] = "inconclusive"
+    stability_assessment: str = ""
+    dimensions: list[ArtifactComparisonDimensionArtifact] = Field(default_factory=list)
+    artifact_findings: list[ArtifactComparisonFindingArtifact] = Field(default_factory=list)
+    acceptance_comparison: list[ArtifactComparisonAcceptanceArtifact] = Field(default_factory=list)
+    risks_or_followups: list[str] = Field(default_factory=list)
+
+
 class PlannerDiscoveryArtifact(BaseModel):
     status: Literal["ask", "ready"]
     complexity: Literal["trivial", "simple", "moderate", "complex"] = "moderate"

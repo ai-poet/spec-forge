@@ -14,6 +14,7 @@ StageName = Literal[
     "code_tester",
     "ui_tester",
     "log_summarizer",
+    "artifact_comparator",
 ]
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[3] / "prompts"

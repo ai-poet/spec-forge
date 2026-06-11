@@ -21,6 +21,7 @@ import { StageFocusPanel } from '../features/pipeline/StageFocusPanel'
 import type { PipelineStepKey } from '../features/pipeline/lib/pipelineSteps'
 import { useIterationLive } from '../features/iteration/hooks/useIterationLive'
 import { TaskLogSummaryPanel } from '../features/iteration/RunLogPanel'
+import { TaskArtifactComparePanel } from '../features/iteration/ArtifactComparePanel'
 import { useProjects } from '../features/projects/hooks/useProjects'
 import { ContextHeader } from '../features/workspace/ContextHeader'
 import { WorkspaceShell } from '../features/workspace/WorkspaceShell'
@@ -28,7 +29,7 @@ import type { CreateProjectInput, IterationSummary, UpdateProjectInput } from '.
 
 const SELECTED_ITERATION_KEY = 'specforge:selected-iteration'
 
-type WorkspaceTaskView = 'stage' | 'log_summary'
+type WorkspaceTaskView = 'stage' | 'log_summary' | 'artifact_compare'
 
 function buildIterationGoal(title: string, description: string, acceptanceCriteria: string) {
   return [description, acceptanceCriteria ? `验收标准:\n${acceptanceCriteria}` : ''].filter(Boolean).join('\n\n') || title
@@ -400,6 +401,18 @@ export function DashboardPage() {
                 >
                   日志总结
                 </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={taskView === 'artifact_compare'}
+                  className={`task-view-tab ${taskView === 'artifact_compare' ? 'task-view-tab-active' : ''}`}
+                  onClick={() => {
+                    setReviewStepKey(null)
+                    setTaskView('artifact_compare')
+                  }}
+                >
+                  产物对比
+                </button>
               </div>
             ) : null}
 
@@ -423,6 +436,15 @@ export function DashboardPage() {
                         <p className="muted">全局汇总本任务所有阶段、run、事件、文档与验收点；可从阶段行进入对应 run 原始日志。</p>
                       </div>
                       <TaskLogSummaryPanel detail={live.detail} />
+                    </div>
+                  ) : taskView === 'artifact_compare' ? (
+                    <div className="task-log-summary-view">
+                      <div className="task-log-summary-header">
+                        <p className="eyebrow">任务级产物</p>
+                        <h2 className="section-title">产物对比</h2>
+                        <p className="muted">选择同项目另一条任务，对比产物、运行状态、验收信号和 AI 稳定性分析。</p>
+                      </div>
+                      <TaskArtifactComparePanel currentDetail={live.detail} iterations={iterations} />
                     </div>
                   ) : (
                     <StageFocusPanel

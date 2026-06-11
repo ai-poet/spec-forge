@@ -28,6 +28,7 @@ class CliBindings(BaseModel):
     code_tester: CliProviderName = CliProviderName.claude
     ui_tester: CliProviderName = CliProviderName.claude
     log_summarizer: CliProviderName = CliProviderName.claude
+    artifact_comparator: CliProviderName = CliProviderName.claude
 
 
 class IterationStatus(str, Enum):
@@ -56,6 +57,7 @@ class NodeName(str, Enum):
     code_tester = "code_tester"
     ui_tester = "ui_tester"
     log_summarizer = "log_summarizer"
+    artifact_comparator = "artifact_comparator"
     planner_clarification = "planner_clarification"
     planner_verify = "planner_verify"
 
@@ -278,6 +280,50 @@ class LogSummaryResponse(BaseModel):
     stages: list[LogSummaryStage] = Field(default_factory=list)
     final_summary: str = ""
     acceptance_points: list[LogSummaryAcceptancePoint] = Field(default_factory=list)
+    risks_or_followups: list[str] = Field(default_factory=list)
+
+
+class ArtifactComparisonGenerateRequest(BaseModel):
+    target_iteration_id: str = Field(min_length=1)
+
+
+class ArtifactComparisonDimension(BaseModel):
+    dimension: str
+    current: str = ""
+    target: str = ""
+    assessment: str = ""
+    evidence: str = ""
+
+
+class ArtifactComparisonFinding(BaseModel):
+    artifact: str
+    status: str
+    summary: str = ""
+    evidence: str = ""
+
+
+class ArtifactComparisonAcceptancePoint(BaseModel):
+    point: str
+    current_status: str = ""
+    target_status: str = ""
+    assessment: str = ""
+    evidence: str = ""
+
+
+class ArtifactComparisonResponse(BaseModel):
+    generated: bool = False
+    generating: bool = False
+    generated_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    error: Optional[str] = None
+    current_iteration_id: str
+    target_iteration_id: str
+    overall_summary: str = ""
+    verdict: str = "inconclusive"
+    stability_assessment: str = ""
+    dimensions: list[ArtifactComparisonDimension] = Field(default_factory=list)
+    artifact_findings: list[ArtifactComparisonFinding] = Field(default_factory=list)
+    acceptance_comparison: list[ArtifactComparisonAcceptancePoint] = Field(default_factory=list)
     risks_or_followups: list[str] = Field(default_factory=list)
 
 

@@ -11,7 +11,7 @@ from ...agents.cli_event_presenter import CliDisplayEvent
 from ...agents.cli_runner import CLIResult
 from ...agents.providers import AgentCommand, worker_ref_from_result
 from ...core.config import settings
-from ...core.contracts import LogSummaryArtifact, parse_json_artifact
+from ...core.contracts import ArtifactComparisonArtifact, LogSummaryArtifact, parse_json_artifact
 from ...core.models import IterationStatus, Mode
 from ...context_profiles import STAGE_LABELS, context_package_for_run, workflow_snapshot
 from ...documents.docs_io import checksum
@@ -36,6 +36,16 @@ class PipelineRuntimeMixin:
     _LOG_SUMMARY_TAIL_LIMIT = 8
     _LOG_SUMMARY_DOCUMENT_PREVIEW_MAX_CHARS = 1800
     _LOG_SUMMARY_DIAGNOSTIC_TERMS = ("error", "failed", "exception", "traceback", "timeout", "cancelled")
+    _ARTIFACT_COMPARISON_DOCUMENTS = (
+        "log_summary",
+        "verify_report",
+        "delivery_advice",
+        "ui_report",
+        "ui_results",
+        "prd",
+        "testing_plan",
+        "requirements_brief",
+    )
     _PERSISTED_CLI_PHASES = {"session", "tool", "command", "file_change", "mcp", "todo", "hook", "retry", "result", "error"}
     _PREVIEW_CLI_PHASES = {"text", "thinking"}
 
@@ -733,6 +743,508 @@ class PipelineRuntimeMixin:
             return True
         text = str(item.get("text", "")).lower()
         return any(term in text for term in self._LOG_SUMMARY_DIAGNOSTIC_TERMS)
+
+
+    def artifact_comparison(self, iteration_id: str, target_iteration_id: str) -> dict[str, Any]:
+        self._validate_artifact_comparison_pair(iteration_id, target_iteration_id)
+        path = self._artifact_comparison_path(iteration_id, target_iteration_id)
+        generating = self._artifact_comparison_is_generating(iteration_id, target_iteration_id)
+        if path.is_file():
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                payload = {}
+            return {
+                **self._basic_artifact_comparison(iteration_id, target_iteration_id),
+                **payload,
+                "generated": True,
+                "generating": generating,
+            }
+        return {
+            **self._basic_artifact_comparison(iteration_id, target_iteration_id),
+            "generated": False,
+            "generating": generating,
+        }
+
+
+    def generate_artifact_comparison(self, iteration_id: str, target_iteration_id: str) -> dict[str, Any]:
+        current, _target = self._validate_artifact_comparison_pair(iteration_id, target_iteration_id)
+        state: PipelineState = {
+            "iteration_id": iteration_id,
+            "project_id": current["project_id"],
+            "project_name": current["project_name"],
+            "goal": current["goal"],
+            "mode": current["mode"],
+            "status": current["status"],
+            "current_node": current["current_node"],
+            "route": "",
+        }
+        comparison_input = json.dumps(self._artifact_comparison_input(iteration_id, target_iteration_id), ensure_ascii=False, indent=2)
+        self._reset_live_cli(iteration_id, "artifact_comparator")
+        self._node_event(
+            iteration_id,
+            "node.started",
+            "artifact_comparator",
+            "产物对比分析已启动",
+            f"Artifact Comparator 正在对比当前任务与 {target_iteration_id}。",
+        )
+        self._add_event(iteration_id, event_type="artifact_comparison.started", payload={"target_iteration_id": target_iteration_id})
+        run_result = self._execute(
+            state,
+            self._artifact_comparator_command(
+                state,
+                comparison_input=comparison_input,
+                target_iteration_id=target_iteration_id,
+            ),
+            node="artifact_comparator",
+        )
+        run_id = self._record_run(iteration_id, "artifact_comparator", run_result)
+        if run_result.returncode:
+            reason = self._format_cli_failure(run_result)
+            self.mark_artifact_comparison_failed(iteration_id, target_iteration_id, reason, run_id=run_id)
+            return self.artifact_comparison(iteration_id, target_iteration_id)
+        try:
+            if self._is_real_cli(current["mode"]):
+                artifact = parse_json_artifact(run_result.stdout or run_result.stderr, ArtifactComparisonArtifact)
+            else:
+                artifact = ArtifactComparisonArtifact.model_validate(
+                    self._basic_artifact_comparison_artifact(iteration_id, target_iteration_id)
+                )
+        except Exception as exc:
+            self.mark_artifact_comparison_failed(iteration_id, target_iteration_id, str(exc), run_id=run_id)
+            return self.artifact_comparison(iteration_id, target_iteration_id)
+
+        payload = self._artifact_comparison_payload(
+            artifact,
+            iteration_id=iteration_id,
+            target_iteration_id=target_iteration_id,
+            generated_at=iso(utcnow()),
+        )
+        path = self._artifact_comparison_path(iteration_id, target_iteration_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._record_document(iteration_id, self._artifact_comparison_document_name(target_iteration_id), path)
+        self._add_event(
+            iteration_id,
+            event_type="artifact_comparison.completed",
+            payload={"target_iteration_id": target_iteration_id, "run_id": run_id},
+        )
+        self._node_event(
+            iteration_id,
+            "artifact.created",
+            "artifact_comparator",
+            "产物对比分析已生成",
+            "artifact_comparisons 对比产物已写入 iteration 文档目录。",
+            severity="success",
+            document=self._artifact_comparison_document_name(target_iteration_id),
+            run_id=run_id,
+        )
+        self._node_event(
+            iteration_id,
+            "node.completed",
+            "artifact_comparator",
+            "产物对比分析完成",
+            "当前任务与目标任务的产物、验收和稳定性已整理完成。",
+            severity="success",
+            run_id=run_id,
+        )
+        self._publish_snapshot(iteration_id)
+        return self.artifact_comparison(iteration_id, target_iteration_id)
+
+
+    def mark_artifact_comparison_failed(
+        self,
+        iteration_id: str,
+        target_iteration_id: str,
+        reason: str,
+        *,
+        run_id: Optional[str] = None,
+    ) -> None:
+        payload = {"target_iteration_id": target_iteration_id, "reason": reason, "run_id": run_id}
+        self._add_event(iteration_id, event_type="artifact_comparison.failed", payload=payload)
+        self._node_event(
+            iteration_id,
+            "node.failed",
+            "artifact_comparator",
+            "产物对比分析失败",
+            reason,
+            severity="error",
+            run_id=run_id,
+            action_hint="查看 Artifact Comparator 原始输出后重试生成产物对比分析。",
+        )
+        self._publish_snapshot(iteration_id)
+
+
+    def _validate_artifact_comparison_pair(self, iteration_id: str, target_iteration_id: str):
+        current = self._require_iteration(iteration_id)
+        target = self._require_iteration(target_iteration_id)
+        if iteration_id == target_iteration_id:
+            raise ValueError("cannot compare an iteration with itself")
+        if not current["project_id"] or current["project_id"] != target["project_id"]:
+            raise ValueError("target iteration must belong to the same project")
+        return current, target
+
+
+    def _artifact_comparison_document_name(self, target_iteration_id: str) -> str:
+        return f"artifact_comparison:{target_iteration_id}"
+
+
+    def _artifact_comparison_path(self, iteration_id: str, target_iteration_id: str) -> Path:
+        safe_target = "".join(char if char.isalnum() or char in "._-" else "_" for char in target_iteration_id)
+        return self.docs_root(iteration_id) / "artifact_comparisons" / f"{safe_target}.json"
+
+
+    def _artifact_comparison_is_generating(self, iteration_id: str, target_iteration_id: str) -> bool:
+        state = "idle"
+        for event in self.db.list_events(iteration_id):
+            if event["type"] not in {
+                "artifact_comparison.queued",
+                "artifact_comparison.started",
+                "artifact_comparison.completed",
+                "artifact_comparison.failed",
+            }:
+                continue
+            try:
+                payload = json.loads(event["payload"])
+            except json.JSONDecodeError:
+                payload = {}
+            if payload.get("target_iteration_id") != target_iteration_id:
+                continue
+            if event["type"] in {"artifact_comparison.queued", "artifact_comparison.started"}:
+                state = "generating"
+            else:
+                state = "idle"
+        return state == "generating"
+
+
+    def _artifact_comparison_payload(
+        self,
+        artifact: ArtifactComparisonArtifact,
+        *,
+        iteration_id: str,
+        target_iteration_id: str,
+        generated_at: str,
+    ) -> dict[str, Any]:
+        return {
+            "generated": True,
+            "generated_at": generated_at,
+            "updated_at": generated_at,
+            "error": None,
+            "current_iteration_id": iteration_id,
+            "target_iteration_id": target_iteration_id,
+            "overall_summary": artifact.overall_summary,
+            "verdict": artifact.verdict,
+            "stability_assessment": artifact.stability_assessment,
+            "dimensions": [item.model_dump() for item in artifact.dimensions],
+            "artifact_findings": [item.model_dump() for item in artifact.artifact_findings],
+            "acceptance_comparison": [item.model_dump() for item in artifact.acceptance_comparison],
+            "risks_or_followups": list(artifact.risks_or_followups),
+        }
+
+
+    def _basic_artifact_comparison(self, iteration_id: str, target_iteration_id: str) -> dict[str, Any]:
+        artifact = self._basic_artifact_comparison_artifact(iteration_id, target_iteration_id)
+        return {
+            "generated": False,
+            "generated_at": None,
+            "updated_at": None,
+            "error": self._latest_artifact_comparison_error(iteration_id, target_iteration_id),
+            "current_iteration_id": iteration_id,
+            "target_iteration_id": target_iteration_id,
+            **artifact,
+        }
+
+
+    def _basic_artifact_comparison_artifact(self, iteration_id: str, target_iteration_id: str) -> dict[str, Any]:
+        current = self._artifact_comparison_metrics(iteration_id)
+        target = self._artifact_comparison_metrics(target_iteration_id)
+        dimensions = self._basic_artifact_dimensions(current, target)
+        findings = self._basic_artifact_findings(iteration_id, target_iteration_id)
+        acceptance = self._basic_artifact_acceptance_comparison(iteration_id, target_iteration_id)
+        verdict = self._basic_artifact_verdict(current, target)
+        risks = []
+        if current["last_error"]:
+            risks.append(f"当前任务错误: {current['last_error']}")
+        if target["last_error"]:
+            risks.append(f"对比任务错误: {target['last_error']}")
+        if current["failed_runs"] or target["failed_runs"]:
+            risks.append(f"失败 run 对比: 当前 {current['failed_runs']}，目标 {target['failed_runs']}。")
+        return {
+            "overall_summary": (
+                f"基础对比已生成：当前任务状态 {current['status']}，目标任务状态 {target['status']}；"
+                f"当前失败 run {current['failed_runs']} 个，目标失败 run {target['failed_runs']} 个。"
+            ),
+            "verdict": verdict,
+            "stability_assessment": (
+                f"当前任务主流程 run {current['main_runs']} 次、失败 {current['failed_runs']} 次；"
+                f"目标任务主流程 run {target['main_runs']} 次、失败 {target['failed_runs']} 次。"
+                "这是基于结构化记录的基础稳定性判断，生成 AI 分析后会给出更完整解释。"
+            ),
+            "dimensions": dimensions,
+            "artifact_findings": findings,
+            "acceptance_comparison": acceptance,
+            "risks_or_followups": risks,
+        }
+
+
+    def _artifact_comparison_metrics(self, iteration_id: str) -> dict[str, Any]:
+        row = self._require_iteration(iteration_id)
+        runs = [
+            run
+            for run in self.db.list_runs(iteration_id)
+            if run["node"] not in {"log_summarizer", "artifact_comparator"}
+        ]
+        failed_runs = [run for run in runs if run["status"] != "success"]
+        documents = self.db.list_documents(iteration_id)
+        document_names = sorted({doc["name"] for doc in documents})
+        ui_results = [result.model_dump() for result in self._ui_results(iteration_id)]
+        ui_counts: dict[str, int] = {}
+        for result in ui_results:
+            status = str(result.get("status") or "unknown")
+            ui_counts[status] = ui_counts.get(status, 0) + 1
+        return {
+            "id": iteration_id,
+            "goal": row["goal"],
+            "status": row["status"],
+            "current_node": row["current_node"],
+            "last_error": row["last_error"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "main_runs": len(runs),
+            "failed_runs": len(failed_runs),
+            "document_count": len(document_names),
+            "document_names": document_names,
+            "important_document_count": len([name for name in document_names if name in self._ARTIFACT_COMPARISON_DOCUMENTS]),
+            "ui_results_count": len(ui_results),
+            "ui_counts": ui_counts,
+        }
+
+
+    def _basic_artifact_dimensions(self, current: dict[str, Any], target: dict[str, Any]) -> list[dict[str, str]]:
+        return [
+            {
+                "dimension": "任务状态",
+                "current": str(current["status"]),
+                "target": str(target["status"]),
+                "assessment": self._status_assessment(str(current["status"]), str(target["status"])),
+                "evidence": f"current={current['id']} updated_at={current['updated_at']}; target={target['id']} updated_at={target['updated_at']}",
+            },
+            {
+                "dimension": "运行稳定性",
+                "current": f"{current['main_runs']} runs / {current['failed_runs']} failed",
+                "target": f"{target['main_runs']} runs / {target['failed_runs']} failed",
+                "assessment": self._run_stability_assessment(current, target),
+                "evidence": "仅统计主流程 run，排除日志总结和产物对比分析。",
+            },
+            {
+                "dimension": "产物完整度",
+                "current": f"{current['important_document_count']} key artifacts / {current['document_count']} total",
+                "target": f"{target['important_document_count']} key artifacts / {target['document_count']} total",
+                "assessment": "关键产物数量相同。" if current["important_document_count"] == target["important_document_count"] else "关键产物数量存在差异。",
+                "evidence": f"current={self._document_names_text(current['document_names'])}; target={self._document_names_text(target['document_names'])}",
+            },
+            {
+                "dimension": "UI 验证",
+                "current": self._ui_counts_text(current["ui_counts"]),
+                "target": self._ui_counts_text(target["ui_counts"]),
+                "assessment": "UI 验证结果数量相同。" if current["ui_results_count"] == target["ui_results_count"] else "UI 验证结果数量存在差异。",
+                "evidence": f"current total={current['ui_results_count']}; target total={target['ui_results_count']}",
+            },
+        ]
+
+
+    def _basic_artifact_findings(self, iteration_id: str, target_iteration_id: str) -> list[dict[str, str]]:
+        current_docs = {doc["name"]: doc for doc in self.db.list_documents(iteration_id)}
+        target_docs = {doc["name"]: doc for doc in self.db.list_documents(target_iteration_id)}
+        findings: list[dict[str, str]] = []
+        for name in self._ARTIFACT_COMPARISON_DOCUMENTS:
+            current = current_docs.get(name)
+            target = target_docs.get(name)
+            if current and target:
+                same = current["checksum"] == target["checksum"]
+                status = "same" if same else "different"
+                summary = "两侧均存在且 checksum 一致。" if same else "两侧均存在但 checksum 不同。"
+                evidence = f"current checksum={current['checksum']} updated_at={current['updated_at']}; target checksum={target['checksum']} updated_at={target['updated_at']}"
+            elif current:
+                status = "current_only"
+                summary = "仅当前任务存在该产物。"
+                evidence = f"current checksum={current['checksum']} updated_at={current['updated_at']}"
+            elif target:
+                status = "target_only"
+                summary = "仅对比任务存在该产物。"
+                evidence = f"target checksum={target['checksum']} updated_at={target['updated_at']}"
+            else:
+                status = "missing_both"
+                summary = "两侧均未生成该产物。"
+                evidence = ""
+            findings.append({"artifact": name, "status": status, "summary": summary, "evidence": evidence})
+        return findings
+
+
+    def _basic_artifact_acceptance_comparison(self, iteration_id: str, target_iteration_id: str) -> list[dict[str, str]]:
+        current_points = {point["point"]: point for point in self._basic_acceptance_points(iteration_id)}
+        target_points = {point["point"]: point for point in self._basic_acceptance_points(target_iteration_id)}
+        points = sorted(set(current_points) | set(target_points))
+        comparison: list[dict[str, str]] = []
+        for point in points:
+            current = current_points.get(point)
+            target = target_points.get(point)
+            current_status = current["status"] if current else "missing"
+            target_status = target["status"] if target else "missing"
+            assessment = "两侧验收信号一致。" if current_status == target_status else "两侧验收信号存在差异。"
+            evidence_parts = []
+            if current:
+                evidence_parts.append(f"current: {current.get('evidence') or current_status}")
+            if target:
+                evidence_parts.append(f"target: {target.get('evidence') or target_status}")
+            comparison.append(
+                {
+                    "point": point,
+                    "current_status": current_status,
+                    "target_status": target_status,
+                    "assessment": assessment,
+                    "evidence": "; ".join(evidence_parts),
+                }
+            )
+        return comparison
+
+
+    def _basic_artifact_verdict(self, current: dict[str, Any], target: dict[str, Any]) -> str:
+        current_score = self._artifact_iteration_score(current)
+        target_score = self._artifact_iteration_score(target)
+        if current_score > target_score + 1:
+            return "current_better"
+        if target_score > current_score + 1:
+            return "target_better"
+        if current_score == target_score and current["status"] == target["status"]:
+            return "equivalent"
+        return "mixed"
+
+
+    def _artifact_iteration_score(self, metrics: dict[str, Any]) -> int:
+        status = str(metrics["status"])
+        score = 0
+        if status == IterationStatus.delivered.value:
+            score += 6
+        elif status == IterationStatus.awaiting_verify_approval.value:
+            score += 4
+        elif status in {IterationStatus.blocked.value, IterationStatus.blocked_user.value, IterationStatus.failed.value}:
+            score -= 4
+        elif status == IterationStatus.stopped.value:
+            score -= 2
+        score += int(metrics["important_document_count"])
+        score += int(metrics["ui_counts"].get("passed", 0))
+        score -= int(metrics["failed_runs"]) * 2
+        score -= int(metrics["ui_counts"].get("failed", 0)) * 2
+        return score
+
+
+    def _status_assessment(self, current: str, target: str) -> str:
+        if current == target:
+            return "两侧任务状态一致。"
+        if current == IterationStatus.delivered.value:
+            return "当前任务已交付，状态优于目标任务。"
+        if target == IterationStatus.delivered.value:
+            return "目标任务已交付，状态优于当前任务。"
+        return "两侧任务处于不同阶段，需要结合验证产物判断。"
+
+
+    def _run_stability_assessment(self, current: dict[str, Any], target: dict[str, Any]) -> str:
+        if current["failed_runs"] == target["failed_runs"]:
+            return "失败 run 数量相同。"
+        if current["failed_runs"] < target["failed_runs"]:
+            return "当前任务失败 run 更少。"
+        return "目标任务失败 run 更少。"
+
+
+    def _ui_counts_text(self, counts: dict[str, int]) -> str:
+        if not counts:
+            return "none"
+        return ", ".join(f"{key}:{counts[key]}" for key in sorted(counts))
+
+
+    def _document_names_text(self, names: list[str], *, limit: int = 20) -> str:
+        if not names:
+            return "none"
+        shown = names[:limit]
+        suffix = f" (+{len(names) - limit} more)" if len(names) > limit else ""
+        return f"{', '.join(shown)}{suffix}"
+
+
+    def _latest_artifact_comparison_error(self, iteration_id: str, target_iteration_id: str) -> str | None:
+        for event in reversed(self.db.list_events(iteration_id)):
+            if event["type"] != "artifact_comparison.failed":
+                continue
+            try:
+                payload = json.loads(event["payload"])
+            except json.JSONDecodeError:
+                return "产物对比分析失败。"
+            if payload.get("target_iteration_id") != target_iteration_id:
+                continue
+            reason = payload.get("reason")
+            return str(reason) if reason else "产物对比分析失败。"
+        return None
+
+
+    def _artifact_comparison_input(self, iteration_id: str, target_iteration_id: str) -> dict[str, Any]:
+        return {
+            "current": self._artifact_comparison_iteration_input(iteration_id),
+            "target": self._artifact_comparison_iteration_input(target_iteration_id),
+            "baseline_comparison": self._basic_artifact_comparison_artifact(iteration_id, target_iteration_id),
+        }
+
+
+    def _artifact_comparison_iteration_input(self, iteration_id: str) -> dict[str, Any]:
+        row = self._require_iteration(iteration_id)
+        runs = [
+            self._log_summary_run_record(run)
+            for run in self.db.list_runs(iteration_id)
+            if run["node"] not in {"log_summarizer", "artifact_comparator"}
+        ]
+        events = [
+            event
+            for event in self.db.list_events(iteration_id)
+            if event["type"] != "cli.display"
+        ]
+        return {
+            "iteration": {
+                "id": row["id"],
+                "goal": self._truncate_public_text(row["goal"], 2000),
+                "status": row["status"],
+                "current_node": row["current_node"],
+                "last_error": self._truncate_public_text(row["last_error"], 2000) if row["last_error"] else None,
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            },
+            "metrics": self._artifact_comparison_metrics(iteration_id),
+            "runs": runs[-30:],
+            "events": self._public_event_records(events[-40:]),
+            "documents": self._artifact_comparison_document_previews(iteration_id),
+            "ui_results": [result.model_dump() for result in self._ui_results(iteration_id)],
+        }
+
+
+    def _artifact_comparison_document_previews(self, iteration_id: str) -> list[dict[str, Any]]:
+        previews: list[dict[str, Any]] = []
+        for document in self.db.list_documents(iteration_id):
+            if document["name"] not in self._ARTIFACT_COMPARISON_DOCUMENTS:
+                continue
+            path = Path(document["path"])
+            preview = ""
+            if path.is_file():
+                preview = self._truncate_public_text(
+                    path.read_text(encoding="utf-8", errors="replace"),
+                    self._LOG_SUMMARY_DOCUMENT_PREVIEW_MAX_CHARS,
+                )
+            previews.append(
+                {
+                    "name": document["name"],
+                    "checksum": document["checksum"],
+                    "updated_at": document["updated_at"],
+                    "preview": preview,
+                }
+            )
+        return previews
 
 
     def _read_raw_log_page(self, path: Path, *, offset: int, limit: int) -> dict[str, Any]:

@@ -12,6 +12,7 @@ from ...agents.providers import AgentCommand, build_agent_command
 from ...agents.prompt_loader import compose_stage_prompt
 from ...context_profiles import context_metadata_for_stage
 from ...core.contracts import (
+    ArtifactComparisonArtifact,
     CodeTesterArtifact,
     CoderArtifact,
     LogSummaryArtifact,
@@ -507,6 +508,47 @@ class PipelinePromptsMixin:
                 schema_file=self._artifact_schema_file(iteration_id, "log_summarizer_artifact", LogSummaryArtifact),
             )
         return ["specforge", "log_summarizer", iteration_id]
+
+
+    def _artifact_comparator_command(
+        self,
+        state: PipelineState,
+        *,
+        comparison_input: str,
+        target_iteration_id: str,
+    ) -> list[str] | AgentCommand:
+        iteration_id = state["iteration_id"]
+        if self._is_real_cli(state.get("mode")):
+            repo_root = self.project_repo_root(iteration_id)
+            prompt = compose_stage_prompt(
+                "artifact_comparator",
+                repo_root=repo_root,
+                variables={
+                    "schema_hint": (
+                        "{overall_summary:string, verdict:'current_better'|'target_better'|'mixed'|'equivalent'|'inconclusive', "
+                        "stability_assessment:string, "
+                        "dimensions:[{dimension:string,current:string,target:string,assessment:string,evidence:string}], "
+                        "artifact_findings:[{artifact:string,status:string,summary:string,evidence:string}], "
+                        "acceptance_comparison:[{point:string,current_status:string,target_status:string,assessment:string,evidence:string}], "
+                        "risks_or_followups:[string]}"
+                    ),
+                    "iteration_id": iteration_id,
+                    "comparison_input": comparison_input,
+                    "target_iteration_id": target_iteration_id,
+                    "artifact_retry": self._artifact_retry_prompt(state, node=NodeName.artifact_comparator.value),
+                    "runtime_notes": "",
+                },
+            )
+            provider = self._cli_provider(state, "artifact_comparator")
+            return self._agent_command(
+                state,
+                provider=provider,
+                stage="artifact_comparator",
+                prompt=prompt,
+                schema_inline=self._artifact_schema_inline(ArtifactComparisonArtifact),
+                schema_file=self._artifact_schema_file(iteration_id, "artifact_comparator_artifact", ArtifactComparisonArtifact),
+            )
+        return ["specforge", "artifact_comparator", iteration_id, target_iteration_id]
 
 
     @staticmethod

@@ -650,6 +650,97 @@ def test_log_summary_get_generate_and_export_logs_removed():
     assert any(run["node"] == "log_summarizer" for run in detail["runs"])
 
 
+def test_artifact_comparison_get_generate_and_pair_validation():
+    project_id = pipeline.db.create_project(
+        root_path=str(pipeline.db.path.parent / f"artifact-compare-{uuid4().hex[:6]}"),
+        create_if_missing=True,
+        name=f"artifact-compare-{uuid4().hex[:6]}",
+    )
+    current_id = pipeline.db.create_iteration(
+        project_id=project_id,
+        project_name="artifact-compare",
+        goal="compare current",
+        mode="dry-run",
+        test_command=None,
+    )
+    target_id = pipeline.db.create_iteration(
+        project_id=project_id,
+        project_name="artifact-compare",
+        goal="compare target",
+        mode="dry-run",
+        test_command=None,
+    )
+    pipeline.project_root(current_id).mkdir(parents=True, exist_ok=True)
+    pipeline.project_root(target_id).mkdir(parents=True, exist_ok=True)
+    current_docs = IterationDocs(pipeline.docs_root(current_id))
+    target_docs = IterationDocs(pipeline.docs_root(target_id))
+    current_docs.ensure()
+    target_docs.ensure()
+    current_verify = current_docs.write_text("verify_report.md", "# Verify Report\n\n## Summary\n- Pass: 1\n- Fail: 0\n")
+    target_verify = target_docs.write_text("verify_report.md", "# Verify Report\n\n## Summary\n- Pass: 0\n- Fail: 1\n")
+    pipeline._record_document(current_id, "verify_report", current_verify)
+    pipeline._record_document(target_id, "verify_report", target_verify)
+    pipeline.db.add_run(
+        current_id,
+        run_id="run_current",
+        node="code_tester",
+        status="success",
+        command="dry",
+        stdout="ok",
+        stderr="",
+        exit_code=0,
+    )
+    pipeline.db.add_run(
+        target_id,
+        run_id="run_target",
+        node="code_tester",
+        status="failed",
+        command="dry",
+        stdout="failed",
+        stderr="error",
+        exit_code=1,
+    )
+
+    initial_resp = client.get(f"/api/iterations/{current_id}/artifact-comparison?target_id={target_id}")
+    assert initial_resp.status_code == 200
+    initial = initial_resp.json()
+    assert initial["generated"] is False
+    assert initial["current_iteration_id"] == current_id
+    assert initial["target_iteration_id"] == target_id
+    assert any(item["artifact"] == "verify_report" and item["status"] == "different" for item in initial["artifact_findings"])
+
+    same_resp = client.get(f"/api/iterations/{current_id}/artifact-comparison?target_id={current_id}")
+    assert same_resp.status_code == 409
+
+    other_id = create_manual_iteration("artifact-other", mode="dry-run")
+    cross_resp = client.get(f"/api/iterations/{current_id}/artifact-comparison?target_id={other_id}")
+    assert cross_resp.status_code == 409
+
+    queued_resp = client.post(
+        f"/api/iterations/{current_id}/artifact-comparison/generate",
+        json={"target_iteration_id": target_id},
+    )
+    assert queued_resp.status_code == 200
+    duplicate_resp = client.post(
+        f"/api/iterations/{current_id}/artifact-comparison/generate",
+        json={"target_iteration_id": target_id},
+    )
+    assert duplicate_resp.status_code == 200
+    drain_jobs()
+
+    generated_resp = client.get(f"/api/iterations/{current_id}/artifact-comparison?target_id={target_id}")
+    assert generated_resp.status_code == 200
+    generated = generated_resp.json()
+    assert generated["generated"] is True
+    assert generated["generating"] is False
+    assert generated["overall_summary"]
+
+    detail = client.get(f"/api/iterations/{current_id}").json()
+    assert any(doc["name"] == f"artifact_comparison:{target_id}" for doc in detail["documents"])
+    assert any(run["node"] == "artifact_comparator" for run in detail["runs"])
+    assert any(event["type"] == "artifact_comparison.completed" for event in detail["events"])
+
+
 def test_iteration_detail_compacts_large_history_for_live_refresh():
     iteration_id = create_manual_iteration("lean-history")
     pipeline.db.update_iteration(

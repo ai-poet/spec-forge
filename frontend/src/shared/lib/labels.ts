@@ -33,6 +33,7 @@ export const nodeLabel: Record<NodeName, string> = {
   code_tester: '代码验证',
   ui_tester: 'UI 验证',
   log_summarizer: '日志总结',
+  artifact_comparator: '产物对比分析',
   ui_driver: 'UI Driver',
   planner_clarification: '规划澄清',
   planner_verify: '规格复核',
@@ -109,6 +110,10 @@ export function eventLabel(value: string) {
     'log_summary.started': '日志总结已开始',
     'log_summary.completed': '日志总结已生成',
     'log_summary.failed': '日志总结失败',
+    'artifact_comparison.queued': '产物对比分析已排队',
+    'artifact_comparison.started': '产物对比分析已开始',
+    'artifact_comparison.completed': '产物对比分析已生成',
+    'artifact_comparison.failed': '产物对比分析失败',
     'verify.approved': '验证结果已确认',
     'iteration.delivered': '流水线已交付',
     'iteration.stopped': '流水线已停止',
@@ -129,6 +134,7 @@ export function eventLabel(value: string) {
 }
 
 export function documentLabel(value: string) {
+  if (value.startsWith('artifact_comparison:')) return '产物对比分析'
   const labels: Record<string, string> = {
     prd: 'PRD',
     testing_plan: '测试计划',

@@ -23,6 +23,7 @@ export type NodeName =
   | 'code_tester'
   | 'ui_tester'
   | 'log_summarizer'
+  | 'artifact_comparator'
   | 'ui_driver'
   | 'planner_clarification'
   | 'planner_verify'
@@ -76,6 +77,7 @@ export interface CliBindings {
   code_tester: CliBindingProvider
   ui_tester: CliBindingProvider
   log_summarizer: CliBindingProvider
+  artifact_comparator: CliBindingProvider
 }
 
 export const DEFAULT_CLI_BINDINGS: CliBindings = {
@@ -87,6 +89,7 @@ export const DEFAULT_CLI_BINDINGS: CliBindings = {
   code_tester: 'claude',
   ui_tester: 'claude',
   log_summarizer: 'claude',
+  artifact_comparator: 'claude',
 }
 
 export interface ProjectSummary {
@@ -240,6 +243,48 @@ export interface LogSummaryResponse {
   stages: LogSummaryStage[]
   final_summary: string
   acceptance_points: LogSummaryAcceptancePoint[]
+  risks_or_followups: string[]
+}
+
+export type ArtifactComparisonVerdict = 'current_better' | 'target_better' | 'mixed' | 'equivalent' | 'inconclusive'
+
+export interface ArtifactComparisonDimension {
+  dimension: string
+  current: string
+  target: string
+  assessment: string
+  evidence: string
+}
+
+export interface ArtifactComparisonFinding {
+  artifact: string
+  status: string
+  summary: string
+  evidence: string
+}
+
+export interface ArtifactComparisonAcceptancePoint {
+  point: string
+  current_status: string
+  target_status: string
+  assessment: string
+  evidence: string
+}
+
+export interface ArtifactComparisonResponse {
+  generated: boolean
+  generating: boolean
+  generated_at?: string | null
+  updated_at?: string | null
+  error?: string | null
+  current_iteration_id: string
+  target_iteration_id: string
+  overall_summary: string
+  verdict: ArtifactComparisonVerdict | string
+  stability_assessment: string
+  dimensions: ArtifactComparisonDimension[]
+  artifact_findings: ArtifactComparisonFinding[]
+  acceptance_comparison: ArtifactComparisonAcceptancePoint[]
   risks_or_followups: string[]
 }
 

@@ -21,6 +21,7 @@ PROFILE_STAGES: tuple[CliStage, ...] = (
     "code_tester",
     "ui_tester",
     "log_summarizer",
+    "artifact_comparator",
 )
 
 STAGE_LABELS: dict[str, str] = {
@@ -33,6 +34,7 @@ STAGE_LABELS: dict[str, str] = {
     "integrity_check": "测试完整性",
     "ui_tester": "UI 验证",
     "log_summarizer": "日志总结",
+    "artifact_comparator": "产物对比分析",
     "planner_verify": "规格复核",
     "verify_approval": "交付确认",
     "done": "交付完成",
@@ -48,6 +50,7 @@ DEFAULT_SESSION_POLICY: dict[str, str] = {
     "integrity_check": "system check",
     "ui_tester": "new session; self-retry continue best-effort",
     "log_summarizer": "on-demand summary session",
+    "artifact_comparator": "on-demand comparison session",
     "planner_verify": "system review",
     "verify_approval": "human approval",
     "done": "archive",
@@ -445,6 +448,8 @@ def _hot_doc_names_for_node(node: str) -> list[str]:
         return ["prd", "testing_plan"]
     if node in {"code_tester", "ui_tester", "planner_verify"}:
         return ["prd", "testing_plan", "verify_report", "ui_report"]
+    if node == "artifact_comparator":
+        return ["prd", "testing_plan", "verify_report", "delivery_advice", "ui_report", "ui_results", "log_summary"]
     return ["prd", "testing_plan", "verify_report", "delivery_advice"]
 
 

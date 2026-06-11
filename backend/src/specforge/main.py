@@ -36,6 +36,8 @@ from specforge.core.models import (
     ProjectProfileRequest,
     ProjectSummary,
     RetryRequest,
+    ArtifactComparisonGenerateRequest,
+    ArtifactComparisonResponse,
     LogSummaryResponse,
     WorkflowSnapshot,
     ContextPackage,
@@ -665,6 +667,39 @@ def generate_log_summary(iteration_id: str) -> LogSummaryResponse:
     pipeline._add_event(iteration_id, event_type="log_summary.queued", payload={})
     job_queue.enqueue_log_summary(iteration_id)
     return LogSummaryResponse(**pipeline.log_summary(iteration_id))
+
+
+@app.get("/api/iterations/{iteration_id}/artifact-comparison", response_model=ArtifactComparisonResponse)
+def get_artifact_comparison(
+    iteration_id: str,
+    target_id: str = Query(..., min_length=1),
+) -> ArtifactComparisonResponse:
+    try:
+        return ArtifactComparisonResponse(**pipeline.artifact_comparison(iteration_id, target_id))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="iteration not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/iterations/{iteration_id}/artifact-comparison/generate", response_model=ArtifactComparisonResponse)
+def generate_artifact_comparison(
+    iteration_id: str,
+    payload: ArtifactComparisonGenerateRequest,
+) -> ArtifactComparisonResponse:
+    try:
+        pipeline.artifact_comparison(iteration_id, payload.target_iteration_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="iteration not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    pipeline._add_event(
+        iteration_id,
+        event_type="artifact_comparison.queued",
+        payload={"target_iteration_id": payload.target_iteration_id},
+    )
+    job_queue.enqueue_artifact_comparison(iteration_id, payload.target_iteration_id)
+    return ArtifactComparisonResponse(**pipeline.artifact_comparison(iteration_id, payload.target_iteration_id))
 
 
 @app.get("/api/iterations/{iteration_id}/runs/{run_id}/logs")
